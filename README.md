@@ -1,6 +1,6 @@
 # python-template
 
-Python 项目开发模版
+Python 项目开发模板，fork自其他仓库
 
 # 使用说明
 
@@ -10,6 +10,6 @@ Python 项目开发模版
 4. 执行 `pre-commit` 初始化本地 Linter
 5. 项目 Python 设定为 Python 3.12
 6. commit message 遵循 [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/) 规范
-7. 修改完代码后，经过 `pre-commit` 检查，提交 pr，并指定 @anine09 为 reviewer
+7. 修改完代码后，经过 `pre-commit` 检查，提交 pr
 
 **注意：无法通过 CI 检查的代码，将会被打回修改！**
