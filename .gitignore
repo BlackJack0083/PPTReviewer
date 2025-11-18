@@ -174,3 +174,5 @@ cython_debug/
 .pypirc
 
 output/
+office_ppt_ser.py
+test/
