@@ -10,6 +10,7 @@ dependencies = [
     "pptx-ea-font>=0.0.4",
     "loguru>=0.7.3",
     "pydantic>=2.12.4",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]

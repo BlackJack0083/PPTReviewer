@@ -1,3 +1,4 @@
+# ppt_schemas.py
 from enum import StrEnum
 
 from pptx.dml.color import RGBColor
@@ -22,6 +23,8 @@ class Align(StrEnum):
 
 
 class Color(StrEnum):
+    """统一颜色枚举，包含常用颜色定义"""
+
     BLACK = "黑色"
     WHITE = "白色"
     RED = "红色"
@@ -29,20 +32,26 @@ class Color(StrEnum):
     BLUE = "蓝色"
     YELLOW = "黄色"
     GRAY = "灰色"
+    LIGHT_BLUE = "浅蓝"
+    DARK_BLUE = "深蓝"
+    ORANGE = "橙色"
 
     @property
     def rgb(self) -> RGBColor:
-        """转换为 RGBColor 对象"""
         mapping = {
             self.BLACK: RGBColor(0, 0, 0),
             self.WHITE: RGBColor(255, 255, 255),
-            self.RED: RGBColor(255, 0, 0),
-            self.GREEN: RGBColor(0, 128, 0),  # 使用深绿色
+            self.RED: RGBColor(192, 0, 0),
+            self.GREEN: RGBColor(0, 176, 80),
             self.BLUE: RGBColor(0, 0, 255),
             self.YELLOW: RGBColor(255, 255, 0),
             self.GRAY: RGBColor(128, 128, 128),
+            self.LIGHT_BLUE: RGBColor(212, 228, 255),
+            self.DARK_BLUE: RGBColor(0, 30, 80),
+            self.ORANGE: RGBColor(255, 192, 0),
         }
-        return mapping[self]
+        # 默认返回黑色防止KeyError
+        return mapping.get(self, RGBColor(0, 0, 0))
 
 
 class LayoutModel(BaseModel):
@@ -59,7 +68,7 @@ class LayoutModel(BaseModel):
     left: float = Field(..., description="左边距 (cm)")
     top: float = Field(..., description="上边距 (cm)")
     width: float = Field(..., description="宽度 (cm)")
-    height: float | None = Field(..., description="高度 (cm)")
+    height: float | None = Field(None, description="高度 (cm)")
     alignment: Align | None = Field(Align.LEFT, description="对齐方式")  # 文本对齐方式
 
 
@@ -95,7 +104,7 @@ class ChartConfigModel(BaseModel):
         value_axis_max (float | None): Y轴最大刻度
     """
 
-    style_name: str = Field("", description="配色风格名，如 2_orange_green")
+    style_name: str = Field("", description="配色风格名")
     font_size: int = Field(10, description="图表字体大小")
     has_legend: bool = Field(True, description="是否显示图例")
     has_data_labels: bool = Field(True, description="是否显示数值标签")
@@ -108,12 +117,14 @@ class RectangleStyleModel(BaseModel):
 
     Args:
         fore_color (str): 填充色
+        line_color (str): 边框色
         line_width (float): 边框宽度
         rotation (float): 旋转角度
         is_background (bool): 是否作为背景
     """
 
-    fore_color: str = Field("gray", description="填充色")
+    fore_color: Color = Field(Color.GRAY, description="填充色")  # 引用 Color 枚举
+    line_color: Color = Field(Color.GRAY, description="边框色")
     line_width: float = Field(0, description="边框宽度")
     rotation: float = Field(0, description="旋转角度")
     is_background: bool = Field(False, description="是否作为背景")
