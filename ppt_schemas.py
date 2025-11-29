@@ -92,24 +92,48 @@ class TextContentModel(BaseModel):
     word_wrap: bool = Field(True, description="是否自动换行")
 
 
-class ChartConfigModel(BaseModel):
-    """图表配置模型
-
-    Args:
-        style_name (str): 配色风格名，如 2_orange_green
-        font_size (int): 图表字体大小
-        has_legend (bool): 是否显示图例
-        has_data_labels (bool): 是否显示数值标签
-        y_axis_visible (bool): Y轴是否可见
-        value_axis_max (float | None): Y轴最大刻度
-    """
+class BaseChartConfig(BaseModel):
+    """Level 1: 所有图表的绝对基类 (仅包含通用的视觉元素)"""
 
     style_name: str = Field("", description="配色风格名")
+    font_name: str = Field("Arial", description="图表字体")
     font_size: int = Field(10, description="图表字体大小")
     has_legend: bool = Field(True, description="是否显示图例")
     has_data_labels: bool = Field(True, description="是否显示数值标签")
+    title: str | None = Field(None, description="图表标题，None则不显示")
+
+
+class AxisChartConfig(BaseChartConfig):
+    """Level 2: 带有坐标轴的图表基类 (柱状图, 折线图, 散点图, 面积图)"""
+
     y_axis_visible: bool = Field(True, description="Y轴是否可见")
     value_axis_max: float | None = Field(None, description="Y轴最大刻度")
+    x_axis_visible: bool = Field(True, description="X轴是否可见")
+    value_axis_format: str | None = Field(None, description="数值轴格式")
+
+
+class BarChartConfig(AxisChartConfig):
+    """Level 3: 柱状图专用配置"""
+
+    gap_width: int = Field(150, description="柱间隙宽度 (0-500)")
+    overlap: int = Field(0, description="重叠比例 (-100 到 100)")
+    grouping: str = Field("clustered", description="clustered(簇状) or stacked(堆积)")
+
+
+class LineChartConfig(AxisChartConfig):
+    """Level 3: 折线图专用配置"""
+
+    has_markers: bool = Field(True, description="折线图: 是否显示数据标记点")
+    smooth_line: bool = Field(False, description="折线图: 是否使用平滑曲线")
+    line_width: float = Field(2.25, description="线宽")
+
+
+class PieChartConfig(BaseChartConfig):
+    """Level 3: 饼图专用配置 (直接继承 Base，没有坐标轴)"""
+
+    # 饼图特有属性示例
+    first_slice_angle: int = Field(0, description="第一扇区起始角度 (0-360)")
+    hole_size: int = Field(0, description="圆环图孔径大小 (0-90), 0为实心饼图")
 
 
 class RectangleStyleModel(BaseModel):

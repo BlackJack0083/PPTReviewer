@@ -16,13 +16,15 @@ from pptx.util import Cm, Pt
 
 # 引入 Pydantic 模型
 from ppt_schemas import (
-    ChartConfigModel,
+    BarChartConfig,
+    BaseChartConfig,
     LayoutModel,
+    LineChartConfig,
     RectangleStyleModel,
     TextContentModel,
 )
 
-CHART_COLORS_THEME = {
+CHART_THEMES = {
     "2_orange_green": [RGBColor(255, 192, 0), RGBColor(0, 176, 80)],
     "2_green_orange": [RGBColor(0, 176, 80), RGBColor(255, 192, 0)],
     "2_orange_olive": [RGBColor(255, 192, 0), RGBColor(0, 176, 180)],
@@ -135,14 +137,11 @@ class PPTOperations:
 
         logger.info(f"PPT 已调整为 {len(self.presentation.slides)} 页")
 
-    def add_title(
-        self,
-        page_num: int,
-        content: TextContentModel,
-        layout: LayoutModel,
+    def add_text_box(
+        self, page_num: int, content: TextContentModel, layout: LayoutModel
     ) -> None:
         """
-        添加标题文本框
+        通用文本框添加方法
 
         Args:
             page_num (int): 幻灯片页码（从1开始）
@@ -150,64 +149,23 @@ class PPTOperations:
             layout (LayoutModel): 布局配置
         """
         slide = self._get_slide(page_num)
-
-        # 1. 使用 layout 对象的数据
-        text_box = slide.shapes.add_textbox(
-            Cm(layout.left), Cm(layout.top), Cm(layout.width), Cm(layout.height)
+        shape = slide.shapes.add_textbox(
+            Cm(layout.left), Cm(layout.top), Cm(layout.width), Cm(layout.height or 1.0)
         )
-        text_frame = text_box.text_frame
-        text_frame.text = content.text  # 直接访问属性
+        tf = shape.text_frame
+        tf.word_wrap = content.word_wrap
+        tf.text = content.text
 
-        text_frame.word_wrap = content.word_wrap
-
-        # 2. 设置样式
-        for paragraph in text_frame.paragraphs:
-            paragraph.alignment = layout.alignment.pptx_val
-
-            for run in paragraph.runs:
+        # 样式应用
+        for p in tf.paragraphs:
+            p.alignment = layout.alignment.pptx_val
+            for run in p.runs:
                 run.font.size = Pt(content.font_size)
                 run.font.bold = content.font_bold
-                run.font.color.rgb = content.font_color.rgb  # 使用 Enum 属性
+                run.font.color.rgb = content.font_color.rgb
                 pptx_ea_font.set_font(run, content.font_name)
 
-        logger.info(f"Page {page_num}: 添加标题 '{content.text[:10]}...'")
-
-    def add_content(
-        self,
-        page_num: int,
-        content: TextContentModel,
-        layout: LayoutModel,
-    ) -> None:
-        """
-        添加内容文本框
-
-        Args:
-            page_num (int): 幻灯片页码（从1开始）
-            content (TextContentModel): 文本内容配置
-            layout (LayoutModel): 布局配置
-        """
-        slide = self._get_slide(page_num)
-
-        # 1. 使用 layout 对象的数据
-        text_box = slide.shapes.add_textbox(
-            Cm(layout.left), Cm(layout.top), Cm(layout.width), Cm(layout.height)
-        )
-        text_frame = text_box.text_frame
-        text_frame.text = content.text  # 直接访问属性
-
-        text_frame.word_wrap = content.word_wrap
-
-        # 2. 设置样式
-        for paragraph in text_frame.paragraphs:
-            paragraph.alignment = layout.alignment.pptx_val
-
-            for run in paragraph.runs:
-                run.font.size = Pt(content.font_size)
-                run.font.bold = content.font_bold
-                run.font.color.rgb = content.font_color.rgb  # 使用 Enum 属性
-                pptx_ea_font.set_font(run, content.font_name)
-
-        logger.info(f"Page {page_num}: 添加内容 '{content.text[:10]}...'")
+        logger.info(f"Page {page_num}: 添加文本 '{content.text[:50]}...'")
 
     def add_table(
         self,
@@ -215,7 +173,7 @@ class PPTOperations:
         layout: LayoutModel,
         data: pd.DataFrame,
         font_name: str = "方正兰亭黑_GBK",
-        font_size: int = 10,
+        font_size: int = 6,
     ) -> None:
         """
         添加表格
@@ -297,6 +255,12 @@ class PPTOperations:
         shape.line.color.rgb = style.line_color.rgb
         shape.line.width = Pt(style.line_width)
 
+        if style.line_width > 0:
+            shape.line.color.rgb = style.line_color.rgb
+            shape.line.width = Pt(style.line_width)
+        else:
+            shape.line.fill.background()
+
         if style.is_background:
             shape.fill.background()
 
@@ -324,76 +288,32 @@ class PPTOperations:
         )
         logger.info(f"Page {page_num}: 添加图片 {os.path.basename(img_path)}")
 
-    def add_chart(
-        self,
-        page_num: int,
-        df: pd.DataFrame,
-        layout: LayoutModel,
-        config: ChartConfigModel,
-    ) -> None:
+    def _prepare_chart_data(self, df: pd.DataFrame) -> ChartData:
         """
-        添加柱状图
-
-        Args:
-            df (pd.DataFrame):
-                - Index (索引) -> 变为图例 (系列)
-                - Columns (列名) -> 变为 X 轴标签 (类别)
-            layout (LayoutModel): Pydantic 布局模型
-            config (ChartConfigModel): Pydantic 图表配置模型
+        内部工具：将 DataFrame 转换为 ChartData
+        约定:
+        DataFrame Index -> Series Names (图例)
+        DataFrame Columns -> Categories (X轴)
         """
-        slide = self._get_slide(page_num)
-
-        # 1. 准备数据
         chart_data = ChartData()
-        chart_data.categories = df.columns  # 列名作为 X 轴
+        chart_data.categories = df.columns
         for i in range(len(df)):
-            # 处理可能存在的 NaN
             series_data = df.iloc[i].fillna(0)
             chart_data.add_series(str(df.index[i]), series_data)
+        return chart_data
 
-        # 2. 添加图表 (使用 Pydantic layout 对象属性)
-        x, y, w, h = (
-            Cm(layout.left),
-            Cm(layout.top),
-            Cm(layout.width),
-            Cm(layout.height),
-        )
+    def _apply_chart_formatting(self, chart, config: BaseChartConfig) -> None:
+        """
+        应用通用图表格式
 
-        graphic_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.COLUMN_CLUSTERED, x, y, w, h, chart_data
-        )
-        chart = graphic_frame.chart
-
-        # 3. 设置颜色
-        if config.style_name in CHART_COLORS_THEME:
-            colors = CHART_COLORS_THEME[config.style_name]
-            for idx, series in enumerate(chart.series):
-                if idx < len(colors):
-                    series.format.fill.solid()
-                    series.format.fill.fore_color.rgb = colors[idx]
-
-        # 字体统一设置 helper
-        def _set_axis_font(axis):
-            axis.tick_labels.font.size = Pt(config.font_size)
-            # axis.tick_labels.font.name = "Arial" # 图表字体通常用英文字体
-
-        # 4. 基础样式设置
-        chart.has_title = False
-        _set_axis_font(chart.category_axis)
-
-        val_axis = chart.value_axis
-        val_axis.visible = config.y_axis_visible
-        if config.value_axis_max is not None:
-            val_axis.maximum_scale = config.value_axis_max
-        _set_axis_font(val_axis)
-
-        # 数据标签
-        if config.has_data_labels:
-            plot = chart.plots[0]
-            plot.has_data_labels = True
-            data_labels = plot.data_labels
-            data_labels.font.size = Pt(config.font_size)
-            data_labels.position = XL_DATA_LABEL_POSITION.CENTER
+        Args:
+            chart: 图表对象
+            config(BaseChartConfig): 图表配置对象
+        """
+        # 字体
+        if hasattr(chart, "font"):
+            chart.font.name = config.font_name
+            chart.font.size = Pt(config.font_size)
 
         # 图例
         chart.has_legend = config.has_legend
@@ -402,4 +322,160 @@ class PPTOperations:
             chart.legend.include_in_layout = False
             chart.legend.font.size = Pt(config.font_size)
 
-        logger.info(f"Page {page_num}: 添加图表")
+        # 标题
+        chart.has_title = bool(config.title)
+        if chart.has_title:
+            chart.chart_title.text_frame.text = config.title
+
+        # 配色
+        if config.style_name in CHART_THEMES:
+            colors = CHART_THEMES[config.style_name]
+            for i, series in enumerate(chart.series):
+                if i < len(colors):
+                    # 针对柱状图/折线图通用的填充设置
+                    if hasattr(series.format.fill, "solid"):
+                        series.format.fill.solid()
+                        series.format.fill.fore_color.rgb = colors[i]
+                    # 针对折线图的线条设置
+                    if hasattr(series.format.line, "color"):
+                        series.format.line.color.rgb = colors[i]
+
+    def add_bar_chart(
+        self,
+        page_num: int,
+        df: pd.DataFrame,
+        layout: LayoutModel,
+        config: BarChartConfig,
+    ) -> None:
+        """
+        添加柱状图
+
+        Args:
+            page_num (int): 幻灯片页码（从1开始）
+            df (pd.DataFrame):
+                - Index (索引) -> 变为图例 (系列)
+                - Columns (列名) -> 变为 X 轴标签 (类别)
+            layout (LayoutModel): Pydantic 布局模型
+            config (BarChartConfig): Pydantic 图表配置模型
+        """
+        slide = self._get_slide(page_num)
+        chart_data = self._prepare_chart_data(df)
+
+        chart_type = XL_CHART_TYPE.COLUMN_CLUSTERED
+        if config.grouping == "stacked":
+            chart_type = XL_CHART_TYPE.COLUMN_STACKED
+
+        graphic_frame = slide.shapes.add_chart(
+            chart_type,
+            Cm(layout.left),
+            Cm(layout.top),
+            Cm(layout.width),
+            Cm(layout.height),
+            chart_data,
+        )
+        chart = graphic_frame.chart
+
+        self._apply_chart_formatting(chart, config)
+
+        # 柱状图特有设置
+        if len(chart.plots) > 0:
+            chart.plots[0].gap_width = config.gap_width
+            chart.plots[0].overlap = config.overlap
+            if config.has_data_labels:
+                chart.plots[0].has_data_labels = True
+                data_label = chart.plots[0].data_labels
+                data_label.font.size = Pt(config.font_size - 1)
+                data_label.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+
+        # 坐标轴
+        try:
+            val_axis = chart.value_axis
+            val_axis.visible = config.y_axis_visible
+            val_axis.tick_labels.font.size = Pt(config.font_size)
+            if config.value_axis_max:
+                val_axis.maximum_scale = config.value_axis_max
+
+            cat_axis = chart.category_axis
+            cat_axis.visible = config.x_axis_visible
+            cat_axis.tick_labels.font.size = Pt(config.font_size)
+        except Exception as e:
+            logger.warning(f"设置图表坐标轴时发生异常: {e}")
+
+        logger.debug(f"Page {page_num}: 添加柱状图")
+
+    def add_line_chart(
+        self,
+        page_num: int,
+        df: pd.DataFrame,
+        layout: LayoutModel,
+        config: LineChartConfig,
+    ) -> None:
+        """
+        添加折线图
+
+        Args:
+            page_num (int): 幻灯片页码（从1开始）
+            df (pd.DataFrame):
+                - Index (索引) -> 变为图例 (系列)
+                - Columns (列名) -> 变为 X 轴标签 (类别)
+            layout (LayoutModel): Pydantic 布局模型
+            config (LineChartConfig): Pydantic 图表配置模型
+        """
+        slide = self._get_slide(page_num)
+        chart_data = self._prepare_chart_data(df)
+
+        chart_type = (
+            XL_CHART_TYPE.LINE_MARKERS if config.has_markers else XL_CHART_TYPE.LINE
+        )
+        graphic_frame = slide.shapes.add_chart(
+            chart_type,
+            Cm(layout.left),
+            Cm(layout.top),
+            Cm(layout.width),
+            Cm(layout.height),
+            chart_data,
+        )
+        chart = graphic_frame.chart
+
+        self._apply_chart_formatting(chart, config)
+
+        if len(chart.plots) > 0:
+            if config.has_data_labels:
+                plot = chart.plots[0]
+                plot.has_data_labels = True
+                data_labels = plot.data_labels
+                data_labels.font.size = Pt(config.font_size)
+                data_labels.position = XL_DATA_LABEL_POSITION.ABOVE
+            # 平滑曲线设置
+            for series in chart.series:
+                series.smooth = config.smooth_line
+                series.format.line.width = Pt(config.line_width)
+
+    # def add_pie_chart(self, page_num: int, df: pd.DataFrame, layout: LayoutModel, config: PieChartConfig) -> None:
+    #     """添加饼图/圆环图"""
+    #     slide = self._get_slide(page_num)
+    #     chart_data = self._prepare_chart_data(df)
+
+    #     # 根据是否为空心选择图表类型
+    #     chart_type = XL_CHART_TYPE.DOUGHNUT if config.hole_size > 0 else XL_CHART_TYPE.PIE
+
+    #     graphic_frame = slide.shapes.add_chart(
+    #         chart_type,
+    #         Cm(layout.left), Cm(layout.top), Cm(layout.width), Cm(layout.height),
+    #         chart_data
+    #     )
+    #     chart = graphic_frame.chart
+
+    #     # 饼图没有坐标轴，Config 是 PieChartConfig (继承自 BaseChartConfig)，
+    #     # 所以 _apply_chart_common_style 会自动跳过坐标轴设置逻辑。
+    #     self._apply_chart_common_style(chart, config)
+
+    #     if config.has_data_labels:
+    #         plot = chart.plots[0]
+    #         plot.has_data_labels = True
+    #         data_labels = plot.data_labels
+    #         data_labels.font.size = Pt(config.font_size)
+    #         # 饼图标签通常用 BEST_FIT
+    #         # data_labels.position = XL_DATA_LABEL_POSITION.BEST_FIT
+
+    #     logger.info(f"Page {page_num}: 添加饼图/圆环图")

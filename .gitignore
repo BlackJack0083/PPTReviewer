@@ -176,3 +176,5 @@ cython_debug/
 output/
 office_ppt_ser.py
 test/
+data/
+test_ppt_generation.py
