@@ -1,0 +1,10 @@
+- uid: "T01_Supply_Trans_Bar"
+  # 关联文案 (指向 text_patterns.yaml)
+  theme_key: "Block Area Segment Distribution"
+  function_key: "Supply-Transaction Unit Statistic"
+  # 核心解耦：在这里选择版式！
+  layout_type: "single_column_bar"
+  summary_item: 1
+  # 数据映射
+  data_keys:
+    chart_main: "supply_trans_data"

@@ -1,0 +1,171 @@
+# ==============================================================================
+# Theme: Block Area Segment Distribution
+# ==============================================================================
+"Block Area Segment Distribution":
+  "Supply-Transaction Unit Statistic":
+    title: >-
+      **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}**  Supply and Transaction Unit Statistics in  **{{ Geo_City_Name }}** 's  **{{ Geo_Block_Name }}**
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s core supply-demand area was **{{ Seg_SupplyDemand_Core_Area }}** m², with the upgrade-oriented segment centered on **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+      - >-
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** m² and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+      - >-
+        The **{{ Geo_Block_Name }}** sector exhibited a dual-tier segmentation from **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**: a primary volume cluster at **{{ Seg_SupplyDemand_Core_Area }}** m² and a secondary upgrade cluster at **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+
+# ==============================================================================
+# Theme: New-House Cross-Structure Analysis
+# ==============================================================================
+"New-House Cross-Structure Analysis":
+
+  "Area x Price Cross Pivot":
+    title: >-
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Area and Total Price Cross Statistics
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** units...
+      - >-
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in  **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** m² and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+      - >-
+        The  **{{ Geo_Block_Name }}**  sector exhibited a dual-tier segmentation from  **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}** : a primary volume cluster at  **{{ Seg_SupplyDemand_Core_Area }}**  m² and a secondary upgrade cluster at  **{{ Seg_SupplyDemand_Upgrade_Area }}**  m².
+
+  "Area Segment Distribution":
+    title: >-
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Area Segment Distribution Statistics
+    summaries:
+      - >-
+        Mainstream types concentrate in **{{ Seg_Area_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        A volume of **{{ Metric_Volume_Dominant_Cluster }}** units indicates that the **{{ Seg_Area_Stratum_Dominant }}** range represents the dominant area concentration.
+      - >-
+        The **{{ Seg_Area_Stratum_Dominant }}** typology emerged as the mainstream segment, amassing a total of **{{ Metric_Volume_Dominant_Cluster }}** units.
+
+  "Price Segment Distribution":
+    title: >-
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Price Segment Distribution Statistics
+    summaries:
+      - >-
+        Mainstream types concentrate in **{{ Seg_Price_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        The **{{ Seg_Price_Stratum_Dominant }}** price bracket captured the majority of interest, accumulating **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        With **{{ Metric_Volume_Dominant_Cluster }}** units, the **{{ Seg_Price_Stratum_Dominant }}** segment constitutes the primary price concentration for the sector.
+
+# ==============================================================================
+# Theme: Resale-House Cross-Structure Analysis
+# ==============================================================================
+"Resale-House Cross-Structure Analysis":
+  "Area Segment Distribution":
+    title: >-
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Area Segment Distribution Statistics
+    summaries:
+      - >-
+        Mainstream types concentrate in the **{{ Seg_Area_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        The resale inventory is heavily weighted in the **{{ Seg_Area_Stratum_Dominant }}** range, which accounts for **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        Accounting for **{{ Metric_Volume_Dominant_Cluster }}** units, the **{{ Seg_Area_Stratum_Dominant }}** category stands out as the primary resale typology.
+
+  "Price Segment Distribution":
+    title: >-
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Price Segment Distribution Statistics
+    summaries:
+      - >-
+        Mainstream types concentrate in the **{{ Seg_Price_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        The **{{ Seg_Price_Stratum_Dominant }}** price tier represents the core resale market, comprising **{{ Metric_Volume_Dominant_Cluster }}** units.
+      - >-
+        A total of **{{ Metric_Volume_Dominant_Cluster }}** resale units clustered within the **{{ Seg_Price_Stratum_Dominant }}** price band.
+
+# ==============================================================================
+# Theme: New-House Market Capacity Analysis
+# ==============================================================================
+"New-House Market Capacity Analysis":
+  "Historical Capacity Summary":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Historical Capacity Summary Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s traded area **{{ Trend_Trajectory_Type }}** **{{ Metric_Var_Trans_Pct }}**% from **{{ Metric_Val_Area_Base }}** m² to **{{ Metric_Val_Area_Terminal }}** m², and the average valuation also **{{ Trend_Trajectory_Type }}** **{{ Metric_Var_Price_Delta }}** from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+      - >-
+        Over the **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** period, the sector saw traded area **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% (moving from **{{ Metric_Val_Area_Base }}** to **{{ Metric_Val_Area_Terminal }}** m²), while valuations **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Price_Delta }}** yuan/m².
+      - >-
+        Starting at **{{ Metric_Val_Area_Base }}** m² and **{{ Metric_Val_Price_Base }}** yuan/m², the market **{{ Trend_Trajectory_Type }}** to **{{ Metric_Val_Area_Terminal }}** m² and **{{ Metric_Val_Price_Terminal }}** yuan/m² respectively, marking a volume shift of **{{ Metric_Var_Trans_Pct }}**% and a price shift of **{{ Metric_Var_Price_Delta }}**.
+
+  "Annual Supply-Demand Comparison":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Annual Supply-Demand Comparison Analysis (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in this sector **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Supply_Base }}** units to **{{ Metric_Vol_Supply_Terminal }}** units (a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Supply_Pct }}**%), and transaction volume **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units (a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Pct }}**%).
+      - >-
+        While listings **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Supply_Pct }}**% (reaching **{{ Metric_Vol_Supply_Terminal }}** units), transactions simultaneously **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% (ending at **{{ Metric_Vol_Trans_Terminal }}** units) between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+      - >-
+        Comparing **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, supply **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Supply_Terminal }}** ({{ Metric_Var_Supply_Pct }}% **{{ Trend_Direction_Label }}**), and demand **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Trans_Terminal }}** ({{ Metric_Var_Trans_Pct }}% **{{ Trend_Direction_Label }}**).
+
+  "Supply-Transaction Area":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** : Historical Supply and Transaction Area Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, inventory in this region **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Supply_Pct }}**%, while the transaction area **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**%.
+      - >-
+        Area-wise inventory **{{ Trend_Trajectory_Type }}** at a **{{ Metric_Var_Supply_Pct }}**% rate, contrasting with the transaction area which **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% through **{{ Temporal_End_Year }}**.
+      - >-
+        The region experienced a **{{ Metric_Var_Supply_Pct }}**% **{{ Trend_Trajectory_Type }}** in supply area and a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Trajectory_Type }}** in sold area between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+
+# ==============================================================================
+# Theme: Resale-House Capacity & Structure
+# ==============================================================================
+"Resale-House Capacity & Structure":
+  "Historical Delivery Metrics":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: Overview of Historical Delivery Metrics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the number of resale transactions in this area **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, with a cumulative **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units, representing a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Pct }}**%.
+      - >-
+        Resale volumes moved from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** units (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**), marking a **{{ Metric_Var_Trans_Delta }}**-unit **{{ Trend_Direction_Label }}** or a **{{ Metric_Var_Trans_Pct }}**% change.
+      - >-
+        The market observed a **{{ Trend_Trajectory_Type }}** in resales to **{{ Metric_Vol_Trans_Terminal }}** units, a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Direction_Label }}** relative to the **{{ Metric_Vol_Trans_Base }}**-unit baseline in **{{ Temporal_Start_Year }}**.
+
+  "Annual Delivery Unit Count":
+    title: >-
+      Historical Delivery Unit Count Statistics for **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+      - >-
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the number of resale house transactions in this area **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, with a cumulative **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units.
+      - >-
+        A net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units was recorded as resale volume **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+      - >-
+        The trend **{{ Trend_Trajectory_Type }}** brought resale figures to **{{ Metric_Vol_Trans_Terminal }}** by **{{ Temporal_End_Year }}**, a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** from the start of the period.
+
+  "Annual Average Price Trend":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** Annual Average Price Trend Analysis
+
+    summaries:
+      - >-
+        Resale average prices trended **{{ Trend_Secular_Direction }}** from **{{ Metric_Val_Price_Base }}** yuan/m² in **{{ Temporal_Start_Year }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² in **{{ Temporal_End_Year }}** (**{{ Trend_Market_Absorption_State }}**).
+      - >-
+        The market valuation followed a **{{ Trend_Secular_Direction }}** path, adjusting from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² amid **{{ Trend_Market_Absorption_State }}** conditions.
+      - >-
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, prices **{{ Trend_Secular_Direction }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² from a base of **{{ Metric_Val_Price_Base }}**, characterizing a **{{ Trend_Market_Absorption_State }}** market.
+
+# ==============================================================================
+# Theme: Neighborhood Price Trend
+# ==============================================================================
+"Neighborhood Price Trend":
+  "Monthly Average Price Trend":
+    title: >-
+      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Monthly Average Price Trend Analysis, Jan-Jun **{{ Temporal_Start_Year }}**
+
+    summaries:
+      - >-
+        During **{{ Temporal_Month_Specific }}**, the average transaction price of apartments in this community went from **{{ Metric_Val_Price_Base }}** yuan/m² **{{ Trend_Secular_Direction }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m², with a cumulative **{{ Trend_Secular_Direction }}** of **{{ Metric_Var_Price_Delta }}** yuan/m².
+      - >-
+        For **{{ Temporal_Month_Specific }}**, prices **{{ Trend_Secular_Direction }}** by **{{ Metric_Var_Price_Delta }}** yuan/m², shifting the average from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+      - >-
+        A net **{{ Trend_Secular_Direction }}** of **{{ Metric_Var_Price_Delta }}** yuan/m² was observed in **{{ Temporal_Month_Specific }}**, as prices moved to **{{ Metric_Val_Price_Terminal }}** yuan/m² from **{{ Metric_Val_Price_Base }}**.

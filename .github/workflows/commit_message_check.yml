@@ -47,7 +47,7 @@ jobs:
         run: |
           BRANCH_NAME="${{ github.event.pull_request.head.ref }}"
           PATTERN="^(feature|feat|fix|bugfix|hotfix|release|chore|docs)/.+"
-          
+
           if [[ ! $BRANCH_NAME =~ $PATTERN ]]; then
             echo "❌ Error: Branch name '$BRANCH_NAME' does not follow the standard."
             echo "Allowed types: feature/, fix/, hotfix/, release/, chore/, docs/ ..."
