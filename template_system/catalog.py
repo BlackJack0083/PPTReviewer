@@ -64,3 +64,6 @@ def load_templates(config_path: str = "resources/templates/template_definitions.
 
 def get_template_by_id(template_id: str) -> TemplateMeta | None:
     return TEMPLATE_CATALOG.get(template_id)
+
+
+load_templates()

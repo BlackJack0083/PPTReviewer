@@ -13,6 +13,85 @@ from core.ppt_schemas import (
     RectangleStyleModel,
     TextContentModel,
 )
+from template_system.catalog import LayoutType
+
+
+class StyleConfigManager:
+    """样式配置管理器"""
+
+    @staticmethod
+    def get_bar_chart_config(layout_type: LayoutType) -> BarChartConfig:
+        """根据版式类型返回对应的柱状图配置"""
+        # 默认基础配置
+        base_config = {
+            "font_name": "Arial",
+            "has_legend": True,
+            "has_data_labels": True,
+            "title": None,
+            "grouping": "clustered",
+            "overlap": 0,
+        }
+
+        if layout_type == LayoutType.SINGLE_COLUMN_BAR:
+            return BarChartConfig(
+                style_name="supply_trade",
+                font_size=11,
+                y_axis_visible=False,
+                gap_width=150,
+                **base_config,
+            )
+        elif layout_type == LayoutType.DOUBLE_COLUMN_BAR:
+            return BarChartConfig(
+                style_name="business_blue",
+                font_size=12,
+                y_axis_visible=False,
+                gap_width=100,
+                **base_config,
+            )
+        # 默认回退配置
+        return BarChartConfig(
+            style_name="default",
+            font_size=11,
+            y_axis_visible=True,
+            gap_width=150,
+            **base_config,
+        )
+
+    @staticmethod
+    def get_line_chart_config(layout_type: LayoutType) -> LineChartConfig:
+        """根据版式类型返回对应的折线图配置"""
+        base_config = {
+            "font_name": "Arial",
+            "has_legend": True,
+            "has_data_labels": True,
+            "title": None,
+            "y_axis_visible": True,
+            "has_markers": True,
+        }
+
+        if layout_type == LayoutType.SINGLE_COLUMN_LINE:
+            return LineChartConfig(
+                style_name="growth_trend",
+                font_size=11,
+                smooth_line=True,
+                line_width=2.25,
+                **base_config,
+            )
+        elif layout_type == LayoutType.DOUBLE_COLUMN_LINE:
+            return LineChartConfig(
+                style_name="business_blue",
+                font_size=12,
+                smooth_line=False,
+                line_width=2.0,
+                **base_config,
+            )
+        return LineChartConfig(
+            style_name="default",
+            font_size=11,
+            smooth_line=True,
+            line_width=2.25,
+            **base_config,
+        )
 
 
 class BaseSlideRenderer:
@@ -25,14 +104,16 @@ class BaseSlideRenderer:
     4. 解耦数据获取逻辑，专注于渲染逻辑
     """
 
-    def __init__(self, ppt_operations: PPTOperations):
+    def __init__(self, ppt_operations: PPTOperations, layout_type: LayoutType):
         """
         初始化渲染器
 
         Args:
             ppt_operations: PPT操作对象
+            layout_type: 版式类型
         """
         self.ppt_operations = ppt_operations
+        self.layout_type = layout_type
 
     def render(self, slide_configuration: dict[str, Any], page_number: int) -> None:
         """
@@ -58,24 +139,25 @@ class BaseSlideRenderer:
 
     def _render_element(self, page_number: int, element: dict[str, Any]) -> None:
         """
-        根据元素类型分发到具体的渲染方法
+        根据元素类型分发到具体的渲染方法，使用字典分发
 
         Args:
             page_number: 幻灯片页码
             element: 元素配置字典
         """
-        element_type = element.get("type")
+        render_methods = {
+            "textBox": self._render_text_box,
+            "chart": self._render_chart,
+            "table": self._render_table,
+            "rectangle": self._render_rectangle,
+            "picture": self._render_picture,
+        }
 
-        if element_type == "textBox":
-            self._render_text_box(page_number, element)
-        elif element_type == "chart":
-            self._render_chart(page_number, element)
-        elif element_type == "table":
-            self._render_table(page_number, element)
-        elif element_type == "rectangle":
-            self._render_rectangle(page_number, element)
-        elif element_type == "picture":
-            self._render_picture(page_number, element)
+        element_type = element.get("type")
+        handler = render_methods.get(element_type)
+
+        if handler:
+            handler(page_number, element)
         else:
             logger.warning(f"Unknown element type: {element_type}")
 
@@ -96,6 +178,20 @@ class BaseSlideRenderer:
             height=layout_config.get("height", 0),
             alignment=Align.LEFT,
         )
+
+    # --- 辅助方法：统一数据校验 ---
+    def _validate_and_get_data(
+        self, element: dict[str, Any], role: str
+    ) -> pd.DataFrame | None:
+        """统一的数据获取与校验逻辑"""
+        data = element.get("data_payload")
+        if data is None:
+            logger.warning(f"No data provided for element: {role}")
+            return None
+        if not isinstance(data, pd.DataFrame):
+            logger.error(f"Data must be a DataFrame, got {type(data)} for {role}")
+            return None
+        return data
 
     def _render_text_box(self, page_number: int, element: dict[str, Any]) -> None:
         """
@@ -124,7 +220,7 @@ class BaseSlideRenderer:
 
     def _get_text_style_by_role(
         self, role: str
-    ) -> tuple[int, bool, Color]:  # noqa: SIM116
+    ) -> tuple[int, bool, Color]:  # noqa: SIM11
         """
         根据角色获取文本样式
 
@@ -134,14 +230,14 @@ class BaseSlideRenderer:
         Returns:
             tuple: (字体大小, 是否加粗, 字体颜色)
         """
-        if role == "slide-title":
-            return 24, True, Color.BLACK
-        elif role == "body-text":
-            return 14, False, Color.DARK_BLUE
-        elif role == "caption":
-            return 10, False, Color.GRAY
-        else:
-            return 12, False, Color.BLACK  # noqa: SIM116
+
+        role_styles = {
+            "slide-title": (24, True, Color.BLACK),
+            "body-text": (14, False, Color.DARK_BLUE),
+            "caption": (10, False, Color.GRAY),
+        }
+
+        return role_styles.get(role, (12, False, Color.BLACK))
 
     def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
         """
@@ -154,55 +250,20 @@ class BaseSlideRenderer:
         chart_role = element.get("role", "")
         layout = self._map_layout(element.get("layout", {}))
 
-        # 获取图表数据，优先使用 data_payload（向后兼容），否则使用 data_key
-        chart_data = element.get("data_payload")
+        # 获取并校验数据
+        chart_data = self._validate_and_get_data(element, chart_role)
         if chart_data is None:
-            logger.warning(f"No data provided for chart element: {chart_role}")
             return
 
-        if not isinstance(chart_data, pd.DataFrame):
-            logger.error(f"Chart data must be a DataFrame, got {type(chart_data)}")
-            return
-
-        # 根据角色选择图表类型和配置
+        # 2. 根据 layout_type 或 role 路由到具体的图表类型
         if "bar" in chart_role.lower():
-            config = self._get_bar_chart_config(chart_role)
+            config = StyleConfigManager.get_bar_chart_config(self.layout_type)
             self.ppt_operations.add_bar_chart(page_number, chart_data, layout, config)
         elif "line" in chart_role.lower():
-            config = self._get_line_chart_config(chart_role)
+            config = StyleConfigManager.get_line_chart_config(self.layout_type)
             self.ppt_operations.add_line_chart(page_number, chart_data, layout, config)
         else:
             logger.warning(f"Unknown chart role: {chart_role}")
-
-    def _get_bar_chart_config(self, role: str) -> BarChartConfig:
-        """获取柱状图配置"""
-        return BarChartConfig(
-            style_name="supply_trade",
-            font_name="Arial",
-            font_size=11,
-            has_legend=True,
-            has_data_labels=True,
-            title=None,
-            y_axis_visible=False,
-            gap_width=150,
-            overlap=0,
-            grouping="clustered",
-        )
-
-    def _get_line_chart_config(self, role: str) -> LineChartConfig:
-        """获取折线图配置"""
-        return LineChartConfig(
-            style_name="growth_trend",
-            font_name="Arial",
-            font_size=11,
-            has_legend=True,
-            has_data_labels=True,
-            title=None,
-            y_axis_visible=True,
-            has_markers=True,
-            smooth_line=True,
-            line_width=2.25,
-        )
 
     def _render_table(self, page_number: int, element: dict[str, Any]) -> None:
         """
@@ -216,18 +277,14 @@ class BaseSlideRenderer:
         layout = self._map_layout(element.get("layout", {}))
 
         # 获取表格数据
-        table_data = element.get("data_payload")
+        table_data = self._validate_and_get_data(element, table_role)
         if table_data is None:
-            logger.warning(f"No data provided for table element: {table_role}")
-            return
-
-        if not isinstance(table_data, pd.DataFrame):
-            logger.error(f"Table data must be a DataFrame, got {type(table_data)}")
             return
 
         # 默认表格样式
         font_name = "微软雅黑"
-        font_size = 11
+        # 根据版式决定字体大小（如果需要在不同版式下有不同表格样式，也可以移入 ConfigManager）
+        font_size = 12 if self.layout_type == LayoutType.DOUBLE_COLUMN_LINE else 11
 
         self.ppt_operations.add_table(
             page_number=page_number,
@@ -276,185 +333,20 @@ class BaseSlideRenderer:
         self.ppt_operations.add_picture(page_number, image_path, layout)
 
 
-class SingleColumnBarRenderer(BaseSlideRenderer):
-    """版式 1: 单栏柱状图渲染器"""
-
-    def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
-        """渲染单栏柱状图"""
-        chart_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
-
-        chart_data = element.get("data_payload")
-        if chart_data is None or not isinstance(chart_data, pd.DataFrame):
-            logger.error(f"Invalid chart data for single column bar: {chart_role}")
-            return
-
-        config = BarChartConfig(
-            style_name="supply_trade",
-            font_name="Arial",
-            font_size=11,
-            has_legend=True,
-            has_data_labels=True,
-            title=None,
-            y_axis_visible=False,  # 单栏大图通常隐藏Y轴
-            gap_width=150,
-            overlap=0,
-            grouping="clustered",
-        )
-
-        self.ppt_operations.add_bar_chart(page_number, chart_data, layout, config)
-
-
-class SingleColumnLineRenderer(BaseSlideRenderer):
-    """版式 2: 单栏折线图渲染器"""
-
-    def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
-        """渲染单栏折线图"""
-        chart_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
-
-        chart_data = element.get("data_payload")
-        if chart_data is None or not isinstance(chart_data, pd.DataFrame):
-            logger.error(f"Invalid chart data for single column line: {chart_role}")
-            return
-
-        config = LineChartConfig(
-            style_name="growth_trend",
-            font_name="Arial",
-            font_size=11,
-            has_legend=True,
-            has_data_labels=True,
-            title=None,
-            y_axis_visible=True,
-            has_markers=True,
-            smooth_line=True,
-            line_width=2.25,
-        )
-
-        self.ppt_operations.add_line_chart(page_number, chart_data, layout, config)
-
-
-class DoubleColumnBarRenderer(BaseSlideRenderer):
-    """版式 3: 双栏柱状图渲染器"""
-
-    def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
-        """渲染双栏柱状图"""
-        chart_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
-
-        chart_data = element.get("data_payload")
-        if chart_data is None or not isinstance(chart_data, pd.DataFrame):
-            logger.error(f"Invalid chart data for double column bar: {chart_role}")
-            return
-
-        config = BarChartConfig(
-            style_name="business_blue",
-            font_name="Arial",
-            font_size=12,  # 双栏图字体调整到正常大小
-            has_legend=True,
-            has_data_labels=True,
-            title=None,
-            y_axis_visible=False,
-            gap_width=100,  # 柱子紧凑一点
-            overlap=0,
-            grouping="clustered",
-        )
-
-        self.ppt_operations.add_bar_chart(page_number, chart_data, layout, config)
-
-
-class DoubleColumnLineRenderer(BaseSlideRenderer):
-    """版式 4: 双栏折线图渲染器"""
-
-    def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
-        """渲染双栏折线图"""
-        chart_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
-
-        chart_data = element.get("data_payload")
-        if chart_data is None or not isinstance(chart_data, pd.DataFrame):
-            logger.error(f"Invalid chart data for double column line: {chart_role}")
-            return
-
-        config = LineChartConfig(
-            style_name="business_blue",
-            font_name="Arial",
-            font_size=12,  # 调整到正常大小
-            has_legend=True,
-            has_data_labels=True,  # 重新启用数值标签
-            title=None,
-            y_axis_visible=True,
-            has_markers=True,
-            smooth_line=False,  # 双栏较窄，建议直线
-            line_width=2.0,
-        )
-
-        self.ppt_operations.add_line_chart(page_number, chart_data, layout, config)
-
-
-class SingleColumnTableRenderer(BaseSlideRenderer):
-    """版式 5: 单栏表格渲染器"""
-
-    def _render_table(self, page_number: int, element: dict[str, Any]) -> None:
-        """渲染单栏表格"""
-        table_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
-
-        table_data = element.get("data_payload")
-        if table_data is None or not isinstance(table_data, pd.DataFrame):
-            logger.error(f"Invalid table data for single column table: {table_role}")
-            return
-
-        # 单栏表格可以使用更大的字体和更宽松的布局
-        font_name = "微软雅黑"
-        font_size = 11
-
-        self.ppt_operations.add_table(
-            page_number=page_number,
-            layout=layout,
-            data=table_data,
-            font_name=font_name,
-            font_size=font_size,
-        )
-
-
 class RendererFactory:
     """渲染器工厂类"""
 
     @staticmethod
     def get_renderer(
-        layout_type: str, ppt_operations: PPTOperations
+        layout_type: LayoutType, ppt_operations: PPTOperations
     ) -> BaseSlideRenderer:
         """
-        根据版式类型获取对应的渲染器
-
-        Args:
-            layout_type: 版式类型
-            ppt_operations: PPT操作对象
-
-        Returns:
-            BaseSlideRenderer: 对应的渲染器实例
+        现在的工厂不再需要返回不同的子类，
+        而是返回同一个类，但注入了不同的 layout_type 上下文。
         """
         logger.info(f"Initializing renderer for layout: {layout_type}")
-
-        renderer_mapping = {
-            "single_column_bar": SingleColumnBarRenderer,
-            "single_column_line": SingleColumnLineRenderer,
-            "double_column_bar": DoubleColumnBarRenderer,
-            "double_column_line": DoubleColumnLineRenderer,
-            "single_column_table": SingleColumnTableRenderer,
-        }
-
-        renderer_class = renderer_mapping.get(layout_type, BaseSlideRenderer)
-        return renderer_class(ppt_operations)
+        return BaseSlideRenderer(ppt_operations, layout_type)
 
     @staticmethod
     def get_supported_layout_types() -> list[str]:
-        """获取所有支持的版式类型"""
-        return [
-            "single_column_bar",
-            "single_column_line",
-            "double_column_bar",
-            "double_column_line",
-            "single_column_table",
-        ]
+        return [t.value for t in LayoutType]

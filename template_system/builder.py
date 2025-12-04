@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
@@ -11,74 +12,116 @@ from .text_manager import TextTemplateManager
 text_manager = TextTemplateManager("template_system/text_pattern.yaml")
 
 
+class LayoutCoordinates:
+    """布局坐标配置中心
+    将坐标与代码分离，方便后续移动到配置文件中
+    """
+
+    TITLE = {"x": 0.5, "y": 1.0, "width": 18.0, "height": 1.1}
+    DESCRIPTION = {"x": 0.5, "y": 2.0, "width": 18.0, "height": 1.2}
+    CAPTION = {"x": 3.75, "y": 3.5, "width": 12.5, "height": 1.2}
+
+    # 数据元素布局
+    CHART_SINGLE = {"x": 3.7, "y": 4.54, "width": 12.2, "height": 7.48}
+    CHART_DOUBLE_LEFT = {"x": 0.75, "y": 4.94, "width": 10.5, "height": 6.5}
+    CHART_DOUBLE_RIGHT = {"x": 12.75, "y": 4.94, "width": 10.5, "height": 6.5}
+    TABLE_MAIN = {"x": 1.5, "y": 4.5, "width": 20.0, "height": 8.96}
+
+
 class SlideElementBuilder:
     """幻灯片元素构建器，负责构建不同类型的元素配置"""
 
-    # 默认布局常量
-    TITLE_LAYOUT = {"x": 0.5, "y": 1.0, "width": 18.0, "height": 1.1}
-    DESCRIPTION_LAYOUT = {"x": 0.5, "y": 2.0, "width": 18.0, "height": 0.85}
-    CHART_SINGLE_LAYOUT = {"x": 1.1, "y": 3.5, "width": 20.0, "height": 7.0}
-    CHART_DOUBLE_LEFT_LAYOUT = {"x": 0.75, "y": 4.94, "width": 10.5, "height": 6.5}
-    CHART_DOUBLE_RIGHT_LAYOUT = {"x": 12.75, "y": 4.94, "width": 10.5, "height": 6.5}
-    TABLE_LAYOUT = {"x": 1.5, "y": 3.5, "width": 18.0, "height": 8.0}
-
     @staticmethod
-    def build_title_element(title_text: str) -> dict[str, Any]:
-        """构建标题元素"""
+    def build_text_element(text: str, role: str, layout: dict) -> dict[str, Any]:
+        """通用的文本元素构建方法"""
         return {
             "type": "textBox",
-            "role": "slide-title",
-            "text": title_text,
-            "layout": SlideElementBuilder.TITLE_LAYOUT,
-        }
-
-    @staticmethod
-    def build_description_element(description_text: str) -> dict[str, Any]:
-        """构建描述元素"""
-        return {
-            "type": "textBox",
-            "role": "body-text",
-            "text": description_text,
-            "layout": SlideElementBuilder.DESCRIPTION_LAYOUT,
-        }
-
-    @staticmethod
-    def build_chart_element(
-        role: str, layout: dict[str, Any], data_key: str, context: PresentationContext
-    ) -> dict[str, Any]:
-        """构建图表元素"""
-        try:
-            chart_data = context.get_dataset(data_key)
-        except ValueError as e:
-            logger.error(f"Failed to get chart data for key '{data_key}': {e}")
-            chart_data = None
-
-        return {
-            "type": "chart",
             "role": role,
+            "text": text,
             "layout": layout,
-            "data_key": data_key,  # 存储数据键，而不是直接存储DataFrame
-            "data_payload": chart_data,  # 保持向后兼容
         }
 
     @staticmethod
-    def build_table_element(
-        role: str, layout: dict[str, Any], data_key: str, context: PresentationContext
+    def build_data_element(
+        element_type: str,  # "chart" or "table"
+        role: str,
+        layout: dict[str, Any],
+        data_key: str,
+        context: PresentationContext,
     ) -> dict[str, Any]:
-        """构建表格元素"""
+        """通用的数据元素构建方法 (合并了图表和表格)"""
         try:
-            table_data = context.get_dataset(data_key)
+            data_payload = context.get_dataset(data_key)
         except ValueError as e:
-            logger.error(f"Failed to get table data for key '{data_key}': {e}")
-            table_data = None
+            logger.error(f"Failed to get data for key '{data_key}': {e}")
+            data_payload = None
 
         return {
-            "type": "table",
+            "type": element_type,
             "role": role,
             "layout": layout,
             "data_key": data_key,
-            "data_payload": table_data,
+            "data_payload": data_payload,
         }
+
+
+@dataclass
+class DataSlotConfig:
+    """定义一个数据槽位的配置"""
+
+    key_name_in_meta: str  # 在 TemplateMeta.data_keys 中的键名 (e.g., "chart_main")
+    layout: dict  # 布局坐标
+    element_type: str  # "chart" or "table"
+    role: str  # 元素的角色 (e.g., "chart-bar")
+
+
+class LayoutStrategyManager:
+    """版式策略管理器：定义每种 LayoutType 需要填充哪些槽位"""
+
+    # 定义布局映射表
+    _STRATEGIES: dict[LayoutType, list[DataSlotConfig]] = {
+        LayoutType.SINGLE_COLUMN_BAR: [
+            DataSlotConfig(
+                "chart_main", LayoutCoordinates.CHART_SINGLE, "chart", "chart-bar"
+            )
+        ],
+        LayoutType.SINGLE_COLUMN_LINE: [
+            DataSlotConfig(
+                "chart_main", LayoutCoordinates.CHART_SINGLE, "chart", "chart-line"
+            )
+        ],
+        LayoutType.DOUBLE_COLUMN_BAR: [
+            DataSlotConfig(
+                "chart_left", LayoutCoordinates.CHART_DOUBLE_LEFT, "chart", "chart-bar"
+            ),
+            DataSlotConfig(
+                "chart_right",
+                LayoutCoordinates.CHART_DOUBLE_RIGHT,
+                "chart",
+                "chart-bar",
+            ),
+        ],
+        LayoutType.DOUBLE_COLUMN_LINE: [
+            DataSlotConfig(
+                "chart_left", LayoutCoordinates.CHART_DOUBLE_LEFT, "chart", "chart-line"
+            ),
+            DataSlotConfig(
+                "chart_right",
+                LayoutCoordinates.CHART_DOUBLE_RIGHT,
+                "chart",
+                "chart-line",
+            ),
+        ],
+        LayoutType.SINGLE_COLUMN_TABLE: [
+            DataSlotConfig(
+                "table_main", LayoutCoordinates.TABLE_MAIN, "table", "table-main"
+            )
+        ],
+    }
+
+    @classmethod
+    def get_slots(cls, layout_type: LayoutType) -> list[DataSlotConfig]:
+        return cls._STRATEGIES.get(layout_type, [])
 
 
 class SlideConfigBuilder:
@@ -97,7 +140,6 @@ class SlideConfigBuilder:
         self,
         template_id: str,
         presentation_context: PresentationContext,
-        variant_idx: int = 0,
     ) -> dict[str, Any]:
         """
         构建幻灯片渲染配置
@@ -118,179 +160,71 @@ class SlideConfigBuilder:
 
         logger.info(f"Building slide config for template: {template_id}")
 
-        # 1. 动态生成文本内容
-        title_text = text_manager.render(
-            template_metadata.theme_key,
-            template_metadata.function_key,
-            "title",
-            presentation_context.variables,
-        )
-        desc_text = text_manager.render(
-            template_metadata.theme_key,
-            template_metadata.function_key,
-            "summary",
-            presentation_context.variables,
-            variant_idx,
-        )
+        # 1. 构建固定文本元素 (标题, 描述, Caption)
+        elements = self._build_static_elements(template_metadata, presentation_context)
 
-        # 2. 构建基础元素
-        elements = [
-            self.element_builder.build_title_element(title_text),
-            self.element_builder.build_description_element(desc_text),
-        ]
-
-        # 3. 根据版式类型添加数据元素
+        # 2. 动态注入数据元素 (根据 LayoutType 自动处理)
         self._inject_data_elements(elements, template_metadata, presentation_context)
 
         return {
-            "layout_type": template_metadata.layout_type,  # 动态决定版式
+            "layout_type": template_metadata.layout_type,
             "template_slide": {"elements": elements},
         }
+
+    def _build_static_elements(
+        self, meta: TemplateMeta, ctx: PresentationContext
+    ) -> list[dict[str, Any]]:
+        """构建标题、描述等静态文本"""
+        # 定义需要渲染的文本字段
+        text_fields = [
+            ("slide_title", "slide-title", LayoutCoordinates.TITLE, None),
+            ("caption", "caption", LayoutCoordinates.CAPTION, None),
+            ("summary", "body-text", LayoutCoordinates.DESCRIPTION, meta.summary_item),
+        ]
+
+        elements = []
+        for func_role, element_role, layout, item_key in text_fields:
+            text_content = text_manager.render(
+                meta.theme_key, meta.function_key, func_role, ctx.variables, item_key
+            )
+            elements.append(
+                SlideElementBuilder.build_text_element(
+                    text_content, element_role, layout
+                )
+            )
+        return elements
 
     def _inject_data_elements(
         self,
         elements: list[dict[str, Any]],
-        template_metadata: TemplateMeta,
-        presentation_context: PresentationContext,
+        meta: TemplateMeta,
+        ctx: PresentationContext,
     ) -> None:
         """
-        根据版式类型和数据映射注入数据元素
-
-        Args:
-            elements: 元素列表，会直接修改此列表
-            template_metadata: 模板元数据
-            presentation_context: 数据上下文
+        核心优化点：
+        不再写一堆 if-else，而是根据 LayoutType 获取槽位配置列表，通用处理。
         """
-        layout_type = template_metadata.layout_type
-        data_keys = template_metadata.data_keys
+        slots = LayoutStrategyManager.get_slots(meta.layout_type)
 
-        try:
-            if layout_type == LayoutType.SINGLE_COLUMN_BAR:
-                self._build_single_column_bar(elements, data_keys, presentation_context)
-            elif layout_type == LayoutType.SINGLE_COLUMN_LINE:
-                self._build_single_column_line(
-                    elements, data_keys, presentation_context
+        if not slots:
+            logger.warning(f"No layout strategy defined for: {meta.layout_type}")
+            return
+
+        for slot in slots:
+            # 从模板元数据的 data_keys 中查找实际的数据 Key
+            # 例如: meta.data_keys["chart_main"] -> "Actual_Dataset_Key_001"
+            actual_data_key = meta.data_keys.get(slot.key_name_in_meta)
+
+            if actual_data_key:
+                element = SlideElementBuilder.build_data_element(
+                    element_type=slot.element_type,
+                    role=slot.role,
+                    layout=slot.layout,
+                    data_key=actual_data_key,
+                    context=ctx,
                 )
-            elif layout_type == LayoutType.DOUBLE_COLUMN_BAR:
-                self._build_double_column_bar(elements, data_keys, presentation_context)
-            elif layout_type == LayoutType.DOUBLE_COLUMN_LINE:
-                self._build_double_column_line(
-                    elements, data_keys, presentation_context
-                )
-            elif layout_type == LayoutType.SINGLE_COLUMN_TABLE:
-                self._build_single_column_table(
-                    elements, data_keys, presentation_context
-                )
+                elements.append(element)
             else:
-                logger.warning(f"Unsupported layout type: {layout_type}")
-
-        except Exception as e:
-            logger.error(
-                f"Failed to inject data elements for layout {layout_type}: {e}"
-            )
-            raise
-
-    def _build_single_column_bar(
-        self,
-        elements: list[dict[str, Any]],
-        data_keys: dict[str, str],
-        presentation_context: PresentationContext,
-    ) -> None:
-        """构建单栏柱状图元素"""
-        main_data_key = data_keys.get("chart_main")
-        if main_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-bar",
-                layout=self.element_builder.CHART_SINGLE_LAYOUT,
-                data_key=main_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-    def _build_single_column_line(
-        self,
-        elements: list[dict[str, Any]],
-        data_keys: dict[str, str],
-        presentation_context: PresentationContext,
-    ) -> None:
-        """构建单栏折线图元素"""
-        main_data_key = data_keys.get("chart_main")
-        if main_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-line",
-                layout=self.element_builder.CHART_SINGLE_LAYOUT,
-                data_key=main_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-    def _build_double_column_bar(
-        self,
-        elements: list[dict[str, Any]],
-        data_keys: dict[str, str],
-        presentation_context: PresentationContext,
-    ) -> None:
-        """构建双栏柱状图元素"""
-        left_data_key = data_keys.get("chart_left")
-        if left_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-bar",
-                layout=self.element_builder.CHART_DOUBLE_LEFT_LAYOUT,
-                data_key=left_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-        right_data_key = data_keys.get("chart_right")
-        if right_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-bar",
-                layout=self.element_builder.CHART_DOUBLE_RIGHT_LAYOUT,
-                data_key=right_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-    def _build_double_column_line(
-        self,
-        elements: list[dict[str, Any]],
-        data_keys: dict[str, str],
-        presentation_context: PresentationContext,
-    ) -> None:
-        """构建双栏折线图元素"""
-        left_data_key = data_keys.get("chart_left")
-        if left_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-line",
-                layout=self.element_builder.CHART_DOUBLE_LEFT_LAYOUT,
-                data_key=left_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-        right_data_key = data_keys.get("chart_right")
-        if right_data_key:
-            chart_element = self.element_builder.build_chart_element(
-                role="chart-line",
-                layout=self.element_builder.CHART_DOUBLE_RIGHT_LAYOUT,
-                data_key=right_data_key,
-                context=presentation_context,
-            )
-            elements.append(chart_element)
-
-    def _build_single_column_table(
-        self,
-        elements: list[dict[str, Any]],
-        data_keys: dict[str, str],
-        presentation_context: PresentationContext,
-    ) -> None:
-        """构建单栏表格元素"""
-        table_data_key = data_keys.get("table_main")
-        if table_data_key:
-            table_element = self.element_builder.build_table_element(
-                role="table-main",
-                layout=self.element_builder.TABLE_LAYOUT,
-                data_key=table_data_key,
-                context=presentation_context,
-            )
-            elements.append(table_element)
+                logger.warning(
+                    f"Missing data mapping for slot '{slot.key_name_in_meta}' in template {meta.uid}"
+                )

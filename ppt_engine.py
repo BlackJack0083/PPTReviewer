@@ -1,30 +1,13 @@
-"""
-PPT生成引擎 - 统一的PPT生成接口
-
-这个模块提供了完整的PPT生成工作流，整合了：
-1. 模板系统 (template_system)
-2. 数据管理 (data_manager)
-3. 渲染系统 (rendering)
-4. PPT操作 (core/ppt_operations)
-
-主要功能：
-- 支持所有31个模板
-- 统一的数据接入接口
-- 灵活的版式管理
-- 完善的错误处理
-"""
-
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
 from loguru import logger
 
 from core.ppt_operations import PPTOperations
 from data_manager.context import PresentationContext
 from rendering.slide_renderers import RendererFactory
 from template_system.builder import SlideConfigBuilder
-from template_system.catalog import TEMPLATE_CATALOG, get_template_by_id
+from template_system.catalog import TEMPLATE_CATALOG
 
 
 class PPTGenerationEngine:
@@ -149,70 +132,6 @@ class PPTGenerationEngine:
             logger.error(f"Failed to generate multiple slides: {e}")
             raise
 
-    def generate_from_template_category(
-        self, category: str, presentation_context: PresentationContext
-    ) -> None:
-        """
-        根据模板分类生成PPT
-
-        Args:
-            category: 模板分类，如 "面积分析"、"价格分析" 等
-            presentation_context: 包含数据和变量的上下文
-
-        Raises:
-            ValueError: 分类不存在时抛出异常
-        """
-        logger.info(f"Generating slides from category: {category}")
-
-        # 临时禁用分类功能，因为新的catalog结构不支持分类
-        logger.warning("分类生成功能暂时不可用，请使用generate_single_slide")
-        return
-
-    def generate_all_templates(self, presentation_context: PresentationContext) -> None:
-        """
-        生成所有模板的PPT（用于测试和演示）
-
-        Args:
-            presentation_context: 包含数据和变量的上下文
-        """
-        logger.info("Generating all templates (may take a while)")
-
-        # 构建所有模板的配置列表
-        template_configs = [
-            {"template_id": template_id, "context": presentation_context}
-            for template_id in TEMPLATE_CATALOG
-        ]
-
-        # 生成多页PPT
-        self.generate_multiple_slides(template_configs)
-
-    def validate_template_data(
-        self, template_id: str, presentation_context: PresentationContext
-    ) -> bool:
-        """
-        简化的模板验证
-
-        Args:
-            template_id: 模板ID
-            presentation_context: 数据上下文
-
-        Returns:
-            bool: 数据是否齐全
-        """
-        template = get_template_by_id(template_id)
-        if not template:
-            logger.error(f"Template not found: {template_id}")
-            return False
-
-        # 检查数据
-        for data_key in template.data_keys.values():
-            if data_key not in presentation_context._datasets:
-                logger.error(f"Missing dataset '{data_key}' for template {template_id}")
-                return False
-
-        logger.info(f"Template {template_id} validation passed")
-        return True
-
     def get_template_info(self) -> dict[str, Any]:
         """
         获取模板系统信息
@@ -226,99 +145,3 @@ class PPTGenerationEngine:
         }
 
         return template_info
-
-
-class PPTDataHelper:
-    """PPT数据助手类，帮助准备PresentationContext"""
-
-    @staticmethod
-    def create_context() -> PresentationContext:
-        """创建新的PresentationContext"""
-        return PresentationContext()
-
-    @staticmethod
-    def add_sample_data(context: PresentationContext) -> None:
-        """添加示例数据到上下文（已废弃，建议使用真实CSV数据）"""
-        logger.warning("add_sample_data 已废弃，请使用真实的CSV数据文件")
-
-        # 可以在这里添加一些简单的示例数据
-        import pandas as pd
-
-        # 示例数据
-        sample_data = pd.DataFrame(
-            {
-                "类别": ["80-100㎡", "100-120㎡", "120-140㎡"],
-                "供应套数": [1000, 500, 300],
-                "成交套数": [800, 400, 250],
-            }
-        ).set_index("类别")
-
-        context.add_dataset("sample_data", sample_data)
-
-        # 添加示例变量
-        context.add_variable("Temporal_Start_Year", "2023")
-        context.add_variable("Temporal_End_Year", "2024")
-        context.add_variable("Geo_City_Name", "北京")
-        context.add_variable("Geo_Block_Name", "示例板块")
-
-    @staticmethod
-    def add_custom_data(
-        context: PresentationContext, data_name: str, data: pd.DataFrame
-    ) -> None:
-        """添加自定义数据到上下文"""
-        context.add_dataset(data_name, data)
-
-    @staticmethod
-    def add_custom_variable(
-        context: PresentationContext, var_name: str, value: Any
-    ) -> None:
-        """添加自定义变量到上下文"""
-        context.add_variable(var_name, value)
-
-
-# 便捷函数
-def quick_generate_ppt(
-    template_id: str, output_file: str, use_sample_data: bool = True
-) -> None:
-    """
-    快速生成PPT的便捷函数
-
-    Args:
-        template_id: 模板ID
-        output_file: 输出文件路径
-        use_sample_data: 是否使用示例数据
-    """
-    engine = PPTGenerationEngine(output_file)
-
-    if use_sample_data:
-        context = PPTDataHelper.create_context()
-        PPTDataHelper.add_sample_data(context)
-    else:
-        # 用户需要自己填充数据
-        context = PPTDataHelper.create_context()
-        logger.warning("使用空数据上下文，请确保添加所需的数据和变量")
-
-    engine.generate_single_slide(template_id, context)
-    logger.info(f"PPT generated successfully: {output_file}")
-
-
-# 使用示例
-if __name__ == "__main__":
-    # 示例1: 快速生成单个模板
-    quick_generate_ppt("T01_Area_Supply_Demand", "output/example_single.pptx")
-
-    # 示例2: 使用自定义数据
-    engine = PPTGenerationEngine("output/example_custom.pptx")
-    context = PPTDataHelper.create_context()
-    PPTDataHelper.add_sample_data(context)
-    PPTDataHelper.add_custom_variable(context, "city", "上海")
-    PPTDataHelper.add_custom_variable(context, "block", "浦东")
-
-    engine.generate_single_slide("T11_Price_Trend", context)
-
-    # 示例3: 生成整个分类的模板
-    engine = PPTGenerationEngine("output/example_category.pptx")
-    context = PPTDataHelper.create_context()
-    PPTDataHelper.add_sample_data(context)
-
-    engine.generate_from_template_category("面积分析", context)

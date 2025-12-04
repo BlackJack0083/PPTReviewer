@@ -62,8 +62,8 @@ class PPTOperations:
     """
 
     # 常量定义
-    DEFAULT_SLIDE_WIDTH_CM = 33.867  # 16:9 宽屏
-    DEFAULT_SLIDE_HEIGHT_CM = 19.05  # 16:9 宽屏
+    DEFAULT_SLIDE_WIDTH_CM = 19.05
+    DEFAULT_SLIDE_HEIGHT_CM = 14.29
     BLANK_LAYOUT_INDEX = 6  # 空白布局索引
 
     def __init__(

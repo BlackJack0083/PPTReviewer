@@ -2,8 +2,9 @@
 # Theme: Block Area Segment Distribution
 # ==============================================================================
 "Block Area Segment Distribution":
+  slide_title: "Block Area Segment Distribution"
   "Supply-Transaction Unit Statistic":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}**  Supply and Transaction Unit Statistics in  **{{ Geo_City_Name }}** 's  **{{ Geo_Block_Name }}**
     summaries:
       - >-
@@ -17,9 +18,9 @@
 # Theme: New-House Cross-Structure Analysis
 # ==============================================================================
 "New-House Cross-Structure Analysis":
-
+  slide_title: "New-House Cross-Structure Analysis"
   "Area x Price Cross Pivot":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Area and Total Price Cross Statistics
     summaries:
       - >-
@@ -30,7 +31,7 @@
         The  **{{ Geo_Block_Name }}**  sector exhibited a dual-tier segmentation from  **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}** : a primary volume cluster at  **{{ Seg_SupplyDemand_Core_Area }}**  m² and a secondary upgrade cluster at  **{{ Seg_SupplyDemand_Upgrade_Area }}**  m².
 
   "Area Segment Distribution":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Area Segment Distribution Statistics
     summaries:
       - >-
@@ -41,7 +42,7 @@
         The **{{ Seg_Area_Stratum_Dominant }}** typology emerged as the mainstream segment, amassing a total of **{{ Metric_Volume_Dominant_Cluster }}** units.
 
   "Price Segment Distribution":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Price Segment Distribution Statistics
     summaries:
       - >-
@@ -55,8 +56,10 @@
 # Theme: Resale-House Cross-Structure Analysis
 # ==============================================================================
 "Resale-House Cross-Structure Analysis":
+  slide_title: "Resale-House Cross-Structure Analysis"
+
   "Area Segment Distribution":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Area Segment Distribution Statistics
     summaries:
       - >-
@@ -67,7 +70,7 @@
         Accounting for **{{ Metric_Volume_Dominant_Cluster }}** units, the **{{ Seg_Area_Stratum_Dominant }}** category stands out as the primary resale typology.
 
   "Price Segment Distribution":
-    title: >-
+    chart_caption: >-
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Price Segment Distribution Statistics
     summaries:
       - >-
@@ -81,8 +84,9 @@
 # Theme: New-House Market Capacity Analysis
 # ==============================================================================
 "New-House Market Capacity Analysis":
+  slide_title: "New-House Market Capacity Analysis"
   "Historical Capacity Summary":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Historical Capacity Summary Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
@@ -93,7 +97,7 @@
         Starting at **{{ Metric_Val_Area_Base }}** m² and **{{ Metric_Val_Price_Base }}** yuan/m², the market **{{ Trend_Trajectory_Type }}** to **{{ Metric_Val_Area_Terminal }}** m² and **{{ Metric_Val_Price_Terminal }}** yuan/m² respectively, marking a volume shift of **{{ Metric_Var_Trans_Pct }}**% and a price shift of **{{ Metric_Var_Price_Delta }}**.
 
   "Annual Supply-Demand Comparison":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Annual Supply-Demand Comparison Analysis (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
@@ -104,7 +108,7 @@
         Comparing **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, supply **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Supply_Terminal }}** ({{ Metric_Var_Supply_Pct }}% **{{ Trend_Direction_Label }}**), and demand **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Trans_Terminal }}** ({{ Metric_Var_Trans_Pct }}% **{{ Trend_Direction_Label }}**).
 
   "Supply-Transaction Area":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** : Historical Supply and Transaction Area Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
@@ -118,8 +122,9 @@
 # Theme: Resale-House Capacity & Structure
 # ==============================================================================
 "Resale-House Capacity & Structure":
+  slide_title: "Resale-House Capacity & Structure"
   "Historical Delivery Metrics":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: Overview of Historical Delivery Metrics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
 
     summaries:
@@ -131,7 +136,7 @@
         The market observed a **{{ Trend_Trajectory_Type }}** in resales to **{{ Metric_Vol_Trans_Terminal }}** units, a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Direction_Label }}** relative to the **{{ Metric_Vol_Trans_Base }}**-unit baseline in **{{ Temporal_Start_Year }}**.
 
   "Annual Delivery Unit Count":
-    title: >-
+    chart_caption: >-
       Historical Delivery Unit Count Statistics for **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
 
     summaries:
@@ -143,7 +148,7 @@
         The trend **{{ Trend_Trajectory_Type }}** brought resale figures to **{{ Metric_Vol_Trans_Terminal }}** by **{{ Temporal_End_Year }}**, a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** from the start of the period.
 
   "Annual Average Price Trend":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** Annual Average Price Trend Analysis
 
     summaries:
@@ -158,8 +163,9 @@
 # Theme: Neighborhood Price Trend
 # ==============================================================================
 "Neighborhood Price Trend":
+  slide_title: "Neighborhood Price Trend"
   "Monthly Average Price Trend":
-    title: >-
+    chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Monthly Average Price Trend Analysis, Jan-Jun **{{ Temporal_Start_Year }}**
 
     summaries:

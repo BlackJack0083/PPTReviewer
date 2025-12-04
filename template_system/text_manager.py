@@ -15,13 +15,18 @@ class TextTemplateManager:
 
         # 预编译 Jinja 模板以提升性能
         processed = {}
-        for theme, funcs in data.items():
+        for theme, content in data.items():
             processed[theme] = {}
-            for func, content in funcs.items():
+            # 提取 slide_title，它不是一个模板
+            slide_title = content.pop("slide_title")
+
+            for func, func_content in content.items():
+                # func_content 现在只包含 chart_caption 和 summaries
                 processed[theme][func] = {
-                    "title": Template(content["title"]),
+                    "slide_title": slide_title,  # 从父级获取并保存
+                    "chart_caption": Template(func_content["chart_caption"]),
                     # 处理结论列表
-                    "summaries": [Template(s) for s in content["summaries"]],
+                    "summaries": [Template(s) for s in func_content["summaries"]],
                 }
         return processed
 
@@ -36,21 +41,21 @@ class TextTemplateManager:
         """
         theme: 大主题 Key
         func: 子功能 Key
-        part: 'title' 或 'summary'
+        part: 'caption' 或 'summary'
         context: 变量字典
         variant_idx: 选择第几个结论变体
         """
         try:
             target = self.patterns[theme][func]
-            if part == "title":
-                return target["title"].render(**context)
+            if part == "caption":
+                return target["chart_caption"].render(**context)
             elif part == "summary":
                 summaries = target["summaries"]
-                # 循环取模，防止越界
-                return summaries[variant_idx % len(summaries)].render(**context)
+                # 选择第几个结论变体，如果越界则报错
+                if variant_idx >= len(summaries):
+                    raise ValueError(f"Variant index out of range: {variant_idx}")
+                return summaries[variant_idx].render(**context)
+            elif part == "slide_title":
+                return target["slide_title"]
         except KeyError as err:
             raise KeyError(f"Error: Template not found for {theme} -> {func}") from err
-
-
-# 初始化单例
-text_manager = TextTemplateManager("template_system/text_pattern.yaml")
