@@ -8,8 +8,8 @@ from pathlib import Path
 import pandas as pd
 from loguru import logger
 
-from data_manager.context import PresentationContext
-from ppt_engine import PPTGenerationEngine
+from core import PresentationContext, resource_manager
+from engine import PPTGenerationEngine
 
 
 def load_csv_data():
@@ -77,6 +77,7 @@ def test_ppt_generation():
 def main():
     """主测试函数"""
     logger.info("开始测试新架构系统...")
+    resource_manager.load_all()
 
     # 确保输出目录存在
     Path("output").mkdir(exist_ok=True)

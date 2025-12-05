@@ -3,29 +3,8 @@ from typing import Any
 
 from loguru import logger
 
-from data_manager.context import PresentationContext
-
-from .catalog import LayoutType, TemplateMeta, get_template_by_id
-from .text_manager import TextTemplateManager
-
-# 初始化文本管理器
-text_manager = TextTemplateManager("template_system/text_pattern.yaml")
-
-
-class LayoutCoordinates:
-    """布局坐标配置中心
-    将坐标与代码分离，方便后续移动到配置文件中
-    """
-
-    TITLE = {"x": 0.5, "y": 1.0, "width": 18.0, "height": 1.1}
-    DESCRIPTION = {"x": 0.5, "y": 2.0, "width": 18.0, "height": 1.2}
-    CAPTION = {"x": 3.75, "y": 3.5, "width": 12.5, "height": 1.2}
-
-    # 数据元素布局
-    CHART_SINGLE = {"x": 3.7, "y": 4.54, "width": 12.2, "height": 7.48}
-    CHART_DOUBLE_LEFT = {"x": 0.75, "y": 4.94, "width": 10.5, "height": 6.5}
-    CHART_DOUBLE_RIGHT = {"x": 12.75, "y": 4.94, "width": 10.5, "height": 6.5}
-    TABLE_MAIN = {"x": 1.5, "y": 4.5, "width": 20.0, "height": 8.96}
+from config import LayoutCoordinates
+from core import LayoutType, PresentationContext, TemplateMeta, resource_manager
 
 
 class SlideElementBuilder:
@@ -154,7 +133,7 @@ class SlideConfigBuilder:
         Raises:
             ValueError: 模板不存在或变量缺失时抛出异常
         """
-        template_metadata = get_template_by_id(template_id)
+        template_metadata = resource_manager.get_template(template_id)
         if not template_metadata:
             raise ValueError(f"未找到模板 ID: {template_id}")
 
@@ -184,7 +163,7 @@ class SlideConfigBuilder:
 
         elements = []
         for func_role, element_role, layout, item_key in text_fields:
-            text_content = text_manager.render(
+            text_content = resource_manager.render_text(
                 meta.theme_key, meta.function_key, func_role, ctx.variables, item_key
             )
             elements.append(

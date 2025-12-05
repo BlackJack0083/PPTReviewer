@@ -3,17 +3,17 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-from core.ppt_operations import PPTOperations
-from core.ppt_schemas import (
+from core import (
     Align,
     BarChartConfig,
     Color,
     LayoutModel,
+    LayoutType,
     LineChartConfig,
+    PPTOperations,
     RectangleStyleModel,
     TextContentModel,
 )
-from template_system.catalog import LayoutType
 
 
 class StyleConfigManager:
@@ -34,7 +34,7 @@ class StyleConfigManager:
 
         if layout_type == LayoutType.SINGLE_COLUMN_BAR:
             return BarChartConfig(
-                style_name="supply_trade",
+                style_name="2_orange_green",
                 font_size=11,
                 y_axis_visible=False,
                 gap_width=150,
@@ -42,7 +42,7 @@ class StyleConfigManager:
             )
         elif layout_type == LayoutType.DOUBLE_COLUMN_BAR:
             return BarChartConfig(
-                style_name="business_blue",
+                style_name="2_tangerine_gray",
                 font_size=12,
                 y_axis_visible=False,
                 gap_width=100,

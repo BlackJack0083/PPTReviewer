@@ -54,6 +54,16 @@ class Color(StrEnum):
         return mapping.get(self, RGBColor(0, 0, 0))
 
 
+class LayoutType(StrEnum):
+    """版式类型枚举"""
+
+    SINGLE_COLUMN_BAR = "single_column_bar"
+    SINGLE_COLUMN_LINE = "single_column_line"
+    DOUBLE_COLUMN_BAR = "double_column_bar"
+    DOUBLE_COLUMN_LINE = "double_column_line"
+    SINGLE_COLUMN_TABLE = "single_column_table"
+
+
 class LayoutModel(BaseModel):
     """General layout model for positioning elements on a slide.
 

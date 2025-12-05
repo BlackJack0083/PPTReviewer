@@ -1,12 +1,14 @@
 from typing import Any
 
 import pandas as pd
+from loguru import logger
 
 
 class PresentationContext:
     """
     数据上下文容器
     用于在生成过程中传递真实的 DataFrame 和 文本变量
+    只负责存入数据，不负责处理数据
     """
 
     def __init__(self):
@@ -19,10 +21,12 @@ class PresentationContext:
     def add_dataset(self, key: str, df: pd.DataFrame):
         """注入表格数据，key 要和 catalog 里定义的一致"""
         self._datasets[key] = df
+        logger.debug(f"Context: Added dataset '{key}' shape={df.shape}")
 
     def add_variable(self, key: str, value: Any):
         """注入文本变量，如 city='北京'"""
         self._variables[key] = value
+        logger.debug(f"Context: Added variable '{key}'={value}")
 
     def get_dataset(self, key: str) -> pd.DataFrame:
         if key not in self._datasets:

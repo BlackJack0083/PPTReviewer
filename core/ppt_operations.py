@@ -1,6 +1,4 @@
 # ppt_operations.py - PPT操作核心类
-import os
-import re
 from pathlib import Path
 from typing import Self
 
@@ -9,14 +7,17 @@ import pptx_ea_font
 from loguru import logger
 from pptx import Presentation
 from pptx.chart.data import ChartData
-from pptx.dml.color import RGBColor
 from pptx.enum.chart import XL_CHART_TYPE, XL_DATA_LABEL_POSITION, XL_LEGEND_POSITION
 from pptx.enum.shapes import MSO_SHAPE
 from pptx.slide import Slide
 from pptx.util import Cm, Pt
 
+from config import CHART_THEMES
+from utils import parse_markdown_style
+
 # 引入 Pydantic 模型
-from core.ppt_schemas import (
+from .schemas import (
+    AxisChartConfig,
     BarChartConfig,
     BaseChartConfig,
     LayoutModel,
@@ -24,27 +25,6 @@ from core.ppt_schemas import (
     RectangleStyleModel,
     TextContentModel,
 )
-
-CHART_THEMES = {
-    "2_orange_green": [RGBColor(255, 192, 0), RGBColor(0, 176, 80)],
-    "2_green_orange": [RGBColor(0, 176, 80), RGBColor(255, 192, 0)],
-    "2_orange_olive": [RGBColor(255, 192, 0), RGBColor(0, 176, 180)],
-    "2_olive_green": [RGBColor(0, 176, 180), RGBColor(0, 176, 80)],
-    "2_white_olive": [RGBColor(255, 255, 255), RGBColor(0, 176, 180)],
-    "2_blue_lightblue": [RGBColor(0, 176, 240), RGBColor(169, 227, 255)],
-    "2_olive_orange": [RGBColor(0, 176, 180), RGBColor(255, 192, 0)],
-    "2_gray_lightblue2": [RGBColor(182, 191, 197), RGBColor(169, 227, 255)],
-    "1_olive": [RGBColor(0, 176, 180)],
-    "1_orange": [RGBColor(255, 192, 0)],
-    "1_gray": [RGBColor(182, 191, 197)],
-    "1_lightblue": [RGBColor(0, 176, 240)],
-    "1_tangerine": [RGBColor(255, 102, 153)],
-    "2_tangerine_gray": [RGBColor(255, 102, 153), RGBColor(182, 191, 197)],
-    "2_gray_tangerine": [RGBColor(182, 191, 197), RGBColor(255, 102, 153)],
-    "2_gray_lightblue": [RGBColor(182, 191, 197), RGBColor(0, 176, 240)],
-    "2_green_gray": [RGBColor(0, 176, 80), RGBColor(182, 191, 197)],
-    "2_olive_gray": [RGBColor(0, 176, 180), RGBColor(182, 191, 197)],
-}
 
 
 class PPTOperations:
@@ -76,19 +56,22 @@ class PPTOperations:
             output_file_path: PPT 保存的目标路径
             template_file_path: 模板路径，如果存在则基于模板加载，否则新建空白 PPT
         """
-        self.output_file_path = str(output_file_path)
-        self.presentation = None
+        self.output_path = Path(output_file_path)
+        self.template_path = Path(template_file_path) if template_file_path else None
+        self.presentation = self._load_presentation()
 
-        # 初始化加载逻辑
-        if template_file_path and os.path.exists(template_file_path):
-            logger.info(f"Loading template PPT: {template_file_path}")
-            self.presentation = Presentation(template_file_path)
-        elif os.path.exists(self.output_file_path):
-            logger.info(f"Loading existing PPT: {self.output_file_path}")
-            self.presentation = Presentation(self.output_file_path)
-        else:
-            logger.info("Creating new blank Presentation object")
-            self.presentation = Presentation()
+    def _load_presentation(self) -> Presentation:
+        """加载或新建 Presentation 对象"""
+        if self.template_path and self.template_path.exists():
+            logger.info(f"Loading template: {self.template_path}")
+            return Presentation(str(self.template_path))
+
+        if self.output_path.exists():
+            logger.info(f"Loading existing PPT: {self.output_path}")
+            return Presentation(str(self.output_path))
+
+        logger.info("Creating new blank Presentation")
+        return Presentation()
 
     def __enter__(self) -> Self:
         return self
@@ -99,15 +82,14 @@ class PPTOperations:
         else:
             logger.error(f"操作过程中发生异常，未保存: {exc_val}")
 
-    def save(self, output_path: str | None = None) -> None:
-        """保存 PPT 文件"""
-        target_path = output_path or self.output_file_path
-        os.makedirs(os.path.dirname(os.path.abspath(target_path)), exist_ok=True)
+    def save(self) -> None:
+        """保存文件，自动创建父目录"""
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
         try:
-            self.presentation.save(target_path)
-            logger.info(f"成功保存 PPT 至: {target_path}")
+            self.presentation.save(str(self.output_path))
+            logger.info(f"PPT saved to: {self.output_path}")
         except Exception as e:
-            logger.error(f"保存 PPT 失败: {e}")
+            logger.error(f"Failed to save PPT: {e}")
             raise
 
     def _get_slide(self, page_number: int) -> Slide:
@@ -145,16 +127,8 @@ class PPTOperations:
             slide_height_cm (float): 幻灯片高度（厘米），默认使用16:9宽屏
         """
         # 使用类常量作为默认值
-        width_cm = (
-            slide_width_cm
-            if slide_width_cm is not None
-            else self.DEFAULT_SLIDE_WIDTH_CM
-        )
-        height_cm = (
-            slide_height_cm
-            if slide_height_cm is not None
-            else self.DEFAULT_SLIDE_HEIGHT_CM
-        )
+        width_cm = slide_width_cm or self.DEFAULT_SLIDE_WIDTH_CM
+        height_cm = slide_height_cm or self.DEFAULT_SLIDE_HEIGHT_CM
 
         # 设置幻灯片尺寸
         self.presentation.slide_width = Cm(width_cm)
@@ -190,53 +164,24 @@ class PPTOperations:
         shape = slide.shapes.add_textbox(
             Cm(layout.left), Cm(layout.top), Cm(layout.width), Cm(layout.height or 1.0)
         )
+
         tf = shape.text_frame
         tf.word_wrap = content.word_wrap
-        # tf.text = content.text
-
-        # # 样式应用
-        # for p in tf.paragraphs:
-        #     p.alignment = layout.alignment.pptx_val
-        #     for run in p.runs:
-        #         run.font.size = Pt(content.font_size)
-        #         run.font.bold = content.font_bold
-        #         run.font.color.rgb = content.font_color.rgb
-        #         pptx_ea_font.set_font(run, content.font_name)
-
-        # logger.info(f"Page {page_num}: 添加文本 '{content.text[:50]}...'")
 
         # 获取第一个段落
         p = tf.paragraphs[0]
         p.alignment = layout.alignment.pptx_val
         p.clear()  # 清除默认产生的空字符，准备从头填充
 
-        # === 核心修改：解析 Markdown 语法 ===
-        # 使用正则将文本按 ** 分割
-        # 例如: "A **B** C" -> ['A ', 'B', ' C']
-
-        parts = re.split(r"\*\*(.*?)\*\*", content.text)
-
-        for i, part in enumerate(parts):
-            # 跳过空字符串
-            if not part:
-                continue
-
+        for segment in parse_markdown_style(content.text):
             # 为每一段创建一个新的 Run
             run = p.add_run()
-            run.text = part
+            run.text = segment.text
 
-            # --- 应用通用样式 (应用到每一个片段) ---
             run.font.size = Pt(content.font_size)
             run.font.color.rgb = content.font_color.rgb
             pptx_ea_font.set_font(run, content.font_name)  # 设置字体
-
-            # --- 应用动态加粗逻辑 ---
-            # 如果索引是奇数 (1, 3, 5...)，说明它原本是在 **...** 里面的，强制加粗
-            if i % 2 == 1:
-                run.font.bold = True
-            else:
-                # 否则使用 content 对象里定义的默认加粗设置
-                run.font.bold = content.font_bold
+            run.font.bold = segment.is_bold or content.font_bold
 
         logger.info(f"Page {page_num}: 添加富文本 '{content.text[:50]}...'")
 
@@ -346,17 +291,18 @@ class PPTOperations:
             layout (LayoutModel): 布局配置
         """
         slide = self._get_slide(page_num)
-        if not os.path.exists(img_path):
-            logger.error(f"图片不存在: {img_path}")
+        path = Path(img_path)
+        if not path.exists():
+            logger.warning(f"Image not found: {path}")
             return
 
         slide.shapes.add_picture(
-            img_path,
+            str(path),
             Cm(layout.left),
             Cm(layout.top),
             width=Cm(layout.width),  # 高度可选，按比例缩放
         )
-        logger.info(f"Page {page_num}: 添加图片 {os.path.basename(img_path)}")
+        logger.info(f"Page {page_num}: 添加图片{path.name}")
 
     def _prepare_chart_data(self, df: pd.DataFrame) -> ChartData:
         """
@@ -388,7 +334,7 @@ class PPTOperations:
         # 图例
         chart.has_legend = config.has_legend
         if config.has_legend:
-            chart.legend.position = XL_LEGEND_POSITION.TOP
+            chart.legend.position = XL_LEGEND_POSITION.BOTTOM
             chart.legend.include_in_layout = False
             chart.legend.font.size = Pt(config.font_size)
 
@@ -410,6 +356,48 @@ class PPTOperations:
                     if hasattr(series.format.line, "color"):
                         series.format.line.color.rgb = colors[i]
 
+    def _create_base_chart(
+        self,
+        page_num: int,
+        layout: LayoutModel,
+        df: pd.DataFrame,
+        chart_type: XL_CHART_TYPE,
+    ):
+        """通用：创建图表骨架"""
+        slide = self._get_slide(page_num)
+        chart_data = self._prepare_chart_data(df)
+
+        graphic_frame = slide.shapes.add_chart(
+            chart_type,
+            Cm(layout.left),
+            Cm(layout.top),
+            Cm(layout.width),
+            Cm(layout.height),
+            chart_data,
+        )
+        return graphic_frame.chart
+
+    def _configure_axes(self, chart, config: AxisChartConfig):
+        """通用：配置坐标轴"""
+        try:
+            # Y轴
+            val_axis = chart.value_axis
+            val_axis.visible = config.y_axis_visible
+            val_axis.tick_labels.font.size = Pt(config.font_size)
+            if config.value_axis_max:
+                val_axis.maximum_scale = config.value_axis_max
+            if config.value_axis_format:
+                val_axis.tick_labels.number_format = config.value_axis_format
+
+            # X轴
+            cat_axis = chart.category_axis
+            cat_axis.visible = config.x_axis_visible
+            cat_axis.tick_labels.font.size = Pt(config.font_size)
+
+        except ValueError:
+            # 某些图表类型（如饼图）没有坐标轴，忽略错误
+            pass
+
     def add_bar_chart(
         self,
         page_num: int,
@@ -428,50 +416,33 @@ class PPTOperations:
             layout (LayoutModel): Pydantic 布局模型
             config (BarChartConfig): Pydantic 图表配置模型
         """
-        slide = self._get_slide(page_num)
-        chart_data = self._prepare_chart_data(df)
-
-        chart_type = XL_CHART_TYPE.COLUMN_CLUSTERED
-        if config.grouping == "stacked":
-            chart_type = XL_CHART_TYPE.COLUMN_STACKED
-
-        graphic_frame = slide.shapes.add_chart(
-            chart_type,
-            Cm(layout.left),
-            Cm(layout.top),
-            Cm(layout.width),
-            Cm(layout.height),
-            chart_data,
+        # 1. 确定类型
+        c_type = (
+            XL_CHART_TYPE.COLUMN_STACKED
+            if config.grouping == "stacked"
+            else XL_CHART_TYPE.COLUMN_CLUSTERED
         )
-        chart = graphic_frame.chart
 
+        # 2. 创建骨架
+        chart = self._create_base_chart(page_num, layout, df, c_type)
+
+        # 3. 应用通用样式 & 坐标轴
         self._apply_chart_formatting(chart, config)
+        self._configure_axes(chart, config)
 
-        # 柱状图特有设置
-        if len(chart.plots) > 0:
-            chart.plots[0].gap_width = config.gap_width
-            chart.plots[0].overlap = config.overlap
+        # 4. 应用柱状图特有属性
+        if chart.plots:
+            plot = chart.plots[0]
+            plot.gap_width = config.gap_width
+            plot.overlap = config.overlap
+
             if config.has_data_labels:
-                chart.plots[0].has_data_labels = True
-                data_label = chart.plots[0].data_labels
-                data_label.font.size = Pt(config.font_size - 1)
-                data_label.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+                plot.has_data_labels = True
+                labels = plot.data_labels
+                labels.font.size = Pt(config.font_size - 1)
+                labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
 
-        # 坐标轴
-        try:
-            val_axis = chart.value_axis
-            val_axis.visible = config.y_axis_visible
-            val_axis.tick_labels.font.size = Pt(config.font_size)
-            if config.value_axis_max:
-                val_axis.maximum_scale = config.value_axis_max
-
-            cat_axis = chart.category_axis
-            cat_axis.visible = config.x_axis_visible
-            cat_axis.tick_labels.font.size = Pt(config.font_size)
-        except Exception as e:
-            logger.warning(f"设置图表坐标轴时发生异常: {e}")
-
-        logger.debug(f"Page {page_num}: 添加柱状图")
+        logger.debug(f"Page {page_num}: Added Bar Chart")
 
     def add_line_chart(
         self,
@@ -491,32 +462,28 @@ class PPTOperations:
             layout (LayoutModel): Pydantic 布局模型
             config (LineChartConfig): Pydantic 图表配置模型
         """
-        slide = self._get_slide(page_num)
-        chart_data = self._prepare_chart_data(df)
-
-        chart_type = (
+        # 1. 确定类型
+        c_type = (
             XL_CHART_TYPE.LINE_MARKERS if config.has_markers else XL_CHART_TYPE.LINE
         )
-        graphic_frame = slide.shapes.add_chart(
-            chart_type,
-            Cm(layout.left),
-            Cm(layout.top),
-            Cm(layout.width),
-            Cm(layout.height),
-            chart_data,
-        )
-        chart = graphic_frame.chart
 
+        # 2. 创建骨架
+        chart = self._create_base_chart(page_num, layout, df, c_type)
+
+        # 3. 应用通用样式 & 坐标轴
         self._apply_chart_formatting(chart, config)
+        self._configure_axes(chart, config)
 
-        if len(chart.plots) > 0:
-            if config.has_data_labels:
-                plot = chart.plots[0]
-                plot.has_data_labels = True
-                data_labels = plot.data_labels
-                data_labels.font.size = Pt(config.font_size)
-                data_labels.position = XL_DATA_LABEL_POSITION.ABOVE
-            # 平滑曲线设置
+        # 4. 应用折线图特有属性
+        if chart.plots:
+            plot = chart.plots[0]
+            data_labels = plot.data_labels
+            data_labels.font.size = Pt(config.font_size)
+            data_labels.position = XL_DATA_LABEL_POSITION.ABOVE
+
+            # 平滑与线宽 (需遍历 series)
             for series in chart.series:
                 series.smooth = config.smooth_line
                 series.format.line.width = Pt(config.line_width)
+
+        logger.debug(f"Page {page_num}: Added Line Chart")
