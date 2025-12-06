@@ -1,17 +1,22 @@
-from dataclasses import dataclass
 from typing import Any
 
 from loguru import logger
 
-from config import LayoutCoordinates
-from core import LayoutType, PresentationContext, TemplateMeta, resource_manager
+from core import (
+    LayoutModel,
+    LayoutType,
+    PresentationContext,
+    TemplateMeta,
+    layout_manager,
+    resource_manager,
+)
 
 
 class SlideElementBuilder:
     """幻灯片元素构建器，负责构建不同类型的元素配置"""
 
     @staticmethod
-    def build_text_element(text: str, role: str, layout: dict) -> dict[str, Any]:
+    def build_text_element(text: str, role: str, layout: LayoutType) -> dict[str, Any]:
         """通用的文本元素构建方法"""
         return {
             "type": "textBox",
@@ -24,7 +29,7 @@ class SlideElementBuilder:
     def build_data_element(
         element_type: str,  # "chart" or "table"
         role: str,
-        layout: dict[str, Any],
+        layout: LayoutModel,
         data_key: str,
         context: PresentationContext,
     ) -> dict[str, Any]:
@@ -33,7 +38,7 @@ class SlideElementBuilder:
             data_payload = context.get_dataset(data_key)
         except ValueError as e:
             logger.error(f"Failed to get data for key '{data_key}': {e}")
-            data_payload = None
+            raise e
 
         return {
             "type": element_type,
@@ -42,65 +47,6 @@ class SlideElementBuilder:
             "data_key": data_key,
             "data_payload": data_payload,
         }
-
-
-@dataclass
-class DataSlotConfig:
-    """定义一个数据槽位的配置"""
-
-    key_name_in_meta: str  # 在 TemplateMeta.data_keys 中的键名 (e.g., "chart_main")
-    layout: dict  # 布局坐标
-    element_type: str  # "chart" or "table"
-    role: str  # 元素的角色 (e.g., "chart-bar")
-
-
-class LayoutStrategyManager:
-    """版式策略管理器：定义每种 LayoutType 需要填充哪些槽位"""
-
-    # 定义布局映射表
-    _STRATEGIES: dict[LayoutType, list[DataSlotConfig]] = {
-        LayoutType.SINGLE_COLUMN_BAR: [
-            DataSlotConfig(
-                "chart_main", LayoutCoordinates.CHART_SINGLE, "chart", "chart-bar"
-            )
-        ],
-        LayoutType.SINGLE_COLUMN_LINE: [
-            DataSlotConfig(
-                "chart_main", LayoutCoordinates.CHART_SINGLE, "chart", "chart-line"
-            )
-        ],
-        LayoutType.DOUBLE_COLUMN_BAR: [
-            DataSlotConfig(
-                "chart_left", LayoutCoordinates.CHART_DOUBLE_LEFT, "chart", "chart-bar"
-            ),
-            DataSlotConfig(
-                "chart_right",
-                LayoutCoordinates.CHART_DOUBLE_RIGHT,
-                "chart",
-                "chart-bar",
-            ),
-        ],
-        LayoutType.DOUBLE_COLUMN_LINE: [
-            DataSlotConfig(
-                "chart_left", LayoutCoordinates.CHART_DOUBLE_LEFT, "chart", "chart-line"
-            ),
-            DataSlotConfig(
-                "chart_right",
-                LayoutCoordinates.CHART_DOUBLE_RIGHT,
-                "chart",
-                "chart-line",
-            ),
-        ],
-        LayoutType.SINGLE_COLUMN_TABLE: [
-            DataSlotConfig(
-                "table_main", LayoutCoordinates.TABLE_MAIN, "table", "table-main"
-            )
-        ],
-    }
-
-    @classmethod
-    def get_slots(cls, layout_type: LayoutType) -> list[DataSlotConfig]:
-        return cls._STRATEGIES.get(layout_type, [])
 
 
 class SlideConfigBuilder:
@@ -148,6 +94,7 @@ class SlideConfigBuilder:
         return {
             "layout_type": template_metadata.layout_type,
             "template_slide": {"elements": elements},
+            "style_id": template_metadata.style_config_id,
         }
 
     def _build_static_elements(
@@ -156,19 +103,21 @@ class SlideConfigBuilder:
         """构建标题、描述等静态文本"""
         # 定义需要渲染的文本字段
         text_fields = [
-            ("slide_title", "slide-title", LayoutCoordinates.TITLE, None),
-            ("caption", "caption", LayoutCoordinates.CAPTION, None),
-            ("summary", "body-text", LayoutCoordinates.DESCRIPTION, meta.summary_item),
+            ("slide_title", "slide-title", "slide_title", None),
+            ("caption", "caption", "caption", None),
+            ("summary", "body-text", "description", meta.summary_item),
         ]
 
         elements = []
-        for func_role, element_role, layout, item_key in text_fields:
+        for func_role, element_role, common_key, item_key in text_fields:
             text_content = resource_manager.render_text(
                 meta.theme_key, meta.function_key, func_role, ctx.variables, item_key
             )
+            layout_model = layout_manager.get_common_layout(common_key)
+
             elements.append(
                 SlideElementBuilder.build_text_element(
-                    text_content, element_role, layout
+                    text_content, element_role, layout_model
                 )
             )
         return elements
@@ -183,7 +132,7 @@ class SlideConfigBuilder:
         核心优化点：
         不再写一堆 if-else，而是根据 LayoutType 获取槽位配置列表，通用处理。
         """
-        slots = LayoutStrategyManager.get_slots(meta.layout_type)
+        slots = layout_manager.get_layout_slots(meta.layout_type)
 
         if not slots:
             logger.warning(f"No layout strategy defined for: {meta.layout_type}")
@@ -192,18 +141,21 @@ class SlideConfigBuilder:
         for slot in slots:
             # 从模板元数据的 data_keys 中查找实际的数据 Key
             # 例如: meta.data_keys["chart_main"] -> "Actual_Dataset_Key_001"
-            actual_data_key = meta.data_keys.get(slot.key_name_in_meta)
+            actual_data_key = meta.data_keys.get(slot.name)
+            layout = LayoutModel.model_validate(
+                slot.model_dump(by_alias=False, exclude={"name", "type", "role"})
+            )
 
             if actual_data_key:
                 element = SlideElementBuilder.build_data_element(
-                    element_type=slot.element_type,
+                    element_type=slot.type,
                     role=slot.role,
-                    layout=slot.layout,
+                    layout=layout,
                     data_key=actual_data_key,
                     context=ctx,
                 )
                 elements.append(element)
             else:
                 logger.warning(
-                    f"Missing data mapping for slot '{slot.key_name_in_meta}' in template {meta.uid}"
+                    f"Missing data mapping for slot '{slot.name}' in template {meta.uid}"
                 )

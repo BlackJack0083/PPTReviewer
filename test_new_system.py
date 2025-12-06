@@ -3,6 +3,7 @@
 测试新架构的PPT生成系统
 """
 
+import traceback
 from pathlib import Path
 
 import pandas as pd
@@ -22,9 +23,10 @@ def load_csv_data():
 
         # 设置第一列为索引
         df = df.set_index(df.columns[0])
-        logger.info(f"数据预览:\n{df.head()}")
+        df_transposed = df.T
+        logger.info(f"数据预览:\n{df_transposed.head()}")
 
-        return df
+        return df_transposed
     except Exception as e:
         logger.error(f"加载CSV失败: {e}")
         return None
@@ -55,8 +57,8 @@ def test_ppt_generation():
         context.add_variable("Seg_SupplyDemand_Upgrade_Area", "140-160")
 
         # 使用新模板生成PPT
-        template_id = "T01_Supply_Trans_Bar"
-        output_file = "output/test_new_system.pptx"
+        template_id = "T02_Supply_Trans_Line"
+        output_file = "output/test_new_system_line.pptx"
 
         engine = PPTGenerationEngine(output_file)
 
@@ -68,7 +70,6 @@ def test_ppt_generation():
 
     except Exception as e:
         logger.error(f"PPT生成失败: {e}")
-        import traceback
 
         traceback.print_exc()
         return False

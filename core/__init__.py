@@ -1,4 +1,5 @@
 from .context import PresentationContext
+from .layout_manager import layout_manager
 from .ppt_operations import PPTOperations
 from .resources import TemplateMeta, resource_manager
 from .schemas import (
@@ -7,12 +8,16 @@ from .schemas import (
     BarChartConfig,
     BaseChartConfig,
     Color,
+    GlobalLayoutConfig,
+    LayoutConfig,
     LayoutModel,
     LayoutType,
     LineChartConfig,
     RectangleStyleModel,
+    SlotDefinition,
     TextContentModel,
 )
+from .style_manager import style_manager
 
 __all__ = [
     "PPTOperations",
@@ -29,4 +34,9 @@ __all__ = [
     "PresentationContext",
     "resource_manager",
     "TemplateMeta",
+    "SlotDefinition",
+    "GlobalLayoutConfig",
+    "LayoutConfig",
+    "layout_manager",
+    "style_manager",
 ]

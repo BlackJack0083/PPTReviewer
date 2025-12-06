@@ -3,7 +3,7 @@ from enum import StrEnum
 
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Align(StrEnum):
@@ -75,11 +75,30 @@ class LayoutModel(BaseModel):
         alignment (Align): 对齐方式
     """
 
-    left: float = Field(..., description="左边距 (cm)")
-    top: float = Field(..., description="上边距 (cm)")
+    model_config = ConfigDict(validate_by_name=True)
+
+    left: float = Field(..., alias="x", description="左边距 (cm)")
+    top: float = Field(..., alias="y", description="上边距 (cm)")
     width: float = Field(..., description="宽度 (cm)")
     height: float | None = Field(None, description="高度 (cm)")
     alignment: Align | None = Field(Align.LEFT, description="对齐方式")  # 文本对齐方式
+
+
+class SlotDefinition(LayoutModel):
+    """槽位定义，继承了坐标信息"""
+
+    name: str
+    type: str
+    role: str
+
+
+class LayoutConfig(BaseModel):
+    slots: list[SlotDefinition]
+
+
+class GlobalLayoutConfig(BaseModel):
+    common: dict[str, LayoutModel]  # 通用元素也直接用 LayoutModel
+    layouts: dict[str, LayoutConfig]
 
 
 class TextContentModel(BaseModel):
@@ -150,8 +169,8 @@ class RectangleStyleModel(BaseModel):
     """矩形样式模型
 
     Args:
-        fore_color (str): 填充色
-        line_color (str): 边框色
+        fore_color (Color): 填充色
+        line_color (Color): 边框色
         line_width (float): 边框宽度
         rotation (float): 旋转角度
         is_background (bool): 是否作为背景

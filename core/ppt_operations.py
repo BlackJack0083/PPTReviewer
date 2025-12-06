@@ -255,6 +255,9 @@ class PPTOperations:
         """
         slide = self._get_slide(page_num)
 
+        if style is None:
+            style = RectangleStyleModel()
+
         # 添加形状
         shape = slide.shapes.add_shape(
             MSO_SHAPE.RECTANGLE,
@@ -441,6 +444,8 @@ class PPTOperations:
                 labels = plot.data_labels
                 labels.font.size = Pt(config.font_size - 1)
                 labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+            else:
+                plot.has_data_labels = False
 
         logger.debug(f"Page {page_num}: Added Bar Chart")
 
@@ -477,9 +482,13 @@ class PPTOperations:
         # 4. 应用折线图特有属性
         if chart.plots:
             plot = chart.plots[0]
-            data_labels = plot.data_labels
-            data_labels.font.size = Pt(config.font_size)
-            data_labels.position = XL_DATA_LABEL_POSITION.ABOVE
+            if config.has_data_labels:
+                plot.has_data_labels = True
+                data_labels = plot.data_labels
+                data_labels.font.size = Pt(config.font_size)
+                data_labels.position = XL_DATA_LABEL_POSITION.ABOVE
+            else:
+                plot.has_data_labels = False
 
             # 平滑与线宽 (需遍历 series)
             for series in chart.series:

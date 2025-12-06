@@ -135,7 +135,7 @@ class PPTGenerationEngine:
             renderer = RendererFactory.get_renderer(layout_type, ppt_ops)
 
             # 4. 执行渲染 (Renderer)
-            renderer.render(slide_config["template_slide"], page_number=page_number)
+            renderer.render(slide_config, page_number=page_number)
 
         except Exception as e:
             # 捕获单页错误，记录日志，选择是否抛出 (这里选择抛出以中断流程，也可改为 continue 跳过错误页)

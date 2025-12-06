@@ -4,94 +4,13 @@ import pandas as pd
 from loguru import logger
 
 from core import (
-    Align,
-    BarChartConfig,
     Color,
-    LayoutModel,
     LayoutType,
-    LineChartConfig,
     PPTOperations,
     RectangleStyleModel,
     TextContentModel,
+    style_manager,
 )
-
-
-class StyleConfigManager:
-    """样式配置管理器"""
-
-    @staticmethod
-    def get_bar_chart_config(layout_type: LayoutType) -> BarChartConfig:
-        """根据版式类型返回对应的柱状图配置"""
-        # 默认基础配置
-        base_config = {
-            "font_name": "Arial",
-            "has_legend": True,
-            "has_data_labels": True,
-            "title": None,
-            "grouping": "clustered",
-            "overlap": 0,
-        }
-
-        if layout_type == LayoutType.SINGLE_COLUMN_BAR:
-            return BarChartConfig(
-                style_name="2_orange_green",
-                font_size=11,
-                y_axis_visible=False,
-                gap_width=150,
-                **base_config,
-            )
-        elif layout_type == LayoutType.DOUBLE_COLUMN_BAR:
-            return BarChartConfig(
-                style_name="2_tangerine_gray",
-                font_size=12,
-                y_axis_visible=False,
-                gap_width=100,
-                **base_config,
-            )
-        # 默认回退配置
-        return BarChartConfig(
-            style_name="default",
-            font_size=11,
-            y_axis_visible=True,
-            gap_width=150,
-            **base_config,
-        )
-
-    @staticmethod
-    def get_line_chart_config(layout_type: LayoutType) -> LineChartConfig:
-        """根据版式类型返回对应的折线图配置"""
-        base_config = {
-            "font_name": "Arial",
-            "has_legend": True,
-            "has_data_labels": True,
-            "title": None,
-            "y_axis_visible": True,
-            "has_markers": True,
-        }
-
-        if layout_type == LayoutType.SINGLE_COLUMN_LINE:
-            return LineChartConfig(
-                style_name="growth_trend",
-                font_size=11,
-                smooth_line=True,
-                line_width=2.25,
-                **base_config,
-            )
-        elif layout_type == LayoutType.DOUBLE_COLUMN_LINE:
-            return LineChartConfig(
-                style_name="business_blue",
-                font_size=12,
-                smooth_line=False,
-                line_width=2.0,
-                **base_config,
-            )
-        return LineChartConfig(
-            style_name="default",
-            font_size=11,
-            smooth_line=True,
-            line_width=2.25,
-            **base_config,
-        )
 
 
 class BaseSlideRenderer:
@@ -123,7 +42,10 @@ class BaseSlideRenderer:
             slide_configuration: 幻灯片配置字典
             page_number: 幻灯片页码（从1开始）
         """
-        elements = slide_configuration.get("elements", [])
+        self.current_style_id = slide_configuration.get("style_id", "default")
+
+        template_payload = slide_configuration.get("template_slide", {})
+        elements = template_payload.get("elements", [])
         if not elements:
             logger.warning(f"No elements to render for page {page_number}")
             return
@@ -161,24 +83,6 @@ class BaseSlideRenderer:
         else:
             logger.warning(f"Unknown element type: {element_type}")
 
-    def _map_layout(self, layout_config: dict[str, Any]) -> LayoutModel:
-        """
-        将布局配置转换为 LayoutModel
-
-        Args:
-            layout_config: 布局配置字典
-
-        Returns:
-            LayoutModel: 标准化的布局模型
-        """
-        return LayoutModel(
-            left=layout_config.get("x", 0),
-            top=layout_config.get("y", 0),
-            width=layout_config.get("width", 0),
-            height=layout_config.get("height", 0),
-            alignment=Align.LEFT,
-        )
-
     # --- 辅助方法：统一数据校验 ---
     def _validate_and_get_data(
         self, element: dict[str, Any], role: str
@@ -203,7 +107,7 @@ class BaseSlideRenderer:
         """
         text_content = element.get("text", "")
         element_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
+        layout = element.get("layout", {})
 
         # 根据角色确定样式
         font_size, font_bold, font_color = self._get_text_style_by_role(element_role)
@@ -248,7 +152,7 @@ class BaseSlideRenderer:
             element: 图表元素配置
         """
         chart_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
+        layout = element.get("layout", {})
 
         # 获取并校验数据
         chart_data = self._validate_and_get_data(element, chart_role)
@@ -257,10 +161,10 @@ class BaseSlideRenderer:
 
         # 2. 根据 layout_type 或 role 路由到具体的图表类型
         if "bar" in chart_role.lower():
-            config = StyleConfigManager.get_bar_chart_config(self.layout_type)
+            config = style_manager.get_bar_style(self.current_style_id)
             self.ppt_operations.add_bar_chart(page_number, chart_data, layout, config)
         elif "line" in chart_role.lower():
-            config = StyleConfigManager.get_line_chart_config(self.layout_type)
+            config = style_manager.get_line_style(self.current_style_id)
             self.ppt_operations.add_line_chart(page_number, chart_data, layout, config)
         else:
             logger.warning(f"Unknown chart role: {chart_role}")
@@ -274,7 +178,7 @@ class BaseSlideRenderer:
             element: 表格元素配置
         """
         table_role = element.get("role", "")
-        layout = self._map_layout(element.get("layout", {}))
+        layout = element.get("layout", {})
 
         # 获取表格数据
         table_data = self._validate_and_get_data(element, table_role)
@@ -287,7 +191,7 @@ class BaseSlideRenderer:
         font_size = 12 if self.layout_type == LayoutType.DOUBLE_COLUMN_LINE else 11
 
         self.ppt_operations.add_table(
-            page_number=page_number,
+            page_num=page_number,
             layout=layout,
             data=table_data,
             font_name=font_name,
@@ -302,7 +206,7 @@ class BaseSlideRenderer:
             page_number: 幻灯片页码
             element: 矩形元素配置
         """
-        layout = self._map_layout(element.get("layout", {}))
+        layout = element.get("layout", {})
 
         # 默认矩形样式
         style = RectangleStyleModel(
@@ -324,7 +228,7 @@ class BaseSlideRenderer:
             element: 图片元素配置
         """
         image_path = element.get("image_path", "")
-        layout = self._map_layout(element.get("layout", {}))
+        layout = element.get("layout", {})
 
         if not image_path:
             logger.warning("No image path provided")

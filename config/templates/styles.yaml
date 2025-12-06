@@ -1,0 +1,49 @@
+# 1. 柱状图样式定义
+bar_configs:
+  # 原来的 Single Column Bar 样式
+  marketing_orange_green:
+    style_name: "2_orange_green"  # 对应 constants.py 里的配色名
+    font_name: "Arial"
+    font_size: 11
+    gap_width: 150
+    overlap: 0
+    has_legend: true
+    has_data_labels: true
+    y_axis_visible: false
+    grouping: "clustered"
+
+  # 原来的 Double Column Bar 样式
+  compare_tangerine_gray:
+    style_name: "2_tangerine_gray"
+    font_name: "Arial"
+    font_size: 12
+    gap_width: 100
+    overlap: 0
+    has_legend: true
+    has_data_labels: true
+    y_axis_visible: false
+    grouping: "clustered"
+
+# 2. 折线图样式定义
+line_configs:
+  # 原来的 Single Column Line 样式
+  marketing_orange_green:
+    style_name: "2_orange_green"
+    font_name: "Arial"
+    font_size: 11
+    line_width: 2.25
+    smooth_line: true
+    has_markers: true
+    has_legend: true
+    has_data_labels: false
+    y_axis_visible: true
+
+  # 原来的 Double Column Line 样式
+  business_blue_solid:
+    style_name: "2_blue_lightblue"
+    font_name: "Arial"
+    font_size: 12
+    line_width: 2.0
+    smooth_line: false
+    has_markers: true
+    y_axis_visible: true

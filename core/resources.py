@@ -7,7 +7,8 @@ from jinja2 import Template
 from loguru import logger
 
 from config import setting
-from core import LayoutType
+
+from .schemas import LayoutType
 
 
 @dataclass
@@ -16,6 +17,7 @@ class TemplateMeta:
 
     uid: str
     layout_type: LayoutType
+    style_config_id: str  # 对应 styles.yaml 的 Style
     theme_key: str  # 对应 text_pattern.yaml 的 Theme
     function_key: str  # 对应 text_pattern.yaml 的 Function
     summary_item: int  # 对应 text_pattern.yaml 的 Summaries 索引
@@ -76,6 +78,7 @@ class ResourceManager:
                 meta = TemplateMeta(
                     uid=item["uid"],
                     layout_type=LayoutType(item["layout_type"]),
+                    style_config_id=item["style_config_id"],
                     theme_key=item["theme_key"],
                     function_key=item["function_key"],
                     summary_item=item["summary_item"],
