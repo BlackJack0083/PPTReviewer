@@ -1,9 +1,34 @@
 # ppt_schemas.py
 from enum import StrEnum
+from typing import Literal
 
+import pandas as pd
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pydantic import BaseModel, ConfigDict, Field
+
+
+class QueryFilter(BaseModel):
+    """
+    查询过滤条件对象
+    """
+
+    city: str
+    block: str
+    start_date: str
+    end_date: str
+    table_name: str
+
+    @property
+    def sql_params(self) -> dict:
+        """转换为 SQL 参数"""
+        return {
+            "city": self.city,
+            "block": self.block,
+            "start_date": self.start_date,
+            "end_date": self.end_date,
+            "table_name": self.table_name,
+        }
 
 
 class Align(StrEnum):
@@ -101,24 +126,26 @@ class GlobalLayoutConfig(BaseModel):
     layouts: dict[str, LayoutConfig]
 
 
-class TextContentModel(BaseModel):
-    """文本内容模型
-
-    Args:
-        text (str): 文本内容
-        font_size (int): 字号
-        font_bold (bool): 是否加粗
-        font_name (str): 字体名称
-        font_color (str): 字体颜色
-        word_wrap (bool): 是否自动换行
+class TextStyleDefinition(BaseModel):
+    """
+    纯样式定义 (不包含具体文本内容)
+    用于 styles.yaml 加载配置
     """
 
-    text: str = Field(..., description="文本内容")
     font_size: int = Field(18, description="字号")
     font_bold: bool = Field(True, description="是否加粗")
     font_name: str = Field("方正兰亭黑_GBK", description="字体名称")
     font_color: Color = Field(Color.BLACK, description="字体颜色")
     word_wrap: bool = Field(True, description="是否自动换行")
+
+
+class TextContentModel(TextStyleDefinition):
+    """
+    文本内容模型 = 样式 + 文本
+    继承自 TextStyleDefinition，自动拥有 font_size 等字段
+    """
+
+    text: str = Field(..., description="文本内容")
 
 
 class BaseChartConfig(BaseModel):
@@ -181,3 +208,68 @@ class RectangleStyleModel(BaseModel):
     line_width: float = Field(0, description="边框宽度")
     rotation: float = Field(0, description="旋转角度")
     is_background: bool = Field(False, description="是否作为背景")
+
+
+class ElementType(StrEnum):
+    TEXT = "textBox"
+    CHART = "chart"
+    TABLE = "table"
+    RECTANGLE = "rectangle"
+    PICTURE = "picture"
+
+
+class BaseSlideElement(BaseModel):
+    """所有幻灯片元素的基类"""
+
+    role: str
+    layout: LayoutModel
+
+    # 允许 Pydantic 接受 pandas DataFrame 这种非标准 JSON 类型
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
+class TextElement(BaseSlideElement):
+    """文本元素模型"""
+
+    type: Literal[ElementType.TEXT] = ElementType.TEXT
+    text: str
+
+
+class DataElement(BaseSlideElement):
+    """数据驱动元素 (图表/表格) 模型"""
+
+    # 这里定义 data_key 必须存在，防止你在 Builder 里拼错
+    data_key: str
+    # 强制要求 payload 是 DataFrame，而不是随便什么 list 或 dict
+    data_payload: pd.DataFrame
+
+
+class ChartElement(DataElement):
+    type: Literal[ElementType.CHART] = ElementType.CHART
+
+
+class TableElement(DataElement):
+    type: Literal[ElementType.TABLE] = ElementType.TABLE
+
+
+class RectangleElement(BaseSlideElement):
+    type: Literal[ElementType.RECTANGLE] = ElementType.RECTANGLE
+    # 可以添加 specific 属性，如 color, border 等
+
+
+class PictureElement(BaseSlideElement):
+    type: Literal[ElementType.PICTURE] = ElementType.PICTURE
+    image_path: str
+
+
+RenderableElement = (
+    TextElement | ChartElement | TableElement | RectangleElement | PictureElement
+)
+
+
+class SlideRenderConfig(BaseModel):
+    """单页幻灯片的完整渲染配置"""
+
+    layout_type: LayoutType
+    style_id: str
+    elements: list[RenderableElement]

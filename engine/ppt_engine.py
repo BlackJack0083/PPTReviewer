@@ -131,7 +131,7 @@ class PPTGenerationEngine:
             slide_config = self.slide_config_builder.build(target_id, task.context)
 
             # 3. 获取渲染器 (Factory)
-            layout_type = slide_config["layout_type"]
+            layout_type = slide_config.layout_type
             renderer = RendererFactory.get_renderer(layout_type, ppt_ops)
 
             # 4. 执行渲染 (Renderer)

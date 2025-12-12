@@ -13,6 +13,8 @@ dependencies = [
     "pyyaml>=6.0.3",
     "jinja2>=3.1.6",
     "python-dotenv>=1.2.1",
+    "sqlalchemy>=2.0.45",
+    "psycopg2-binary>=2.9.11",
 ]
 
 [project.optional-dependencies]
@@ -40,7 +42,8 @@ select = [
     "PYI", # flake8-pyi
 ]
 ignore = [
-    "E501" # line-too-long
+    "E501", # line-too-long
+    "S608"
 ]
 
 [tool.commitizen]

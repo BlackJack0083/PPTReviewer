@@ -1,6 +1,5 @@
 from typing import Any
 
-import pandas as pd
 from loguru import logger
 
 from core import (
@@ -10,6 +9,13 @@ from core import (
     RectangleStyleModel,
     TextContentModel,
     style_manager,
+)
+from core.schemas import (
+    ChartElement,
+    RenderableElement,
+    SlideRenderConfig,
+    TableElement,
+    TextElement,
 )
 
 
@@ -34,7 +40,7 @@ class BaseSlideRenderer:
         self.ppt_operations = ppt_operations
         self.layout_type = layout_type
 
-    def render(self, slide_configuration: dict[str, Any], page_number: int) -> None:
+    def render(self, slide_configuration: SlideRenderConfig, page_number: int) -> None:
         """
         主渲染入口
 
@@ -42,10 +48,10 @@ class BaseSlideRenderer:
             slide_configuration: 幻灯片配置字典
             page_number: 幻灯片页码（从1开始）
         """
-        self.current_style_id = slide_configuration.get("style_id", "default")
+        self.current_style_id = slide_configuration.style_id
 
-        template_payload = slide_configuration.get("template_slide", {})
-        elements = template_payload.get("elements", [])
+        elements = slide_configuration.elements
+
         if not elements:
             logger.warning(f"No elements to render for page {page_number}")
             return
@@ -59,7 +65,7 @@ class BaseSlideRenderer:
                 logger.error(f"Failed to render element on page {page_number}: {e}")
                 # 继续渲染其他元素，不因单个元素失败而中断整个渲染过程
 
-    def _render_element(self, page_number: int, element: dict[str, Any]) -> None:
+    def _render_element(self, page_number: int, element: RenderableElement) -> None:
         """
         根据元素类型分发到具体的渲染方法，使用字典分发
 
@@ -67,37 +73,21 @@ class BaseSlideRenderer:
             page_number: 幻灯片页码
             element: 元素配置字典
         """
-        render_methods = {
-            "textBox": self._render_text_box,
-            "chart": self._render_chart,
-            "table": self._render_table,
-            "rectangle": self._render_rectangle,
-            "picture": self._render_picture,
-        }
+        match element:
+            case TextElement():
+                self._render_text_box(page_number, element)
 
-        element_type = element.get("type")
-        handler = render_methods.get(element_type)
+            case ChartElement():
+                self._render_chart(page_number, element)
 
-        if handler:
-            handler(page_number, element)
-        else:
-            logger.warning(f"Unknown element type: {element_type}")
+            case TableElement():
+                self._render_table(page_number, element)
 
-    # --- 辅助方法：统一数据校验 ---
-    def _validate_and_get_data(
-        self, element: dict[str, Any], role: str
-    ) -> pd.DataFrame | None:
-        """统一的数据获取与校验逻辑"""
-        data = element.get("data_payload")
-        if data is None:
-            logger.warning(f"No data provided for element: {role}")
-            return None
-        if not isinstance(data, pd.DataFrame):
-            logger.error(f"Data must be a DataFrame, got {type(data)} for {role}")
-            return None
-        return data
+            case _:
+                logger.warning(f"Unknown element type: {type(element)}")
+                raise ValueError(f"Unknown element type: {type(element)}")
 
-    def _render_text_box(self, page_number: int, element: dict[str, Any]) -> None:
+    def _render_text_box(self, page_number: int, element: TextElement) -> None:
         """
         渲染文本框
 
@@ -105,26 +95,16 @@ class BaseSlideRenderer:
             page_number: 幻灯片页码
             element: 文本框元素配置
         """
-        text_content = element.get("text", "")
-        element_role = element.get("role", "")
-        layout = element.get("layout", {})
+        # 1. 从 StyleManager 获取样式对象 (TextStyleDefinition)
+        style_def = style_manager.get_text_style(self.current_style_id, element.role)
 
-        # 根据角色确定样式
-        font_size, font_bold, font_color = self._get_text_style_by_role(element_role)
+        # 2. 合并样式与文本内容
+        # 利用 Pydantic 的 model_dump() 将样式对象转为字典，然后解包传入
+        content_model = TextContentModel(text=element.text, **style_def.model_dump())
 
-        content_model = TextContentModel(
-            text=str(text_content),
-            font_size=font_size,
-            font_bold=font_bold,
-            font_color=font_color,
-            word_wrap=True,
-        )
+        self.ppt_operations.add_text_box(page_number, content_model, element.layout)
 
-        self.ppt_operations.add_text_box(page_number, content_model, layout)
-
-    def _get_text_style_by_role(
-        self, role: str
-    ) -> tuple[int, bool, Color]:  # noqa: SIM11
+    def _get_text_style_by_role(self, role: str) -> tuple[int, bool, Color]:
         """
         根据角色获取文本样式
 
@@ -143,7 +123,7 @@ class BaseSlideRenderer:
 
         return role_styles.get(role, (12, False, Color.BLACK))
 
-    def _render_chart(self, page_number: int, element: dict[str, Any]) -> None:
+    def _render_chart(self, page_number: int, element: ChartElement) -> None:
         """
         渲染图表（基类默认实现）
 
@@ -151,25 +131,24 @@ class BaseSlideRenderer:
             page_number: 幻灯片页码
             element: 图表元素配置
         """
-        chart_role = element.get("role", "")
-        layout = element.get("layout", {})
-
-        # 获取并校验数据
-        chart_data = self._validate_and_get_data(element, chart_role)
-        if chart_data is None:
-            return
+        chart_role = element.role
+        chart_data = element.data_payload
 
         # 2. 根据 layout_type 或 role 路由到具体的图表类型
         if "bar" in chart_role.lower():
             config = style_manager.get_bar_style(self.current_style_id)
-            self.ppt_operations.add_bar_chart(page_number, chart_data, layout, config)
+            self.ppt_operations.add_bar_chart(
+                page_number, chart_data, element.layout, config
+            )
         elif "line" in chart_role.lower():
             config = style_manager.get_line_style(self.current_style_id)
-            self.ppt_operations.add_line_chart(page_number, chart_data, layout, config)
+            self.ppt_operations.add_line_chart(
+                page_number, chart_data, element.layout, config
+            )
         else:
             logger.warning(f"Unknown chart role: {chart_role}")
 
-    def _render_table(self, page_number: int, element: dict[str, Any]) -> None:
+    def _render_table(self, page_number: int, element: TableElement) -> None:
         """
         渲染表格
 
@@ -177,13 +156,7 @@ class BaseSlideRenderer:
             page_number: 幻灯片页码
             element: 表格元素配置
         """
-        table_role = element.get("role", "")
-        layout = element.get("layout", {})
-
-        # 获取表格数据
-        table_data = self._validate_and_get_data(element, table_role)
-        if table_data is None:
-            return
+        table_data = element.data_payload
 
         # 默认表格样式
         font_name = "微软雅黑"
@@ -192,7 +165,7 @@ class BaseSlideRenderer:
 
         self.ppt_operations.add_table(
             page_num=page_number,
-            layout=layout,
+            layout=element.layout,
             data=table_data,
             font_name=font_name,
             font_size=font_size,

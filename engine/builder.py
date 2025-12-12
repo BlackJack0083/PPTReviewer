@@ -1,14 +1,19 @@
-from typing import Any
-
 from loguru import logger
 
 from core import (
     LayoutModel,
-    LayoutType,
     PresentationContext,
     TemplateMeta,
     layout_manager,
     resource_manager,
+)
+from core.schemas import (
+    ChartElement,
+    ElementType,
+    RenderableElement,
+    SlideRenderConfig,
+    TableElement,
+    TextElement,
 )
 
 
@@ -16,14 +21,9 @@ class SlideElementBuilder:
     """幻灯片元素构建器，负责构建不同类型的元素配置"""
 
     @staticmethod
-    def build_text_element(text: str, role: str, layout: LayoutType) -> dict[str, Any]:
+    def build_text_element(text: str, role: str, layout: LayoutModel) -> TextElement:
         """通用的文本元素构建方法"""
-        return {
-            "type": "textBox",
-            "role": role,
-            "text": text,
-            "layout": layout,
-        }
+        return TextElement(role=role, text=str(text), layout=layout)  # 强转确保类型安全
 
     @staticmethod
     def build_data_element(
@@ -32,7 +32,7 @@ class SlideElementBuilder:
         layout: LayoutModel,
         data_key: str,
         context: PresentationContext,
-    ) -> dict[str, Any]:
+    ) -> ChartElement | TableElement:
         """通用的数据元素构建方法 (合并了图表和表格)"""
         try:
             data_payload = context.get_dataset(data_key)
@@ -40,13 +40,16 @@ class SlideElementBuilder:
             logger.error(f"Failed to get data for key '{data_key}': {e}")
             raise e
 
-        return {
-            "type": element_type,
-            "role": role,
-            "layout": layout,
-            "data_key": data_key,
-            "data_payload": data_payload,
-        }
+        if element_type == ElementType.CHART:
+            return ChartElement(
+                role=role, layout=layout, data_key=data_key, data_payload=data_payload
+            )
+        elif element_type == ElementType.TABLE:
+            return TableElement(
+                role=role, layout=layout, data_key=data_key, data_payload=data_payload
+            )
+        else:
+            raise ValueError(f"Unsupported data element type: {element_type}")
 
 
 class SlideConfigBuilder:
@@ -65,7 +68,7 @@ class SlideConfigBuilder:
         self,
         template_id: str,
         presentation_context: PresentationContext,
-    ) -> dict[str, Any]:
+    ) -> SlideRenderConfig:
         """
         构建幻灯片渲染配置
 
@@ -91,15 +94,15 @@ class SlideConfigBuilder:
         # 2. 动态注入数据元素 (根据 LayoutType 自动处理)
         self._inject_data_elements(elements, template_metadata, presentation_context)
 
-        return {
-            "layout_type": template_metadata.layout_type,
-            "template_slide": {"elements": elements},
-            "style_id": template_metadata.style_config_id,
-        }
+        return SlideRenderConfig(
+            layout_type=template_metadata.layout_type,
+            style_id=template_metadata.style_config_id,
+            elements=elements,
+        )
 
     def _build_static_elements(
         self, meta: TemplateMeta, ctx: PresentationContext
-    ) -> list[dict[str, Any]]:
+    ) -> list[RenderableElement]:
         """构建标题、描述等静态文本"""
         # 定义需要渲染的文本字段
         text_fields = [
@@ -124,7 +127,7 @@ class SlideConfigBuilder:
 
     def _inject_data_elements(
         self,
-        elements: list[dict[str, Any]],
+        elements: list[RenderableElement],
         meta: TemplateMeta,
         ctx: PresentationContext,
     ) -> None:

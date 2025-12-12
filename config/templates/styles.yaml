@@ -47,3 +47,21 @@ line_configs:
     smooth_line: false
     has_markers: true
     y_axis_visible: true
+
+# 新增：文本配置
+text_configs:
+  default:
+    slide-title:
+      font_size: 24
+      font_bold: true
+      font_color: "黑色" # 对应 Color.BLACK
+      font_name: "方正兰亭黑_GBK"
+
+    body-text:
+      font_size: 14
+      font_bold: false
+      font_color: "深蓝" # 对应 Color.DARK_BLUE
+
+    caption:
+      font_size: 10
+      font_color: "灰色"
