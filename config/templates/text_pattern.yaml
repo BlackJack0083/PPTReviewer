@@ -24,7 +24,7 @@
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Area and Total Price Cross Statistics
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** units...
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** units were transacted, with the **{{ Seg_Price_Stratum_Modal }}** price segment and **{{ Seg_Area_Stratum_Modal }}** area segment having the highest transactions at **{{ Metric_Transaction_Velocity_Peak }}** units.
       - >-
         Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in  **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** m² and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
       - >-

@@ -51,6 +51,8 @@ class BaseSlideRenderer:
         self.current_style_id = slide_configuration.style_id
 
         elements = slide_configuration.elements
+        logger.debug(f"Rendering slide {page_number} with layout {self.layout_type}")
+        logger.debug(f"Slide elements: {elements}")
 
         if not elements:
             logger.warning(f"No elements to render for page {page_number}")
@@ -161,7 +163,7 @@ class BaseSlideRenderer:
         # 默认表格样式
         font_name = "微软雅黑"
         # 根据版式决定字体大小（如果需要在不同版式下有不同表格样式，也可以移入 ConfigManager）
-        font_size = 12 if self.layout_type == LayoutType.DOUBLE_COLUMN_LINE else 11
+        font_size = 6
 
         self.ppt_operations.add_table(
             page_num=page_number,

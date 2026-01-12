@@ -25,7 +25,7 @@ class RealEstateDAO:
               AND block = :block
               AND date_code >= :start_date
               AND date_code <= :end_date
-        """ # nosec
+        """  # nosec
 
         logger.debug(f"Executing Query on {filters.table_name}...")
         return db_manager.query(sql, filters.sql_params)

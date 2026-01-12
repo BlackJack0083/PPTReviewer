@@ -310,15 +310,27 @@ class PPTOperations:
     def _prepare_chart_data(self, df: pd.DataFrame) -> ChartData:
         """
         内部工具：将 DataFrame 转换为 ChartData
+        强制将 numpy 类型转换为 python 原生类型 (list, int, float)
+
         约定:
-        DataFrame Index -> Series Names (图例)
-        DataFrame Columns -> Categories (X轴)
+            DataFrame Index -> Series Names (图例)
+            DataFrame Columns -> Categories (X轴)
         """
         chart_data = ChartData()
-        chart_data.categories = df.columns
+
+        # 1. 转换 Categories: 确保它是纯字符串/数字列表，而不是 Index 对象
+        chart_data.categories = list(df.columns)
+
         for i in range(len(df)):
-            series_data = df.iloc[i].fillna(0)
-            chart_data.add_series(str(df.index[i]), series_data)
+            # 2. 转换 Values: 使用 .tolist() 将 numpy 数组转为 python list
+            # 这一步至关重要，能解决 "PowerPoint 无法读取" 的问题
+            series_data = df.iloc[i].fillna(0).tolist()
+
+            # 3. 确保 Series Name 是字符串
+            series_name = str(df.index[i])
+
+            chart_data.add_series(series_name, series_data)
+
         return chart_data
 
     def _apply_chart_formatting(self, chart, config: BaseChartConfig) -> None:

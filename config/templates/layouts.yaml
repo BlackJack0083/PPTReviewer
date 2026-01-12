@@ -43,9 +43,9 @@ layouts:
       - name: "table_main"
         type: "table"
         role: "table"
-        x: 1.5
+        x: 0.84
         y: 4.5
-        width: 20.0
+        width: 23.75
         height: 8.96
 
   double_column_bar:
