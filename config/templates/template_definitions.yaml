@@ -42,23 +42,23 @@
 
 # 1. Area x Price Cross Pivot
 # summaries数量: 3个（索引0,1,2）
-- uid: "T02_Cross_Pivot_Bar"
+- uid: "T02_Cross_Pivot_Table"
   theme_key: "New-House Cross-Structure Analysis"
   function_key: "Area x Price Cross Pivot"
   layout_type: "single_column_table"
   summary_item: 0
-  style_config_id: "marketing_orange_green"
-  data_keys:
-    table_main: "cross_analysis_data"
-
-- uid: "T02_Cross_Pivot_Line"
-  theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Area x Price Cross Pivot"
-  layout_type: "single_column_table"
-  summary_item: 1
   style_config_id: "business_blue_solid"
   data_keys:
     table_main: "cross_analysis_data"
+
+# - uid: "T02_Cross_Pivot_Line"
+#   theme_key: "New-House Cross-Structure Analysis"
+#   function_key: "Area x Price Cross Pivot"
+#   layout_type: "single_column_table"
+#   summary_item: 1
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     table_main: "cross_analysis_data"
 
 # 2. Area Segment Distribution
 # summaries数量: 3个（索引0,1,2）

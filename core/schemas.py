@@ -57,9 +57,12 @@ class Color(StrEnum):
     BLUE = "蓝色"
     YELLOW = "黄色"
     GRAY = "灰色"
+    LIGHT_GRAY = "浅灰"
     LIGHT_BLUE = "浅蓝"
     DARK_BLUE = "深蓝"
     ORANGE = "橙色"
+    LIGHT_ORANGE = "浅橙"
+    TANGERINE = "橘色"
 
     @property
     def rgb(self) -> RGBColor:
@@ -71,9 +74,12 @@ class Color(StrEnum):
             self.BLUE: RGBColor(0, 0, 255),
             self.YELLOW: RGBColor(255, 255, 0),
             self.GRAY: RGBColor(128, 128, 128),
+            self.LIGHT_GRAY: RGBColor(217, 217, 217),
             self.LIGHT_BLUE: RGBColor(212, 228, 255),
             self.DARK_BLUE: RGBColor(0, 30, 80),
             self.ORANGE: RGBColor(255, 192, 0),
+            self.LIGHT_ORANGE: RGBColor(255, 224, 153),
+            self.TANGERINE: RGBColor(255, 140, 0),
         }
         # 默认返回黑色防止KeyError
         return mapping.get(self, RGBColor(0, 0, 0))
@@ -208,6 +214,32 @@ class RectangleStyleModel(BaseModel):
     line_width: float = Field(0, description="边框宽度")
     rotation: float = Field(0, description="旋转角度")
     is_background: bool = Field(False, description="是否作为背景")
+
+
+class TableConfig(BaseModel):
+    """表格样式配置模型
+
+    Args:
+        font_name: 字体名称
+        header_font_size: 表头字体大小
+        header_font_color: 表头字体颜色
+        header_font_bold: 表头是否加粗
+        header_bg_color: 表头背景色
+        body_font_size: 主体字体大小
+        body_font_color: 主体字体颜色
+        body_bg_color: 主体背景色
+        body_font_bold: 主体是否加粗
+    """
+
+    font_name: str = Field("方正兰亭黑_GBK", description="字体名称")
+    header_font_size: int = Field(8, description="表头字体大小")
+    header_font_color: Color = Field(Color.WHITE, description="表头字体颜色")
+    header_font_bold: bool = Field(True, description="表头是否加粗")
+    header_bg_color: Color = Field(Color.DARK_BLUE, description="表头背景色")
+    body_font_size: int = Field(7, description="主体字体大小")
+    body_font_color: Color = Field(Color.BLACK, description="主体字体颜色")
+    body_bg_color: Color = Field(Color.LIGHT_BLUE, description="主体背景色")
+    body_font_bold: bool = Field(False, description="主体是否加粗")
 
 
 class ElementType(StrEnum):

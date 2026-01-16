@@ -7,13 +7,14 @@ common:
   description:
     x: 0.5
     y: 2.0
-    width: 18.0
-    height: 1.2
+    width: 24.0
+    height: 1.3
   caption:
-    x: 3.75
-    y: 3.5
-    width: 12.5
-    height: 1.2
+    x: 5.2
+    y: 3.6
+    width: 15.0
+    height: 0.8
+    alignment: "居中"
 
 # 2. 具体版式定义
 # keys 必须与 LayoutType 枚举值对应

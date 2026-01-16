@@ -48,20 +48,60 @@ line_configs:
     has_markers: true
     y_axis_visible: true
 
+# 3. 表格样式定义
+table_configs:
+  # 商务蓝色实心风格
+  business_blue_solid:
+    font_name: "方正兰亭黑_GBK"
+    header_font_size: 6
+    header_font_color: "白色"  # 对应 Color.WHITE
+    header_font_bold: true
+    header_bg_color: "深蓝"    # 对应 Color.DARK_BLUE
+    body_font_size: 6
+    body_font_color: "黑色"    # 对应 Color.BLACK
+    body_bg_color: "浅蓝"      # 对应 Color.LIGHT_BLUE
+    body_font_bold: false
+
+  # 营销橙绿风格
+  marketing_orange_green:
+    font_name: "方正兰亭黑_GBK"
+    header_font_size: 6
+    header_font_color: "白色"
+    header_font_bold: true
+    header_bg_color: "橙色"    # 对应 Color.ORANGE
+    body_font_size: 6
+    body_font_color: "黑色"
+    body_bg_color: "浅橙"      # 对应 Color.LIGHT_ORANGE
+    body_font_bold: false
+
+  # 对比橘灰风格
+  compare_tangerine_gray:
+    font_name: "方正兰亭黑_GBK"
+    header_font_size: 6
+    header_font_color: "白色"
+    header_font_bold: true
+    header_bg_color: "橘色"    # 对应 Color.TANGERINE
+    body_font_size: 6
+    body_font_color: "黑色"
+    body_bg_color: "浅灰"      # 对应 Color.LIGHT_GRAY
+    body_font_bold: false
+
 # 新增：文本配置
 text_configs:
   default:
     slide-title:
-      font_size: 24
+      font_size: 18
       font_bold: true
       font_color: "黑色" # 对应 Color.BLACK
       font_name: "方正兰亭黑_GBK"
 
     body-text:
-      font_size: 14
+      font_size: 12
       font_bold: false
       font_color: "深蓝" # 对应 Color.DARK_BLUE
+      font_name: "Times New Roman"
 
     caption:
-      font_size: 10
+      font_size: 12
       font_color: "灰色"
+      font_name: "Times New Roman"
