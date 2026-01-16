@@ -106,8 +106,9 @@ def prepare_context_for_template(
     if template_type == "T01":
         # ReSlide_01: Block Area Segment Distribution
         logger.info("准备 T01 数据: 供需统计")
+
         df_supply, supply_conclusion = (
-            provider.get_supply_transaction_stats_with_conclusion(area_range_size=20)
+            provider.get_supply_transaction_stats_with_conclusion()
         )
         context.add_dataset("supply_trans_data", df_supply)
         for key, value in supply_conclusion.items():
@@ -120,9 +121,7 @@ def prepare_context_for_template(
         if function == "Cross":
             logger.info("准备 T02 数据: 交叉分析")
             df_cross, cross_conclusion = (
-                provider.get_area_price_cross_stats_with_conclusion(
-                    area_step=20, price_step=5
-                )
+                provider.get_area_price_cross_stats_with_conclusion()
             )
             context.add_dataset("cross_analysis_data", df_cross)
             for key, value in cross_conclusion.items():
@@ -131,7 +130,7 @@ def prepare_context_for_template(
         elif function == "Area":
             logger.info("准备 T02 数据: 面积分布")
             df_area, area_conclusion = (
-                provider.get_newhouse_area_distribution_with_conclusion(step=20)
+                provider.get_area_distribution_with_conclusion()
             )
             context.add_dataset("newhouse_area_dist_data", df_area)
             for key, value in area_conclusion.items():
@@ -140,9 +139,7 @@ def prepare_context_for_template(
         elif function == "Price":
             logger.info("准备 T02 数据: 价格分布")
             df_price, price_conclusion = (
-                provider.get_newhouse_price_distribution_with_conclusion(
-                    price_range_size=1
-                )
+                provider.get_price_distribution_with_conclusion()
             )
             context.add_dataset("newhouse_price_dist_data", df_price)
             for key, value in price_conclusion.items():
