@@ -1,0 +1,250 @@
+# ==============================================================================
+# PPT 模板定义配置
+# ==============================================================================
+# 每个模板定义包含：
+# - uid: 模板唯一标识符
+# - theme_key: 文案主题（对应 text_pattern.yaml）
+# - function_key: 功能名称（对应 text_pattern.yaml）
+# - layout_type: 版式类型（对应 layouts.yaml）
+# - summary_item: 使用的第几个 summary（从1开始，对应索引0,1,2...）
+# - style_config_id: 样式配置ID（对应 styles.yaml）
+# - data_keys: 数据键映射（对应 Context 中的 dataset key）
+# ==============================================================================
+
+# ==============================================================================
+# ReSlide_01: Block Area Segment Distribution
+# ==============================================================================
+# 版式限制：只有单栏柱状图和单栏折线图
+# summaries数量: 3个（索引0,1,2）
+
+- uid: "T01_Supply_Trans_Bar"
+  theme_key: "Block Area Segment Distribution"
+  function_key: "Supply-Transaction Unit Statistic"
+  layout_type: "single_column_bar"
+  summary_item: 1
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    chart_main: "supply_trans_data"
+
+- uid: "T01_Supply_Trans_Line"
+  theme_key: "Block Area Segment Distribution"
+  function_key: "Supply-Transaction Unit Statistic"
+  layout_type: "single_column_line"
+  summary_item: 2
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    chart_main: "supply_trans_data"
+
+# ==============================================================================
+# ReSlide_02: New-House Cross-Structure Analysis
+# ==============================================================================
+# 版式：所有版式都有
+
+# 1. Area x Price Cross Pivot
+# summaries数量: 3个（索引0,1,2）
+- uid: "T02_Cross_Pivot_Bar"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Area x Price Cross Pivot"
+  layout_type: "single_column_table"
+  summary_item: 0
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    table_main: "cross_analysis_data"
+
+- uid: "T02_Cross_Pivot_Line"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Area x Price Cross Pivot"
+  layout_type: "single_column_table"
+  summary_item: 1
+  style_config_id: "business_blue_solid"
+  data_keys:
+    table_main: "cross_analysis_data"
+
+# 2. Area Segment Distribution
+# summaries数量: 3个（索引0,1,2）
+- uid: "T02_Area_Dist_Bar"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Area Segment Distribution"
+  layout_type: "single_column_bar"
+  summary_item: 1
+  style_config_id: "compare_tangerine_gray"
+  data_keys:
+    chart_main: "newhouse_area_dist_data"
+
+- uid: "T02_Area_Dist_Table"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Area Segment Distribution"
+  layout_type: "single_column_table"
+  summary_item: 2
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    table_main: "newhouse_area_dist_data"
+
+# 3. Price Segment Distribution
+# summaries数量: 3个（索引0,1,2）
+- uid: "T02_Price_Dist_Bar"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Price Segment Distribution"
+  layout_type: "single_column_bar"
+  summary_item: 1
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    chart_main: "newhouse_price_dist_data"
+
+- uid: "T02_Price_Dist_Line"
+  theme_key: "New-House Cross-Structure Analysis"
+  function_key: "Price Segment Distribution"
+  layout_type: "single_column_line"
+  summary_item: 2
+  style_config_id: "business_blue_solid"
+  data_keys:
+    chart_main: "newhouse_price_dist_data"
+
+# ==============================================================================
+# ReSlide_03: Resale-House Cross-Structure Analysis
+# ==============================================================================
+# 版式：所有版式都有
+
+# 1. Area Segment Distribution
+# summaries数量: 3个（索引0,1,2）
+# - uid: "T03_Resale_Area_Dist_Bar"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Area Segment Distribution"
+#   layout_type: "single_column_bar"
+#   summary_item: 1
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "resale_area_dist_data"
+
+# - uid: "T03_Resale_Area_Dist_Line"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Area Segment Distribution"
+#   layout_type: "single_column_line"
+#   summary_item: 2
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     chart_main: "resale_area_dist_data"
+
+# - uid: "T03_Resale_Area_Dist_Table"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Area Segment Distribution"
+#   layout_type: "single_column_table"
+#   summary_item: 2
+#   style_config_id: "compare_tangerine_gray"
+#   data_keys:
+#     table_main: "resale_area_dist_data"
+
+# # 2. Price Segment Distribution
+# # summaries数量: 3个（索引0,1,2）
+# - uid: "T03_Resale_Price_Dist_Bar"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Price Segment Distribution"
+#   layout_type: "single_column_bar"
+#   summary_item: 1
+#   style_config_id: "compare_tangerine_gray"
+#   data_keys:
+#     chart_main: "resale_price_dist_data"
+
+# - uid: "T03_Resale_Price_Dist_Line"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Price Segment Distribution"
+#   layout_type: "single_column_line"
+#   summary_item: 2
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     chart_main: "resale_price_dist_data"
+
+# - uid: "T03_Resale_Price_Dist_Table"
+#   theme_key: "Resale-House Cross-Structure Analysis"
+#   function_key: "Price Segment Distribution"
+#   layout_type: "single_column_table"
+#   summary_item: 2
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     table_main: "resale_price_dist_data"
+
+# # ==============================================================================
+# # ReSlide_04: New-House Market Capacity Analysis
+# # ==============================================================================
+# # 版式：所有版式都有
+
+# # 1. Historical Capacity Summary
+# # summaries数量: 3个（索引0,1,2）
+# - uid: "T04_Historical_Capacity_Bar"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Historical Capacity Summary"
+#   layout_type: "single_column_bar"
+#   summary_item: 1
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "supply_trans_data"
+
+# - uid: "T04_Historical_Capacity_Line"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Historical Capacity Summary"
+#   layout_type: "single_column_line"
+#   summary_item: 2
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     chart_main: "supply_trans_data"
+
+# - uid: "T04_Historical_Capacity_Table"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Historical Capacity Summary"
+#   layout_type: "single_column_table"
+#   summary_item: 2
+#   style_config_id: "compare_tangerine_gray"
+#   data_keys:
+#     table_main: "supply_trans_data"
+
+# # 2. Annual Supply-Demand Comparison
+# # summaries数量: 3个（索引0,1,2）
+# # 注意：需要两个数据源，当前使用同一数据源代替
+# - uid: "T04_Annual_Supply_Demand_Bar"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Annual Supply-Demand Comparison"
+#   layout_type: "double_column_bar"
+#   summary_item: 1
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_left: "supply_trans_data"
+#     chart_right: "supply_trans_data"
+
+# - uid: "T04_Annual_Supply_Demand_Line"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Annual Supply-Demand Comparison"
+#   layout_type: "double_column_line"
+#   summary_item: 2
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     chart_left: "supply_trans_data"
+#     chart_right: "supply_trans_data"
+
+# # 3. Supply-Transaction Area
+# # summaries数量: 3个（索引0,1,2）
+# - uid: "T04_Supply_Trans_Area_Bar"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Supply-Transaction Area"
+#   layout_type: "single_column_bar"
+#   summary_item: 1
+#   style_config_id: "compare_tangerine_gray"
+#   data_keys:
+#     chart_main: "supply_trans_data"
+
+# - uid: "T04_Supply_Trans_Area_Line"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Supply-Transaction Area"
+#   layout_type: "single_column_line"
+#   summary_item: 2
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "supply_trans_data"
+
+# - uid: "T04_Supply_Trans_Area_Table"
+#   theme_key: "New-House Market Capacity Analysis"
+#   function_key: "Supply-Transaction Area"
+#   layout_type: "single_column_table"
+#   summary_item: 1
+#   style_config_id: "business_blue_solid"
+#   data_keys:
+#     table_main: "supply_trans_data"

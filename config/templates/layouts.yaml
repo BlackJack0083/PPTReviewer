@@ -1,0 +1,83 @@
+common:
+  slide_title:
+    x: 0.5
+    y: 1.0
+    width: 18.0
+    height: 1.1
+  description:
+    x: 0.5
+    y: 2.0
+    width: 18.0
+    height: 1.2
+  caption:
+    x: 3.75
+    y: 3.5
+    width: 12.5
+    height: 1.2
+
+# 2. 具体版式定义
+# keys 必须与 LayoutType 枚举值对应
+layouts:
+  single_column_bar:
+    slots:
+      - name: "chart_main"        # 对应 TemplateMeta 中的 data_keys
+        type: "chart"
+        role: "chart-bar"         # 用于样式匹配
+        x: 3.7
+        y: 4.54
+        width: 12.2
+        height: 7.48
+
+  single_column_line:
+    slots:
+      - name: "chart_main"
+        type: "chart"
+        role: "chart-line"
+        x: 3.7
+        y: 4.54
+        width: 12.2
+        height: 7.48
+
+  single_column_table:
+    slots:
+      - name: "table_main"
+        type: "table"
+        role: "table"
+        x: 0.84
+        y: 4.5
+        width: 23.75
+        height: 8.96
+
+  double_column_bar:
+    slots:
+      - name: "chart_left"
+        type: "chart"
+        role: "chart-bar"
+        x: 0.75
+        y: 4.94
+        width: 10.5
+        height: 6.5
+      - name: "chart_right"
+        type: "chart"
+        role: "chart-bar"
+        x: 12.75
+        y: 4.94
+        width: 10.5
+        height: 6.5
+
+  double_column_line:
+    slots:
+      - name: "chart_left"
+        type: "chart"
+        role: "chart-line"
+        x: 0.75
+        y: 4.94
+        width: 10.5
+        height: 6.5
+      - name: "chart_right"
+        type: "chart"
+        role: "chart-line"
+        x: 12.75
+        y: 4.94
+        width: 10.5
+        height: 6.5
