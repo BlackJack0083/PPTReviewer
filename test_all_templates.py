@@ -129,9 +129,7 @@ def prepare_context_for_template(
 
         elif function == "Area":
             logger.info("准备 T02 数据: 面积分布")
-            df_area, area_conclusion = (
-                provider.get_area_distribution_with_conclusion()
-            )
+            df_area, area_conclusion = provider.get_area_distribution_with_conclusion()
             context.add_dataset("newhouse_area_dist_data", df_area)
             for key, value in area_conclusion.items():
                 context.add_variable(key, value)
