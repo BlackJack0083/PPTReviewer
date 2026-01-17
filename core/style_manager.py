@@ -2,6 +2,7 @@ from pathlib import Path
 
 import yaml
 from loguru import logger
+from pydantic import ValidationError
 
 from config import setting
 
@@ -72,7 +73,7 @@ class StyleManager:
         for key, config_dict in data.get("table_configs", {}).items():
             try:
                 self._table_styles[key] = TableConfig(**config_dict)
-            except Exception as e:
+            except ValidationError as e:
                 logger.error(f"Failed to load table style '{key}': {e}")
                 raise e
 
