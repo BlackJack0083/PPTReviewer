@@ -244,9 +244,6 @@ class PPTOperations:
             cell.fill.solid()
             cell.fill.fore_color.rgb = bg_color.rgb
 
-            # 注意: python-pptx 对表格边框的支持有限,这里暂时不设置边框
-            # 如果需要边框,建议在 PPT 模板中预设表格样式
-
         # 设置表头
         for col_idx, col_name in enumerate(data_reset.columns):
             _set_cell_text(
@@ -271,9 +268,10 @@ class PPTOperations:
                     config.body_font_bold,
                 )
 
-        # 设置列宽：自适应，第一列占 20%，其余列平分 80%
-        first_col_ratio = 0.07  # 第一列占比 20%
-        other_cols_ratio = 1 - first_col_ratio  # 其余列占比 80%
+        # 设置列宽
+        # TODO: 更灵活的列宽配置，目前简单实现首列较窄，其余均分
+        first_col_ratio = 0.07  # 第一列宽度比例
+        other_cols_ratio = 1 - first_col_ratio 
 
         # 设置第一列宽度
         table.columns[0].width = Cm(layout.width * first_col_ratio)
@@ -284,7 +282,7 @@ class PPTOperations:
             for col_idx in range(1, cols):
                 table.columns[col_idx].width = Cm(other_col_width)
 
-        logger.info(
+        logger.debug(
             f"Page {page_num}: 添加 {rows}x{cols} 表格 (首列: {layout.width * first_col_ratio:.2f}cm, 其他: {(layout.width * other_cols_ratio / (cols - 1) if cols > 1 else 0):.2f}cm)"
         )
 
@@ -371,7 +369,7 @@ class PPTOperations:
 
         for i in range(len(df)):
             # 2. 转换 Values: 使用 .tolist() 将 numpy 数组转为 python list
-            # 这一步至关重要，能解决 "PowerPoint 无法读取" 的问题
+            # 重要，python-pptx 要求数据类型是 python 原生类型
             series_data = df.iloc[i].fillna(0).tolist()
 
             # 3. 确保 Series Name 是字符串
