@@ -4,6 +4,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+
 def preprocess_raw_data(raw_data: pd.DataFrame) -> pd.DataFrame:
     df = raw_data.copy()
     standardization_steps = {
@@ -20,7 +21,7 @@ def preprocess_raw_data(raw_data: pd.DataFrame) -> pd.DataFrame:
 
 
 def export_to_excel(
-     df: pd.DataFrame, output_path: str, sheet_name: str = "Sheet1"
+    df: pd.DataFrame, output_path: str, sheet_name: str = "Sheet1"
 ) -> None:
     try:
         with pd.ExcelWriter(output_path) as writer:
@@ -31,10 +32,10 @@ def export_to_excel(
 
 
 def create_bins(
-        df: pd.DataFrame,
-        column_name: str,
-        range_size: float | str,
-        table_args: str,
+    df: pd.DataFrame,
+    column_name: str,
+    range_size: float | str,
+    table_args: str,
 ) -> pd.DataFrame:
     """Create bins for specified column based on the given range size."""
     df_copy = df.copy()
@@ -62,9 +63,7 @@ def create_bins(
         return df_copy
 
     if column_name == "dim_area":
-        labels = [
-            table_args.format(bins[i], bins[i + 1]) for i in range(len(bins) - 1)
-        ]
+        labels = [table_args.format(bins[i], bins[i + 1]) for i in range(len(bins) - 1)]
         df_copy["area_range"] = pd.cut(
             df_copy["dim_area"],
             bins=bins,
@@ -92,11 +91,11 @@ def create_bins(
 
 
 def aggregate_data(
-        df: pd.DataFrame,
-        group_args: list[str],
-        col_name: str,
-        agg_func: str,
-        *agg_args: Any,
+    df: pd.DataFrame,
+    group_args: list[str],
+    col_name: str,
+    agg_func: str,
+    *agg_args: Any,
 ) -> pd.DataFrame:
     """
     根据指定的列和聚合函数对数据进行聚合。
@@ -106,11 +105,7 @@ def aggregate_data(
     agg_dict = {target_col: agg_func}
 
     # 确保 observed=False 兼容性
-    result = (
-        df.groupby(group_args, observed=False).agg(agg_dict).reset_index()
-        # if "observed" in pd.DataFrame.groupby.__code__.co_varnames
-        # else df.groupby(group_args).agg(agg_dict).reset_index()
-    )
+    result = df.groupby(group_args, observed=False).agg(agg_dict).reset_index()
 
     # 重命名回 col_name 以匹配预期输出
     if target_col != col_name:
@@ -125,11 +120,11 @@ def aggregate_data(
 
 
 def compact_dataframe(
-        df: pd.DataFrame,
-        max_rows: int = 15,
-        max_cols: int | None = None,
-        range_col: str | None = None,
-        mode: str = "auto",
+    df: pd.DataFrame,
+    max_rows: int = 15,
+    max_cols: int | None = None,
+    range_col: str | None = None,
+    mode: str = "auto",
 ) -> pd.DataFrame:
     """
     通用的数据框压缩函数，支持行、列或交叉表的合并
@@ -235,9 +230,7 @@ def compact_dataframe(
         is_price = "price" in str(target_col)
 
         lower_str = (
-            f"{int(merged_lower)}"
-            if merged_lower.is_integer()
-            else f"{merged_lower}"
+            f"{int(merged_lower)}" if merged_lower.is_integer() else f"{merged_lower}"
         )
         merged_name = f"≥{lower_str}{'M' if is_price else 'm²'}"
 
@@ -277,6 +270,7 @@ def transpose_dataframe(
     result.rename(columns={"index": target_name}, inplace=True)
 
     return result
+
 
 # def fold_large_table(
 #     df: pd.DataFrame,

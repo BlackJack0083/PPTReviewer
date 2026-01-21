@@ -1,6 +1,6 @@
 # ppt_schemas.py
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 import pandas as pd
 from pptx.dml.color import RGBColor
@@ -273,3 +273,61 @@ class SlideRenderConfig(BaseModel):
     layout_type: LayoutType
     style_id: str
     elements: list[RenderableElement]
+
+
+class BinningRule(BaseModel):
+    """
+    定义分箱/维度规则
+    """
+
+    source_col: str = Field(..., description="原始数据列名，如 dim_area")
+    target_col: str = Field(..., description="目标列名，如 area_range")
+    method: Literal["range", "period"] = Field(
+        ..., description="分箱方式：数值区间(range)或时间周期(period)"
+    )
+
+    # Optional fields
+    step: float | int | None = Field(None, description="分箱步长，如 20")
+    format_str: str | None = Field(None, description="格式化模板，如 '{}-{}m²'")
+    time_granularity: Literal["year", "month"] | None = Field(
+        None, description="时间粒度"
+    )
+
+
+class MetricRule(BaseModel):
+    """
+    定义指标计算规则
+    """
+
+    name: str = Field(..., description="指标显示名称，也是结果列名")
+    source_col: str = Field(..., description="数据源数值列，如 supply_sets")
+    agg_func: Literal["sum", "count", "mean", "max", "min"] = Field(
+        "sum", description="聚合函数"
+    )
+
+    # 使用 Dict[str, Any] 允许传入如 {"supply_sets": 1} 的过滤条件
+    filter_condition: dict[str, Any] | None = Field(None, description="前置过滤条件")
+
+
+class TableAnalysisConfig(BaseModel):
+    """
+    总体的表格分析配置
+    """
+
+    table_type: Literal["field-constraint", "constraint-filed", "cross-constraint"] = (
+        Field(..., description="表格类型")
+    )
+
+    # 使用 default_factory=list 防止可变默认参数问题
+    dimensions: list[BinningRule] = Field(
+        default_factory=list, description="X轴/行维度列表"
+    )
+    metrics: list[MetricRule] = Field(
+        default_factory=list, description="Y轴/数值指标列表"
+    )
+
+    # 交叉表专用配置
+    crosstab_row: str | None = Field(None, description="交叉表-行维度字段名")
+    crosstab_col: str | None = Field(None, description="交叉表-列维度字段名")
+
+    model_config = {"extra": "ignore"}  # 如果传入了多余的参数，自动忽略而不是报错
