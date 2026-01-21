@@ -174,10 +174,14 @@ def compact_dataframe(
             summary_col = result_df["total"]
             result_df = result_df.drop("total", axis=1)
 
-        # 合并超出的行
-        if len(result_df) > max_rows:
-            kept_rows = result_df.iloc[:max_rows]
-            merged_rows = result_df.iloc[max_rows:]
+        # 合并超出的行（需要为 total 行预留 1 行，所以数据部分最多 max_rows-1 行）
+        # 如果需要添加 total 行，则数据部分为 max_rows-1 行，否则为 max_rows 行
+        data_max_rows = max_rows - 1 if summary_row is not None else max_rows
+
+        if len(result_df) > data_max_rows:
+            # 如果有合并行，保留 data_max_rows-1 行普通数据 + 1 行合并行 = data_max_rows 行
+            kept_rows = result_df.iloc[: data_max_rows - 1]
+            merged_rows = result_df.iloc[data_max_rows - 1 :]
 
             merge_label = get_merge_label(kept_rows.index[-1])
             merged_data = merged_rows.sum()
@@ -185,10 +189,14 @@ def compact_dataframe(
 
             result_df = pd.concat([kept_rows, merged_data.to_frame().T])
 
-        # 合并超出的列
-        if len(result_df.columns) > limit_cols:
-            kept_cols = result_df.columns[:limit_cols]
-            merged_cols = result_df.columns[limit_cols:]
+        # 合并超出的列（需要为 total 列预留 1 列，所以数据部分最多 limit_cols-1 列）
+        # 如果需要添加 total 列，则数据部分为 limit_cols-1 列，否则为 limit_cols 列
+        data_max_cols = limit_cols - 1 if summary_col is not None else limit_cols
+
+        if len(result_df.columns) > data_max_cols:
+            # 如果有合并列，保留 data_max_cols-1 列普通数据 + 1 列合并列 = data_max_cols 列
+            kept_cols = result_df.columns[: data_max_cols - 1]
+            merged_cols = result_df.columns[data_max_cols - 1 :]
 
             merge_label = get_merge_label(kept_cols[-1])
             merged_data = result_df[merged_cols].sum(axis=1)

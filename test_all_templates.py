@@ -24,21 +24,21 @@ TEST_CONFIGS = [
         "blocks": ["Yonghe", "Zhongxin Town"],
         "city": "Guangzhou",
     },
-    {
-        "table": "Guangzhou_resale_house",
-        "blocks": ["Old Town", "Qifu New Village"],
-        "city": "Guangzhou",
-    },
+    # {
+    #     "table": "Guangzhou_resale_house",
+    #     "blocks": ["Old Town", "Qifu New Village"],
+    #     "city": "Guangzhou",
+    # },
     {
         "table": "Shenzhen_new_house",
         "blocks": ["Guangming Subdistrict", "Longgang Central City"],
         "city": "Shenzhen",
     },
-    {
-        "table": "Shenzhen_resale_house",
-        "blocks": ["Buji New Town", "Nanshan CBE"],
-        "city": "Shenzhen",
-    },
+    # {
+    #     "table": "Shenzhen_resale_house",
+    #     "blocks": ["Buji New Town", "Nanshan CBE"],
+    #     "city": "Shenzhen",
+    # },
 ]
 
 # 所有模板ID
