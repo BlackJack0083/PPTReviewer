@@ -160,17 +160,14 @@ class BaseSlideRenderer:
         """
         table_data = element.data_payload
 
-        # 默认表格样式
-        font_name = "微软雅黑"
-        # 根据版式决定字体大小（如果需要在不同版式下有不同表格样式，也可以移入 ConfigManager）
-        font_size = 6
+        # 从 StyleManager 获取表格样式配置
+        config = style_manager.get_table_style(self.current_style_id)
 
         self.ppt_operations.add_table(
             page_num=page_number,
             layout=element.layout,
             data=table_data,
-            font_name=font_name,
-            font_size=font_size,
+            config=config,
         )
 
     def _render_rectangle(self, page_number: int, element: dict[str, Any]) -> None:

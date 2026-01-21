@@ -23,6 +23,7 @@ from .schemas import (
     LayoutModel,
     LineChartConfig,
     RectangleStyleModel,
+    TableConfig,
     TextContentModel,
 )
 
@@ -42,7 +43,7 @@ class PPTOperations:
     """
 
     # 常量定义
-    DEFAULT_SLIDE_WIDTH_CM = 19.05
+    DEFAULT_SLIDE_WIDTH_CM = 25.4
     DEFAULT_SLIDE_HEIGHT_CM = 14.29
     BLANK_LAYOUT_INDEX = 6  # 空白布局索引
 
@@ -180,7 +181,11 @@ class PPTOperations:
 
             run.font.size = Pt(content.font_size)
             run.font.color.rgb = content.font_color.rgb
-            pptx_ea_font.set_font(run, content.font_name)  # 设置字体
+            try:
+                # pptx_ea_font.set_font(run, content.font_name)  # 设置中文字体
+                run.font.name = content.font_name
+            except Exception as e:
+                logger.warning(f"字体 {content.font_name} 设置失败: {e}, 使用默认字体")
             run.font.bold = segment.is_bold or content.font_bold
 
         logger.info(f"Page {page_num}: 添加富文本 '{content.text[:50]}...'")
@@ -190,8 +195,7 @@ class PPTOperations:
         page_num: int,
         layout: LayoutModel,
         data: pd.DataFrame,
-        font_name: str = "方正兰亭黑_GBK",
-        font_size: int = 6,
+        config: TableConfig | None = None,
     ) -> None:
         """
         添加表格
@@ -200,12 +204,19 @@ class PPTOperations:
             page_num (int): 幻灯片页码（从1开始）
             layout (LayoutModel): 布局配置
             data (pd.DataFrame): 表格数据
-            font_name (str): 字体名称，默认'方正兰亭黑_GBK'
-            font_size (int): 字体大小，默认6
+            config (TableConfig): 表格样式配置，None则使用默认样式
         """
-        slide = self._get_slide(page_num)
-        rows, cols = data.shape
+        # 使用默认样式（向后兼容）
+        if config is None:
+            config = TableConfig()
 
+        # 重置索引为列,以便在表格中显示
+        data_reset = data.reset_index()
+        rows, cols = data_reset.shape
+
+        slide = self._get_slide(page_num)
+
+        # 表格尺寸: 数据行 + 1行表头
         table_shape = slide.shapes.add_table(
             rows + 1,
             cols,
@@ -217,28 +228,63 @@ class PPTOperations:
         table = table_shape.table
 
         # 内部辅助函数：设置单元格样式
-        def _set_cell_text(cell, text, is_bold=False):
+        def _set_cell_text(cell, text, font_size, font_color, bg_color, is_bold=False):
             cell.text = str(text)
             for paragraph in cell.text_frame.paragraphs:
                 for run in paragraph.runs:
                     run.font.size = Pt(font_size)
+                    run.font.color.rgb = font_color.rgb
                     run.font.bold = is_bold
                     try:
-                        pptx_ea_font.set_font(run, font_name)
+                        pptx_ea_font.set_font(run, config.font_name)
                     except Exception:
-                        logger.warning(f"字体 {font_name} 不存在，使用默认字体")
+                        logger.warning(f"字体 {config.font_name} 不存在，使用默认字体")
+
+            # 设置单元格背景色
+            cell.fill.solid()
+            cell.fill.fore_color.rgb = bg_color.rgb
 
         # 设置表头
-        for col_idx, col_name in enumerate(data.columns):
-            _set_cell_text(table.cell(0, col_idx), col_name, is_bold=True)
+        for col_idx, col_name in enumerate(data_reset.columns):
+            _set_cell_text(
+                table.cell(0, col_idx),
+                str(col_name),
+                config.header_font_size,
+                config.header_font_color,
+                config.header_bg_color,
+                config.header_font_bold,
+            )
 
         # 设置数据
         for row_idx in range(rows):
             for col_idx in range(cols):
-                val = data.iloc[row_idx, col_idx]
-                _set_cell_text(table.cell(row_idx + 1, col_idx), val, is_bold=False)
+                val = data_reset.iloc[row_idx, col_idx]
+                _set_cell_text(
+                    table.cell(row_idx + 1, col_idx),
+                    str(val),
+                    config.body_font_size,
+                    config.body_font_color,
+                    config.body_bg_color,
+                    config.body_font_bold,
+                )
 
-        logger.info(f"Page {page_num}: 添加 {rows}x{cols} 表格")
+        # 设置列宽
+        # TODO: 更灵活的列宽配置，目前简单实现首列较窄，其余均分
+        first_col_ratio = 0.07  # 第一列宽度比例
+        other_cols_ratio = 1 - first_col_ratio 
+
+        # 设置第一列宽度
+        table.columns[0].width = Cm(layout.width * first_col_ratio)
+
+        # 设置其余列宽度（平分剩余宽度）
+        if cols > 1:
+            other_col_width = (layout.width * other_cols_ratio) / (cols - 1)
+            for col_idx in range(1, cols):
+                table.columns[col_idx].width = Cm(other_col_width)
+
+        logger.debug(
+            f"Page {page_num}: 添加 {rows}x{cols} 表格 (首列: {layout.width * first_col_ratio:.2f}cm, 其他: {(layout.width * other_cols_ratio / (cols - 1) if cols > 1 else 0):.2f}cm)"
+        )
 
     def add_rectangle(
         self,
@@ -323,7 +369,7 @@ class PPTOperations:
 
         for i in range(len(df)):
             # 2. 转换 Values: 使用 .tolist() 将 numpy 数组转为 python list
-            # 这一步至关重要，能解决 "PowerPoint 无法读取" 的问题
+            # 重要，python-pptx 要求数据类型是 python 原生类型
             series_data = df.iloc[i].fillna(0).tolist()
 
             # 3. 确保 Series Name 是字符串

@@ -2,12 +2,14 @@ from pathlib import Path
 
 import yaml
 from loguru import logger
+from pydantic import ValidationError
 
 from config import setting
 
 from .schemas import (
     BarChartConfig,
     LineChartConfig,
+    TableConfig,
     TextStyleDefinition,
 )
 
@@ -22,6 +24,7 @@ class StyleManager:
     def __init__(self):
         self._bar_styles: dict[str, BarChartConfig] = {}
         self._line_styles: dict[str, LineChartConfig] = {}
+        self._table_styles: dict[str, TableConfig] = {}
         self._text_styles: dict[str, TextStyleDefinition] = {}
         self._is_loaded = False
 
@@ -66,6 +69,14 @@ class StyleManager:
                 logger.error(f"Failed to load line style '{key}': {e}")
                 raise e
 
+        # 3. 加载表格样式
+        for key, config_dict in data.get("table_configs", {}).items():
+            try:
+                self._table_styles[key] = TableConfig(**config_dict)
+            except ValidationError as e:
+                logger.error(f"Failed to load table style '{key}': {e}")
+                raise e
+
         raw_text_configs = data.get("text_configs", {})
         for style_id, roles_dict in raw_text_configs.items():
             self._text_styles[style_id] = {}
@@ -102,6 +113,17 @@ class StyleManager:
         if not style:
             logger.warning(f"Line style '{style_id}' not found, using default.")
             raise ValueError(f"Line style '{style_id}' not found, using default.")
+        return style
+
+    def get_table_style(self, style_id: str) -> TableConfig:
+        """获取表格样式，找不到则返回默认"""
+        if not self._is_loaded:
+            self.load_styles_yaml()
+
+        style = self._table_styles.get(style_id)
+        if not style:
+            logger.warning(f"Table style '{style_id}' not found, using default.")
+            raise ValueError(f"Table style '{style_id}' not found, using default.")
         return style
 
     def get_text_style(self, style_id: str, role: str) -> TextStyleDefinition:

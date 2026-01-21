@@ -16,7 +16,7 @@ from engine import PPTGenerationEngine
 TEST_CONFIGS = [
     {
         "table": "Beijing_new_house",
-        "blocks": ["Liangxiang", "Yongfeng"],
+        "blocks": ["Liangxiang", "Yongfeng", "Beiqijia"],
         "city": "Beijing",
     },
     {
@@ -49,7 +49,7 @@ ALL_TEMPLATES = [
     # ReSlide_02
     # 打不开
     # "T02_Cross_Pivot_Bar",
-    # "T02_Cross_Pivot_Line",
+    "T02_Cross_Pivot_Table",
     "T02_Area_Dist_Bar",
     "T02_Area_Dist_Table",
     "T02_Price_Dist_Bar",
