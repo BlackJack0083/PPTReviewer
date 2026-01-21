@@ -108,8 +108,8 @@ def aggregate_data(
     # 确保 observed=False 兼容性
     result = (
         df.groupby(group_args, observed=False).agg(agg_dict).reset_index()
-        if "observed" in pd.DataFrame.groupby.__code__.co_varnames
-        else df.groupby(group_args).agg(agg_dict).reset_index()
+        # if "observed" in pd.DataFrame.groupby.__code__.co_varnames
+        # else df.groupby(group_args).agg(agg_dict).reset_index()
     )
 
     # 重命名回 col_name 以匹配预期输出
