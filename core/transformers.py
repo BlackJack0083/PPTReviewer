@@ -33,7 +33,7 @@ class StatTransformer:
         # 3. 根据表格类型分流处理
         if config.table_type == "field-constraint":
             result = self._process_standard_table(df, config)
-        elif config.table_type == "cross-constrain":
+        elif config.table_type == "cross-constraint":
             result = self._process_crosstab_table(df, config)
         else:
             raise ValueError(f"Unknown table type: {config.table_type}")
@@ -130,7 +130,7 @@ class StatTransformer:
         )
 
         # 压缩交叉表
-        result = compact_dataframe(result, max_rows=14, max_cols=16, mode="crosstab")
+        result = compact_dataframe(result, max_rows=16, max_cols=18, mode="crosstab")
 
         # 整理索引，保持原有格式习惯
         result.index.name = "price_area"

@@ -44,18 +44,15 @@ TEST_CONFIGS = [
 # 所有模板ID
 ALL_TEMPLATES = [
     # ReSlide_01
-    # "T01_Supply_Trans_Bar",
-    # "T01_Supply_Trans_Line",
+    "T01_Supply_Trans_Bar",
+    "T01_Supply_Trans_Line",
     # ReSlide_02
-    # 打不开
-    # "T02_Cross_Pivot_Bar",
     "T02_Cross_Pivot_Table",
     "T02_Area_Dist_Bar",
     "T02_Area_Dist_Table",
     "T02_Price_Dist_Bar",
     "T02_Price_Dist_Line",
     # ReSlide_03
-    # 打不开
     # "T03_Resale_Area_Dist_Bar",
     # "T03_Resale_Area_Dist_Line",
     # "T03_Resale_Area_Dist_Table",
