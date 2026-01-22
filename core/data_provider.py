@@ -264,9 +264,9 @@ class RealEstateDataProvider:
 
         # 转置并清洗 (锚点: area_range)
         # 注意：这里假设交叉表的行索引是 area_range，转置后 area_range 变成表头
-        df_ppt = self._transform_to_ppt_format(df, index_col="area_range")
+        # df_ppt = self._transform_to_ppt_format(df, index_col="area_range")
 
-        return df_ppt, conclusion_vars
+        return df, conclusion_vars
 
     def get_area_distribution_with_conclusion(
         self, step: int = 20

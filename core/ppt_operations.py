@@ -211,7 +211,8 @@ class PPTOperations:
             config = TableConfig()
 
         # 重置索引为列,以便在表格中显示
-        data_reset = data.reset_index()
+        # data_reset = data.reset_index()
+        data_reset = data
         rows, cols = data_reset.shape
 
         slide = self._get_slide(page_num)
@@ -444,6 +445,9 @@ class PPTOperations:
             # Y轴
             val_axis = chart.value_axis
             val_axis.visible = config.y_axis_visible
+            # 关闭网格线
+            val_axis.has_major_gridlines = False
+            
             val_axis.tick_labels.font.size = Pt(config.font_size)
             if config.value_axis_max:
                 val_axis.maximum_scale = config.value_axis_max
@@ -497,6 +501,8 @@ class PPTOperations:
             plot.gap_width = config.gap_width
             plot.overlap = config.overlap
 
+            plot.vary_by_categories = False
+            
             if config.has_data_labels:
                 plot.has_data_labels = True
                 labels = plot.data_labels
