@@ -1,5 +1,7 @@
 # core/data_provider.py
 
+from collections.abc import Callable
+
 import pandas as pd
 
 from .conclusion_generator import ConclusionGenerator
@@ -14,6 +16,14 @@ class RealEstateDataProvider:
     职责：协调 DAO 获取数据，并调用 Transformer 加工数据。
     它是 Context 唯一需要交互的对象。
     """
+
+    # Function Key 映射：定义 function_key 到对应方法的映射
+    FUNCTION_MAP: dict[str, Callable] = {
+        "Supply-Transaction Unit Statistic": "get_supply_transaction_stats_with_conclusion",
+        "Area x Price Cross Pivot": "get_area_price_cross_stats_with_conclusion",
+        "Area Segment Distribution": "get_area_distribution_with_conclusion",
+        "Price Segment Distribution": "get_price_distribution_with_conclusion",
+    }
 
     def __init__(
         self, city: str, block: str, start_year: str, end_year: str, table_name: str
@@ -291,3 +301,32 @@ class RealEstateDataProvider:
         df_ppt = self._transform_to_ppt_format(df, index_col="price_range")
 
         return df_ppt, conclusion_vars
+
+    # ==================== Function Dispatcher ====================
+
+    def execute_by_function_key(
+        self, function_key: str, **kwargs
+    ) -> tuple[pd.DataFrame, dict[str, str]]:
+        """
+        根据 function_key 自动调用对应的函数
+
+        Args:
+            function_key: 功能键 (如 "Supply-Transaction Unit Statistic")
+            **kwargs: 传递给目标函数的参数 (如 area_range_size=20)
+
+        Returns:
+            tuple[pd.DataFrame, dict[str, str]]: (数据框, 结论变量字典)
+
+        Raises:
+            ValueError: 如果 function_key 不在映射表中
+        """
+        if function_key not in self.FUNCTION_MAP:
+            raise ValueError(
+                f"未知的 function_key: '{function_key}'. "
+                f"支持的 function_key: {list(self.FUNCTION_MAP.keys())}"
+            )
+
+        method_name = self.FUNCTION_MAP[function_key]
+        method = getattr(self, method_name)
+
+        return method(**kwargs)

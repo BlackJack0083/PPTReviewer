@@ -113,8 +113,13 @@ class SlideConfigBuilder:
 
         elements = []
         for func_role, element_role, common_key, item_key in text_fields:
+            # 使用 primary_function_key 来获取文本（多数据源时使用第一个）
             text_content = resource_manager.render_text(
-                meta.theme_key, meta.function_key, func_role, ctx.variables, item_key
+                meta.theme_key,
+                meta.primary_function_key,
+                func_role,
+                ctx.variables,
+                item_key,
             )
             layout_model = layout_manager.get_common_layout(common_key)
 

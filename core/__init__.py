@@ -1,4 +1,4 @@
-from .context import PresentationContext
+from .context_builder import ContextBuilder, PresentationContext
 from .layout_manager import layout_manager
 from .ppt_operations import PPTOperations
 from .resources import TemplateMeta, resource_manager
@@ -32,6 +32,7 @@ __all__ = [
     "BarChartConfig",
     "LineChartConfig",
     "PresentationContext",
+    "ContextBuilder",
     "resource_manager",
     "TemplateMeta",
     "SlotDefinition",

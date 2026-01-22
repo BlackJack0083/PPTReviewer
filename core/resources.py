@@ -19,9 +19,22 @@ class TemplateMeta:
     layout_type: LayoutType
     style_config_id: str  # 对应 styles.yaml 的 Style
     theme_key: str  # 对应 text_pattern.yaml 的 Theme
-    function_key: str  # 对应 text_pattern.yaml 的 Function
+    function_key: str | list[str]  # 支持单个或多个 function_key
     summary_item: int  # 对应 text_pattern.yaml 的 Summaries 索引
-    data_keys: dict[str, str]
+    data_keys: dict[str, str]  # 槽位名 -> 数据键名
+
+    # 兼容性属性：保持向后兼容
+    @property
+    def function_keys(self) -> list[str]:
+        """返回 function_key 列表，兼容单个和多个的情况"""
+        if isinstance(self.function_key, str):
+            return [self.function_key]
+        return self.function_key
+
+    @property
+    def primary_function_key(self) -> str:
+        """返回第一个 function_key（用于获取结论）"""
+        return self.function_keys[0]
 
 
 class ResourceManager:
