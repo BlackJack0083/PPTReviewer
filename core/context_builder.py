@@ -95,6 +95,9 @@ class ContextBuilder:
         context.add_variable("Temporal_Start_Year", start_year)
         context.add_variable("Temporal_End_Year", end_year)
 
+        # 添加表名（用于 YAML 导出）
+        context.add_variable("_table_name", provider.filter.table_name)
+
         # 2. 获取所有的 function_keys
         function_keys = template_meta.function_keys
 

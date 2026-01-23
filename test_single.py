@@ -7,94 +7,9 @@ import traceback
 
 from loguru import logger
 
-from core import resource_manager
-from core.context import PresentationContext
+from core import ContextBuilder, resource_manager
 from core.data_provider import RealEstateDataProvider
 from engine import PPTGenerationEngine
-
-
-def prepare_context_for_template(
-    template_id, provider, start_year, end_year, city, block
-):
-    """
-    根据模板ID准备对应的Context
-
-    Args:
-        template_id: 模板ID
-        provider: DataProvider实例
-        start_year: 起始年份
-        end_year: 结束年份
-        city: 城市名
-        block: 板块名
-
-    Returns:
-        PresentationContext: 准备好的上下文
-    """
-    context = PresentationContext()
-
-    # 添加基础变量
-    context.add_variable("Geo_City_Name", city)
-    context.add_variable("Geo_Block_Name", block)
-    context.add_variable("Temporal_Start_Year", start_year)
-    context.add_variable("Temporal_End_Year", end_year)
-
-    # 根据模板类型准备数据
-    template_type = template_id.split("_")[0]  # T01, T02, T03, T04
-
-    if template_type == "T01":
-        # ReSlide_01: Block Area Segment Distribution
-        logger.info("准备 T01 数据: 供需统计")
-        df_supply, supply_conclusion = (
-            provider.get_supply_transaction_stats_with_conclusion(area_range_size=20)
-        )
-        context.add_dataset("supply_trans_data", df_supply)
-        for key, value in supply_conclusion.items():
-            context.add_variable(key, value)
-
-    elif template_type == "T02":
-        # ReSlide_02: New-House Cross-Structure Analysis
-        function = template_id.split("_")[1]  # Cross, Area, Price
-
-        if function == "Cross":
-            logger.info("准备 T02 数据: 交叉分析")
-            df_cross, cross_conclusion = (
-                provider.get_area_price_cross_stats_with_conclusion(
-                    area_step=20, price_step=5
-                )
-            )
-            context.add_dataset("cross_analysis_data", df_cross)
-            for key, value in cross_conclusion.items():
-                context.add_variable(key, value)
-
-        elif function == "Area":
-            logger.info("准备 T02 数据: 面积分布")
-            df_area, area_conclusion = (
-                provider.get_newhouse_area_distribution_with_conclusion(step=20)
-            )
-            context.add_dataset("newhouse_area_dist_data", df_area)
-            for key, value in area_conclusion.items():
-                context.add_variable(key, value)
-
-        elif function == "Price":
-            logger.info("准备 T02 数据: 价格分布")
-            df_price, price_conclusion = (
-                provider.get_newhouse_price_distribution_with_conclusion(
-                    price_range_size=1
-                )
-            )
-            context.add_dataset("newhouse_price_dist_data", df_price)
-            for key, value in price_conclusion.items():
-                context.add_variable(key, value)
-
-    elif template_type == "T03":
-        # ReSlide_03: Resale-House Cross-Structure Analysis
-        pass
-
-    elif template_type == "T04":
-        # ReSlide_04: New-House Market Capacity Analysis
-        pass
-
-    return context
 
 
 def test_single_case(
@@ -128,6 +43,14 @@ def test_single_case(
     logger.info(f"{'='*80}\n")
 
     try:
+        # 获取模板元数据
+        template_meta = resource_manager.get_template(template_id)
+        if not template_meta:
+            logger.error(f"✗ 模板不存在: {template_id}")
+            return False
+
+        logger.info(f"模板信息: function_key='{template_meta.function_key}'")
+
         # 遍历所有板块
         for block in table_config["blocks"]:
             logger.info(f"\n{'─'*60}")
@@ -139,9 +62,14 @@ def test_single_case(
                 table_config["city"], block, start_year, end_year, table_config["table"]
             )
 
-            # 准备Context
-            context = prepare_context_for_template(
-                template_id, provider, start_year, end_year, table_config["city"], block
+            # 使用 ContextBuilder 自动构建 Context
+            context = ContextBuilder.build_context(
+                template_meta=template_meta,
+                provider=provider,
+                city=table_config["city"],
+                block=block,
+                start_year=start_year,
+                end_year=end_year,
             )
 
             # 生成PPT

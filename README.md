@@ -1,26 +1,30 @@
 # PPTReviewer
 
-> 自动化房地产数据分析与PPT报告生成系统
+> 自动化房地产数据分析与 PPT 报告生成系统
 
 [![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)](https://www.python.org/)
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-## 📖 项目简介
+---
+
+## 项目简介
 
 PPTReviewer 是一个基于 Python 的自动化 PPT 报告生成系统，专为房地产行业设计。它能够从 PostgreSQL 数据库中提取房地产交易数据，自动进行数据处理、分析并生成包含图表、表格和智能结论的专业 PPT 报告。
 
 ### 核心特性
 
-- 🔄 **自动化数据提取** - 从数据库自动获取和处理房地产数据
-- 📊 **多种图表支持** - 柱状图、折线图、表格等多种可视化形式
-- 🎨 **完全配置化** - 样式、版式、文案全部通过 YAML 配置
-- 🤖 **智能结论生成** - 根据数据自动生成分析结论
-- 🌏 **完美中文支持** - 支持中文字体和文本
-- 🏗️ **模块化架构** - 清晰的分层设计，易于扩展
+- **🔄 自动化数据提取** - 从数据库自动获取和处理房地产数据
+- **📊 多种图表支持** - 柱状图、折线图、表格等多种可视化形式
+- **🎨 完全配置化** - 样式、版式、文案全部通过 YAML 配置
+- **🤖 智能结论生成** - 根据数据自动生成分析结论
+- **🌏 完美中文支持** - 支持中文字体和文本
+- **🏗️ 模块化架构** - 清晰的分层设计，易于扩展
+- **✨ 类型安全** - 使用 Pydantic 进行数据验证
+- **🧪 完善的测试工具** - 提供交互式测试和诊断工具
 
 ---
 
-## 📂 项目结构
+## 项目结构
 
 ```
 PPTReviewer/
@@ -66,15 +70,16 @@ PPTReviewer/
 ├── logs/                        # 日志文件目录
 │
 ├── test_all_templates.py        # 主测试工具
+├── test_single.py               # 单个模板测试工具
 ├── diagnose_templates.py        # 模板诊断工具
 ├── .env                         # 数据库配置
 ├── pyproject.toml               # 项目配置
-└── readme.md                    # 项目说明文档
+└── README.md                    # 项目说明文档
 ```
 
 ---
 
-## 🚀 快速开始
+## 快速开始
 
 ### 环境要求
 
@@ -128,7 +133,7 @@ SQL_DB=RealEstate
 
 ---
 
-## 💡 使用方式
+## 使用方式
 
 ### 方式一：使用测试工具（推荐）
 
@@ -144,7 +149,13 @@ python test_all_templates.py
 - **选项3** - 测试特定模板：输入模板ID进行单独测试
 - **选项4** - 测试特定表：选择某个表进行完整测试
 
-### 方式二：使用 API
+### 方式二：使用单个模板测试
+
+```bash
+python test_single.py
+```
+
+### 方式三：使用 API
 
 ```python
 from core import resource_manager
@@ -185,12 +196,13 @@ engine.generate_multiple_slides([
 
 ---
 
-## 📊 可用模板
+## 可用模板
 
 ### 当前可用模板
 
 | 模板ID | 说明 | 版式 | 数据需求 |
 |--------|------|------|---------|
+| `T02_Cross_Pivot_Table` | 新房面积x价格交叉分析（透视表） | 单栏表格 | `get_area_price_cross_stats_with_conclusion()` |
 | `T02_Area_Dist_Bar` | 新房面积分布（柱状图） | 单栏柱状图 | `get_newhouse_area_distribution_with_conclusion()` |
 | `T02_Area_Dist_Table` | 新房面积分布（表格） | 单栏表格 | 同上 |
 | `T02_Price_Dist_Bar` | 新房价格分布（柱状图） | 单栏柱状图 | `get_newhouse_price_distribution_with_conclusion()` |
@@ -205,9 +217,9 @@ engine.generate_multiple_slides([
 
 ---
 
-## 🔧 核心模块说明
+## 核心模块说明
 
-### 数据层
+### 数据层架构
 
 ```
 Database (PostgreSQL)
@@ -235,7 +247,7 @@ PPTGenerationEngine (生成PPT)
 - **[core/data_provider.py](core/data_provider.py)** - `RealEstateDataProvider`：对外提供业务方法，协调DAO和Transformer
 - **[core/conclusion_generator.py](core/conclusion_generator.py)** - `ConclusionGenerator`：根据数据自动生成分析结论
 
-### 配置层
+### 配置层架构
 
 ```
 text_pattern.yaml (Jinja2模板)
@@ -283,7 +295,7 @@ python-pptx 生成最终.pptx文件
 
 ---
 
-## 📚 API 参考
+## API 参考
 
 ### RealEstateDataProvider 方法
 
@@ -311,7 +323,7 @@ python-pptx 生成最终.pptx文件
 
 ---
 
-## 🛠️ 配置扩展指南
+## 配置扩展指南
 
 ### 添加新模板
 
@@ -357,7 +369,7 @@ Your Theme:
 
 ---
 
-## 🔍 诊断和调试
+## 诊断和调试
 
 ### 使用诊断工具
 
@@ -379,7 +391,7 @@ python diagnose_templates.py
 
 ---
 
-## 🏗️ 架构设计
+## 架构设计
 
 ### 设计模式应用
 
@@ -391,15 +403,15 @@ python diagnose_templates.py
 
 ### 架构优势
 
-- ✅ **高度模块化** - 配置、数据、渲染分离
-- ✅ **可扩展性强** - 通过 YAML 配置添加新模板，无需修改代码
-- ✅ **类型安全** - 使用 Pydantic 进行数据验证
-- ✅ **代码质量** - Pre-commit 钩子确保代码规范
-- ✅ **测试友好** - 提供完整的测试和诊断工具
+- **高度模块化** - 配置、数据、渲染分离
+- **可扩展性强** - 通过 YAML 配置添加新模板，无需修改代码
+- **类型安全** - 使用 Pydantic 进行数据验证
+- **代码质量** - Pre-commit 钩子确保代码规范
+- **测试友好** - 提供完整的测试和诊断工具
 
 ---
 
-## 📦 技术栈
+## 技术栈
 
 ### 核心依赖
 
@@ -417,14 +429,14 @@ python diagnose_templates.py
 
 ### 开发工具
 
+- **uv** - 快速的 Python 包管理器
 - **ruff** - 代码检查和格式化
-- **black** - 代码格式化
 - **pre-commit** - Git钩子
 - **commitizen** - 提交规范
 
 ---
 
-## ❓ 常见问题
+## 常见问题
 
 **Q1: 如何支持新的城市数据表？**
 
@@ -448,11 +460,18 @@ A: 在 [constants.py](config/constants.py) 中添加新的配色方案，然后�
 
 ---
 
-## 🗺️ 开发路线图
+## 开发路线图
 
 ### 当前状态
-- ✅ T02系列4个模板完全可用
+- ✅ T02系列5个模板完全可用
 - ⏸️ T01、T03、T04系列待修复或完成
+
+### 近期更新
+- ✅ 重构数据表 schema，增强可读性
+- ✅ 拆分 transformer 逻辑
+- ✅ 修复数据格式不匹配与 DataFrame 形状问题
+- ✅ 完善表格渲染功能
+- ✅ 修改表格和柱状图 bug，提高美观度
 
 ### 计划功能
 - [ ] 修复T01系列模板打开问题
@@ -466,13 +485,13 @@ A: 在 [constants.py](config/constants.py) 中添加新的配色方案，然后�
 
 ---
 
-## 📄 许可证
+## 许可证
 
 本项目采用 MIT 许可证。详见 [LICENSE](LICENSE) 文件。
 
 ---
 
-## 🤝 贡献指南
+## 贡献指南
 
 欢迎提交 Issue 和 Pull Request！
 
@@ -492,18 +511,16 @@ A: 在 [constants.py](config/constants.py) 中添加新的配色方案，然后�
 
 ---
 
-## 📞 联系方式
+## 联系方式
 
 如有问题或建议，欢迎提交 Issue 或联系项目维护者。
 
 ---
 
-## 🙏 致谢
+## 致谢
 
 感谢以下开源项目：
 - [python-pptx](https://github.com/scanny/python-pptx) - PPT文件操作库
 - [pandas](https://pandas.pydata.org/) - 数据处理库
 - [pydantic](https://github.com/pydantic/pydantic) - 数据验证库
 - [Jinja2](https://jinja.palletsprojects.com/) - 模板引擎
-
----

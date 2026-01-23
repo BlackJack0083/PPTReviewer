@@ -8,6 +8,7 @@ from core import PPTOperations, PresentationContext, resource_manager
 
 from .builder import SlideConfigBuilder
 from .slide_renderers import RendererFactory
+from .yaml_exporter import YAMLExporter
 
 
 @dataclass
@@ -136,6 +137,14 @@ class PPTGenerationEngine:
 
             # 4. 执行渲染 (Renderer)
             renderer.render(slide_config, page_number=page_number)
+
+            # 5. 导出 YAML 配置文件
+            YAMLExporter.export_slide_config(
+                slide_config=slide_config,
+                context=task.context,
+                template_id=target_id,
+                output_file_path=self.output_file_path,
+            )
 
         except Exception as e:
             # 捕获单页错误，记录日志，选择是否抛出 (这里选择抛出以中断流程，也可改为 continue 跳过错误页)
