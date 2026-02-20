@@ -40,9 +40,16 @@ class SlideElementBuilder:
             logger.error(f"Failed to get data for key '{data_key}': {e}")
             raise e
 
+        # 从 context 获取配置（用于 YAML 导出）
+        config = context.get_config(data_key)
+
         if element_type == ElementType.CHART:
             return ChartElement(
-                role=role, layout=layout, data_key=data_key, data_payload=data_payload
+                role=role,
+                layout=layout,
+                data_key=data_key,
+                data_payload=data_payload,
+                config=config,
             )
         elif element_type == ElementType.TABLE:
             return TableElement(

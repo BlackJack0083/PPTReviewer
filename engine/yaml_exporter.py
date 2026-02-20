@@ -218,11 +218,19 @@ class YAMLExporter:
         return elem
 
     @staticmethod
-    def _build_chart_args(chart_element: ChartElement) -> list:
-        """从图表元素构建 args 参数"""
+    def _build_chart_args(chart_element: ChartElement) -> dict:
+        """从图表元素构建 args 参数
+
+        优先使用 ChartElement.config，否则从 DataFrame 推断
+        """
+        # 如果有 config，直接使用它
+        if chart_element.config:
+            return YAMLExporter._config_to_dict(chart_element.config)
+
+        # 否则从 DataFrame 推断（向后兼容）
         df = chart_element.data_payload
         if df.empty:
-            return []
+            return {}
 
         # 从 DataFrame 推断参数
         index_name = df.index.name or "unknown"
@@ -242,27 +250,82 @@ class YAMLExporter:
                     try:
                         min_val = parts[0].strip()
                         step = str(int(parts[1]) - int(parts[0]))
-                    except: pass
+                    except:
+                        pass
             elif "M" in first_idx:
                 parts = first_idx.replace("M", "").split("-")
                 if len(parts) == 2:
                     try:
                         min_val = parts[0].strip()
                         step = str(int(parts[1]) - int(parts[0]))
-                    except: pass
+                    except:
+                        pass
 
         format_str = template["format_str"]
         if "M" in index_name:
             format_str = "{}-{}M"
 
-        return [
-            "field-constraint",
-            [
-                [index_name, ["index"], format_str, min_val, max_val, step],
-                [index_name],
-                ["count"]
-            ]
-        ]
+        return {
+            "table_type": "field-constraint",
+            "dimensions": [
+                {
+                    "source_col": index_name,
+                    "target_col": index_name,
+                    "method": "range",
+                    "format_str": format_str,
+                    "min": min_val,
+                    "max": max_val,
+                    "step": step,
+                }
+            ],
+            "metrics": [
+                {"name": col, "source_col": col, "agg_func": "count"} for col in columns
+            ],
+        }
+
+    @staticmethod
+    def _config_to_dict(config) -> dict:
+        """将 TableAnalysisConfig 转换为字典格式"""
+        if not config:
+            return {}
+
+        result = {
+            "table_type": config.table_type,
+            "dimensions": [],
+            "metrics": [],
+        }
+
+        # 转换 dimensions
+        for dim in config.dimensions:
+            dim_dict = {
+                "source_col": dim.source_col,
+                "target_col": dim.target_col,
+                "method": dim.method,
+            }
+            if dim.step:
+                dim_dict["step"] = dim.step
+            if dim.format_str:
+                dim_dict["format_str"] = dim.format_str
+            if dim.min is not None:
+                dim_dict["min"] = dim.min
+            if dim.max is not None:
+                dim_dict["max"] = dim.max
+            if dim.time_granularity:
+                dim_dict["time_granularity"] = dim.time_granularity
+            result["dimensions"].append(dim_dict)
+
+        # 转换 metrics
+        for metric in config.metrics:
+            metric_dict = {
+                "name": metric.name,
+                "source_col": metric.source_col,
+                "agg_func": metric.agg_func,
+            }
+            if metric.filter_condition:
+                metric_dict["filter_condition"] = metric.filter_condition
+            result["metrics"].append(metric_dict)
+
+        return result
 
     @staticmethod
     def _write_yaml(yaml_data: dict, ppt_path: str | Path, city: str, block: str, template_id: str) -> Path:

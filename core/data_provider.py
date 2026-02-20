@@ -43,20 +43,24 @@ class RealEstateDataProvider:
 
         self.transformer = StatTransformer()
 
-    def get_supply_transaction_stats(self, area_range_size: int = 20) -> pd.DataFrame:
+    def get_supply_transaction_stats(
+        self, area_range_size: int = 20
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
+        """获取供需统计数据
+
+        Returns:
+            tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
+        """
         # 1. 获取原料 (IO Bound)
         raw_df = self.dao.fetch_raw_data(
             self.filter, columns=["dim_area", "supply_sets", "trade_sets"]
         )
 
-        # analysis_config = [
-        #     "field-constraint",
-        #     [["Supply Count", "Sales Count"], ["area_range", "{}-{}m²", "20"]],
-        #     [["dim_area", "supply_sets"], ["dim_area", "trade_sets"]],
-        #     ["count", "count"],
-        # ]
+        # 计算 dim_area 的 min/max
+        area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
+        area_max = int(raw_df["dim_area"].max()) if not raw_df.empty else 300
 
-        # 2. Config Construction (不再使用 list)
+        # 2. Config Construction
         config = TableAnalysisConfig(
             table_type="field-constraint",
             dimensions=[
@@ -66,6 +70,8 @@ class RealEstateDataProvider:
                     method="range",
                     step=area_range_size,
                     format_str="{}-{}m²",
+                    min=area_min,
+                    max=area_max,
                 )
             ],
             metrics=[
@@ -73,7 +79,7 @@ class RealEstateDataProvider:
                     name="Supply Count",
                     source_col="supply_sets",
                     agg_func="count",
-                    filter_condition={"supply_sets": 1},  # 显式过滤
+                    filter_condition={"supply_sets": 1},
                 ),
                 MetricRule(
                     name="Sales Count",
@@ -84,12 +90,9 @@ class RealEstateDataProvider:
             ],
         )
 
-        # # 2. 加工产品 (CPU Bound)
-        # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
-        # return result_df
-
         # 3. CPU Bound
-        return self.transformer.process_data_pipeline(raw_df, config)
+        df = self.transformer.process_data_pipeline(raw_df, config)
+        return df, config
 
     def get_area_price_cross_stats(
         self, area_range_size: int = 20, price_range_size: int = 1
@@ -104,6 +107,12 @@ class RealEstateDataProvider:
         #     ["count"],
         # ]
 
+        # 计算 min/max
+        area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
+        area_max = int(raw_df["dim_area"].max()) if not raw_df.empty else 300
+        price_min = int(raw_df["dim_price"].min()) if not raw_df.empty else 0
+        price_max = int(raw_df["dim_price"].max()) if not raw_df.empty else 20
+
         config = TableAnalysisConfig(
             table_type="cross-constraint",
             dimensions=[
@@ -113,6 +122,8 @@ class RealEstateDataProvider:
                     method="range",
                     step=area_range_size,
                     format_str="{}-{}m²",
+                    min=area_min,
+                    max=area_max,
                 ),
                 BinningRule(
                     source_col="dim_price",
@@ -120,6 +131,8 @@ class RealEstateDataProvider:
                     method="range",
                     step=price_range_size,
                     format_str="{}-{}M",
+                    min=price_min,
+                    max=price_max,
                 ),
             ],
             metrics=[
@@ -133,13 +146,25 @@ class RealEstateDataProvider:
         # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
         # return result_df
 
-        return self.transformer.process_data_pipeline(raw_df, config)
+        df = self.transformer.process_data_pipeline(raw_df, config)
+        return df, config
 
-    def get_area_distribution_stats(self, area_range_size: int = 20) -> pd.DataFrame:
+    def get_area_distribution_stats(
+        self, area_range_size: int = 20
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
+        """获取面积分布统计数据
+
+        Returns:
+            tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
+        """
         # 1. 获取原料
         raw_df = self.dao.fetch_raw_data(
             self.filter, columns=["dim_area", "trade_sets"]
         )
+
+        # 计算 dim_area 的 min/max
+        area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
+        area_max = int(raw_df["dim_area"].max()) if not raw_df.empty else 300
 
         # analysis_config = [
         #     "field-constraint",
@@ -157,6 +182,8 @@ class RealEstateDataProvider:
                     method="range",
                     step=area_range_size,
                     format_str="{}-{}m²",
+                    min=area_min,
+                    max=area_max,
                 )
             ],
             metrics=[
@@ -173,13 +200,25 @@ class RealEstateDataProvider:
         # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
         # return result_df
 
-        return self.transformer.process_data_pipeline(raw_df, config)
+        df = self.transformer.process_data_pipeline(raw_df, config)
+        return df, config
 
-    def get_price_distribution_stats(self, price_range_size: int = 1) -> pd.DataFrame:
+    def get_price_distribution_stats(
+        self, price_range_size: int = 1
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
+        """获取价格分布统计数据
+
+        Returns:
+            tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
+        """
         # 1. 获取原料
         raw_df = self.dao.fetch_raw_data(
             self.filter, columns=["dim_price", "trade_sets"]
         )
+
+        # 计算 dim_price 的 min/max
+        price_min = int(raw_df["dim_price"].min()) if not raw_df.empty else 0
+        price_max = int(raw_df["dim_price"].max()) if not raw_df.empty else 20
 
         # analysis_config = [
         #     "field-constraint",
@@ -197,6 +236,8 @@ class RealEstateDataProvider:
                     method="range",
                     step=price_range_size,
                     format_str="{}-{}M",
+                    min=price_min,
+                    max=price_max,
                 )
             ],
             metrics=[
@@ -210,10 +251,8 @@ class RealEstateDataProvider:
         )
 
         # 2. 加工产品
-        # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
-        # return result_df
-
-        return self.transformer.process_data_pipeline(raw_df, config)
+        df = self.transformer.process_data_pipeline(raw_df, config)
+        return df, config
 
     # ==================== 带结论的获取方法 ====================
 
@@ -252,10 +291,14 @@ class RealEstateDataProvider:
 
     def get_supply_transaction_stats_with_conclusion(
         self, area_range_size: int = 20
-    ) -> tuple[pd.DataFrame, dict[str, str]]:
-        """获取供需统计数据，并返回计算结论"""
-        # 1. 获取原始分析数据(长表/竖表)
-        df = self.get_supply_transaction_stats(area_range_size)
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取供需统计数据，并返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        # 1. 获取原始分析数据(长表/竖表) 和 config
+        df, config = self.get_supply_transaction_stats(area_range_size)
 
         # 2. 基于标准数据生成结论
         conclusion_vars = self.conclusion_gen.get_supply_transaction_conclusion(df)
@@ -263,50 +306,58 @@ class RealEstateDataProvider:
         # 3. 转置为 PPT 需要的格式 (锚点: area_range)
         df_ppt = self._transform_to_ppt_format(df, index_col="area_range")
 
-        return df_ppt, conclusion_vars
+        return df_ppt, conclusion_vars, config
 
     def get_area_price_cross_stats_with_conclusion(
         self, area_step: int = 20, price_step: int = 1
-    ) -> tuple[pd.DataFrame, dict[str, str]]:
-        """获取面积x价格交叉统计，并返回计算结论"""
-        df = self.get_area_price_cross_stats(area_step, price_step)
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取面积x价格交叉统计，并返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        df, config = self.get_area_price_cross_stats(area_step, price_step)
         conclusion_vars = self.conclusion_gen.get_cross_structure_conclusion(df)
 
-        # 转置并清洗 (锚点: area_range)
-        # 注意：这里假设交叉表的行索引是 area_range，转置后 area_range 变成表头
-        # df_ppt = self._transform_to_ppt_format(df, index_col="area_range")
-
-        return df, conclusion_vars
+        return df, conclusion_vars, config
 
     def get_area_distribution_with_conclusion(
         self, step: int = 20
-    ) -> tuple[pd.DataFrame, dict[str, str]]:
-        """获取面积分布，并返回计算结论"""
-        df = self.get_area_distribution_stats(step)
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取面积分布，并返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        df, config = self.get_area_distribution_stats(step)
         conclusion_vars = self.conclusion_gen.get_area_distribution_conclusion(df)
 
         # 转置并清洗 (锚点: area_range)
         df_ppt = self._transform_to_ppt_format(df, index_col="area_range")
 
-        return df_ppt, conclusion_vars
+        return df_ppt, conclusion_vars, config
 
     def get_price_distribution_with_conclusion(
         self, price_range_size: int = 1
-    ) -> tuple[pd.DataFrame, dict[str, str]]:
-        """获取新房价格分布统计"""
-        df = self.get_price_distribution_stats(price_range_size)
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取新房价格分布统计，返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        df, config = self.get_price_distribution_stats(price_range_size)
         conclusion_vars = self.conclusion_gen.get_price_distribution_conclusion(df)
 
         # 转置并清洗 (注意锚点变化: price_range)
         df_ppt = self._transform_to_ppt_format(df, index_col="price_range")
 
-        return df_ppt, conclusion_vars
+        return df_ppt, conclusion_vars, config
 
     # ==================== Function Dispatcher ====================
 
     def execute_by_function_key(
         self, function_key: str, **kwargs
-    ) -> tuple[pd.DataFrame, dict[str, str]]:
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig | None]:
         """
         根据 function_key 自动调用对应的函数
 
@@ -315,7 +366,8 @@ class RealEstateDataProvider:
             **kwargs: 传递给目标函数的参数 (如 area_range_size=20)
 
         Returns:
-            tuple[pd.DataFrame, dict[str, str]]: (数据框, 结论变量字典)
+            tuple[DataFrame, dict[str, str], TableAnalysisConfig | None]:
+            (数据框, 结论变量字典, 数据分析配置)
 
         Raises:
             ValueError: 如果 function_key 不在映射表中
@@ -329,4 +381,8 @@ class RealEstateDataProvider:
         method_name = self.FUNCTION_MAP[function_key]
         method = getattr(self, method_name)
 
-        return method(**kwargs)
+        # 调用方法获取结果（已经是三元组：df, conclusions, config）
+        result = method(**kwargs)
+
+        # 直接返回三元组
+        return result

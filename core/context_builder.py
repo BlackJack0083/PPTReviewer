@@ -11,6 +11,7 @@ from loguru import logger
 
 from .data_provider import RealEstateDataProvider
 from .resources import TemplateMeta
+from .schemas import TableAnalysisConfig
 
 
 class PresentationContext:
@@ -27,6 +28,9 @@ class PresentationContext:
         # 存放所有的文本变量 (如城市名、日期、趋势结论等)
         self._variables: dict[str, Any] = {}
 
+        # 存放数据分析配置，用于 YAML 导出
+        self._configs: dict[str, TableAnalysisConfig] = {}
+
     def add_dataset(self, key: str, df: pd.DataFrame):
         """注入表格数据，key 要和 catalog 里定义的一致"""
         self._datasets[key] = df
@@ -37,14 +41,28 @@ class PresentationContext:
         self._variables[key] = value
         logger.debug(f"Context: Added variable '{key}'={value}")
 
+    def add_config(self, key: str, config: TableAnalysisConfig):
+        """注入数据分析配置，用于 YAML 导出"""
+        self._configs[key] = config
+        logger.debug(f"Context: Added config '{key}'")
+
     def get_dataset(self, key: str) -> pd.DataFrame:
         if key not in self._datasets:
             raise ValueError(f"数据缺失: Context 中找不到 key='{key}' 的数据表")
         return self._datasets[key]
 
+    def get_config(self, key: str) -> TableAnalysisConfig | None:
+        """获取数据分析配置"""
+        return self._configs.get(key)
+
     @property
     def variables(self) -> dict[str, Any]:
         return self._variables
+
+    @property
+    def configs(self) -> dict[str, TableAnalysisConfig]:
+        """获取所有配置"""
+        return self._configs
 
 
 class ContextBuilder:
@@ -139,12 +157,15 @@ class ContextBuilder:
 
         # 调用数据方法
         logger.info(f"调用数据方法: function_key='{function_key}', params={params}")
-        df, conclusion_vars = provider.execute_by_function_key(function_key, **params)
+        df, conclusion_vars, config = provider.execute_by_function_key(function_key, **params)
 
         # 根据模板的 data_keys 将数据添加到 context
         # 注意：单数据源模式下，data_keys 的所有 values 都指向同一个数据集
         for data_key_name in template_meta.data_keys.values():
             context.add_dataset(data_key_name, df)
+            # 添加对应的配置
+            if config:
+                context.add_config(data_key_name, config)
 
         # 添加结论变量
         for key, value in conclusion_vars.items():
@@ -183,7 +204,7 @@ class ContextBuilder:
                 f"function_key='{function_key}' -> slot='{slot_name}' (key='{data_key_name}'), "
                 f"params={params}"
             )
-            df, conclusion_vars = provider.execute_by_function_key(
+            df, conclusion_vars, config = provider.execute_by_function_key(
                 function_key, **params
             )
 
@@ -192,6 +213,11 @@ class ContextBuilder:
             logger.info(
                 f"  -> 数据已添加: slot='{slot_name}', key='{data_key_name}', shape={df.shape}"
             )
+
+            # 添加配置
+            if config:
+                context.add_config(data_key_name, config)
+                logger.info(f"  -> 配置已添加: slot='{slot_name}', key='{data_key_name}'")
 
             # 只使用第一个 function_key 的结论（左图）
             if i == 0:

@@ -271,51 +271,8 @@ class BaseSlideElement(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
-class TextElement(BaseSlideElement):
-    """文本元素模型"""
-
-    type: Literal[ElementType.TEXT] = ElementType.TEXT
-    text: str
-
-
-class DataElement(BaseSlideElement):
-    """数据驱动元素 (图表/表格) 模型"""
-
-    # 这里定义 data_key 必须存在，防止你在 Builder 里拼错
-    data_key: str
-    # 强制要求 payload 是 DataFrame，而不是随便什么 list 或 dict
-    data_payload: pd.DataFrame
-
-
-class ChartElement(DataElement):
-    type: Literal[ElementType.CHART] = ElementType.CHART
-
-
-class TableElement(DataElement):
-    type: Literal[ElementType.TABLE] = ElementType.TABLE
-
-
-class RectangleElement(BaseSlideElement):
-    type: Literal[ElementType.RECTANGLE] = ElementType.RECTANGLE
-    # 可以添加 specific 属性，如 color, border 等
-
-
-class PictureElement(BaseSlideElement):
-    type: Literal[ElementType.PICTURE] = ElementType.PICTURE
-    image_path: str
-
-
-RenderableElement = (
-    TextElement | ChartElement | TableElement | RectangleElement | PictureElement
-)
-
-
-class SlideRenderConfig(BaseModel):
-    """单页幻灯片的完整渲染配置"""
-
-    layout_type: LayoutType
-    style_id: str
-    elements: list[RenderableElement]
+# ==================== 数据分析配置类 ====================
+# 这些类需要在 DataElement 和 ChartElement 之前定义
 
 
 class BinningRule(BaseModel):
@@ -332,6 +289,8 @@ class BinningRule(BaseModel):
     # Optional fields
     step: float | int | None = Field(None, description="分箱步长，如 20")
     format_str: str | None = Field(None, description="格式化模板，如 '{}-{}m²'")
+    min: float | int | None = Field(None, description="最小值")
+    max: float | int | None = Field(None, description="最大值")
     time_granularity: Literal["year", "month"] | None = Field(
         None, description="时间粒度"
     )
@@ -374,3 +333,61 @@ class TableAnalysisConfig(BaseModel):
     crosstab_col: str | None = Field(None, description="交叉表-列维度字段名")
 
     model_config = {"extra": "ignore"}  # 如果传入了多余的参数，自动忽略而不是报错
+
+
+# ==================== 幻灯片元素类 ====================
+
+
+class TextElement(BaseSlideElement):
+    """文本元素模型"""
+
+    type: Literal[ElementType.TEXT] = ElementType.TEXT
+    text: str
+
+
+class DataElement(BaseSlideElement):
+    """数据驱动元素 (图表/表格) 模型"""
+
+    # 这里定义 data_key 必须存在，防止你在 Builder 里拼错
+    data_key: str
+    # 强制要求 payload 是 DataFrame，而不是随便什么 list 或 dict
+    data_payload: pd.DataFrame
+
+
+class ChartElement(DataElement):
+    """图表元素模型
+
+    包含数据分析配置 (TableAnalysisConfig)，用于：
+    1. 数据渲染 (transformer 处理)
+    2. YAML 导出 (保存配置信息)
+    """
+    type: Literal[ElementType.CHART] = ElementType.CHART
+    # 可选的分析配置，用于 YAML 导出和配置复用
+    config: TableAnalysisConfig | None = Field(default=None, description="数据分析配置")
+
+
+class TableElement(DataElement):
+    type: Literal[ElementType.TABLE] = ElementType.TABLE
+
+
+class RectangleElement(BaseSlideElement):
+    type: Literal[ElementType.RECTANGLE] = ElementType.RECTANGLE
+    # 可以添加 specific 属性，如 color, border 等
+
+
+class PictureElement(BaseSlideElement):
+    type: Literal[ElementType.PICTURE] = ElementType.PICTURE
+    image_path: str
+
+
+RenderableElement = (
+    TextElement | ChartElement | TableElement | RectangleElement | PictureElement
+)
+
+
+class SlideRenderConfig(BaseModel):
+    """单页幻灯片的完整渲染配置"""
+
+    layout_type: LayoutType
+    style_id: str
+    elements: list[RenderableElement]
