@@ -48,6 +48,18 @@ line_configs:
     has_markers: true
     y_axis_visible: true
 
+  # 对比橘灰风格（折线图）
+  compare_tangerine_gray:
+    style_name: "2_tangerine_gray"
+    font_name: "Arial"
+    font_size: 12
+    line_width: 2.0
+    smooth_line: false
+    has_markers: true
+    has_legend: true
+    has_data_labels: false
+    y_axis_visible: true
+
 # 3. 表格样式定义
 table_configs:
   # 商务蓝色实心风格
