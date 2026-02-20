@@ -20,6 +20,9 @@ common:
 # keys 必须与 LayoutType 枚举值对应
 layouts:
   single_column_bar:
+    slide_size:
+      width: 19.05
+      height: 14.29
     slots:
       - name: "chart_main"        # 对应 TemplateMeta 中的 data_keys
         type: "chart"
@@ -30,6 +33,9 @@ layouts:
         height: 7.48
 
   single_column_line:
+    slide_size:
+      width: 19.05
+      height: 14.29
     slots:
       - name: "chart_main"
         type: "chart"
@@ -40,6 +46,9 @@ layouts:
         height: 7.48
 
   single_column_table:
+    slide_size:
+      width: 25.4
+      height: 14.29
     slots:
       - name: "table_main"
         type: "table"
@@ -50,6 +59,9 @@ layouts:
         height: 8.96
 
   double_column_bar:
+    slide_size:
+      width: 25.4
+      height: 14.29
     slots:
       - name: "chart_left"
         type: "chart"
@@ -67,6 +79,9 @@ layouts:
         height: 6.5
 
   double_column_line:
+    slide_size:
+      width: 25.4
+      height: 14.29
     slots:
       - name: "chart_left"
         type: "chart"

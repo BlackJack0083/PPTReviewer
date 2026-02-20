@@ -92,7 +92,7 @@ class RealEstateDataProvider:
         return self.transformer.process_data_pipeline(raw_df, config)
 
     def get_area_price_cross_stats(
-        self, area_step: int = 20, price_step: int = 1
+        self, area_range_size: int = 20, price_range_size: int = 1
     ) -> pd.DataFrame:
         # 1. 获取原料
         raw_df = self.dao.fetch_raw_data(self.filter, columns=["dim_area", "dim_price"])
@@ -111,14 +111,14 @@ class RealEstateDataProvider:
                     source_col="dim_area",
                     target_col="area_range",
                     method="range",
-                    step=area_step,
+                    step=area_range_size,
                     format_str="{}-{}m²",
                 ),
                 BinningRule(
                     source_col="dim_price",
                     target_col="price_range",
                     method="range",
-                    step=price_step,
+                    step=price_range_size,
                     format_str="{}-{}M",
                 ),
             ],
@@ -135,7 +135,7 @@ class RealEstateDataProvider:
 
         return self.transformer.process_data_pipeline(raw_df, config)
 
-    def get_area_distribution_stats(self, step: int = 20) -> pd.DataFrame:
+    def get_area_distribution_stats(self, area_range_size: int = 20) -> pd.DataFrame:
         # 1. 获取原料
         raw_df = self.dao.fetch_raw_data(
             self.filter, columns=["dim_area", "trade_sets"]
@@ -155,7 +155,7 @@ class RealEstateDataProvider:
                     source_col="dim_area",
                     target_col="area_range",
                     method="range",
-                    step=step,
+                    step=area_range_size,
                     format_str="{}-{}m²",
                 )
             ],

@@ -123,8 +123,19 @@ class SlotDefinition(LayoutModel):
     role: str
 
 
+class SlideSize(BaseModel):
+    """Slide 尺寸配置"""
+    width: float = Field(25.4, description="宽度 (cm)")
+    height: float = Field(14.29, description="高度 (cm)")
+
+
 class LayoutConfig(BaseModel):
-    slots: list[SlotDefinition]
+    """版式配置"""
+    slide_size: SlideSize = Field(
+        default_factory=lambda: SlideSize(width=25.4, height=14.29),
+        description="Slide 尺寸"
+    )
+    slots: list[SlotDefinition] = Field(default_factory=list)
 
 
 class GlobalLayoutConfig(BaseModel):

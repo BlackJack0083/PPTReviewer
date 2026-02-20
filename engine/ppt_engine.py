@@ -17,8 +17,6 @@ class SlideTask:
 
     template_id: str
     context: PresentationContext
-    # 可选：如果传入的 template_id 是简写(uid)，可以在这里缓存完整ID
-    full_template_id: str | None = None
 
 
 class PPTGenerationEngine:
@@ -98,7 +96,22 @@ class PPTGenerationEngine:
                 self.output_file_path, self.template_file_path
             ) as ppt_ops:
 
-                ppt_ops.init_slides(len(tasks))
+                # 获取第一个任务的 layout_type 用于初始化 PPT 尺寸
+                first_task = tasks[0]
+                if isinstance(first_task, dict):
+                    first_template_id = first_task.get("template_id")
+                else:
+                    first_template_id = first_task.template_id
+
+                # 解析并获取 layout_type
+                resolved_id = self._resolve_template_id(
+                    SlideTask(template_id=first_template_id, context=PresentationContext())
+                )
+                template_meta = resource_manager.get_template(resolved_id)
+                layout_type = template_meta.layout_type if template_meta else None
+
+                # 初始化幻灯片，传入 layout_type 以获取正确的尺寸
+                ppt_ops.init_slides(len(tasks), layout_type=layout_type)
 
                 for index, task_data in enumerate(tasks, start=1):
                     # 兼容字典输入，转换为 SlideTask 对象
@@ -106,7 +119,6 @@ class PPTGenerationEngine:
                         task = SlideTask(
                             template_id=task_data["template_id"],
                             context=task_data["context"],
-                            full_template_id=task_data.get("full_template_id"),
                         )
                     else:
                         task = task_data
@@ -158,8 +170,6 @@ class PPTGenerationEngine:
         解析并验证模板ID。
         优先使用 full_template_id，其次在 catalog 中查找 uid 对应的 full_id。
         """
-        if task.full_template_id:
-            return task.full_template_id
 
         # 尝试直接匹配 Catalog Key
         if task.template_id in resource_manager.all_templates:

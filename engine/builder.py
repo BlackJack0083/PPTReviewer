@@ -106,6 +106,7 @@ class SlideConfigBuilder:
         """构建标题、描述等静态文本"""
         # 定义需要渲染的文本字段
         text_fields = [
+            # (template_part, element_role, layout_key, summary_index)
             ("slide_title", "slide-title", "slide_title", None),
             ("caption", "caption", "caption", None),
             ("summary", "body-text", "description", meta.summary_item),

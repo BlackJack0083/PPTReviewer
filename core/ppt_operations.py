@@ -21,11 +21,13 @@ from .schemas import (
     BarChartConfig,
     BaseChartConfig,
     LayoutModel,
+    LayoutType,
     LineChartConfig,
     RectangleStyleModel,
     TableConfig,
     TextContentModel,
 )
+from .layout_manager import layout_manager
 
 
 class PPTOperations:
@@ -118,6 +120,7 @@ class PPTOperations:
         slide_count: int,
         slide_width_cm: float = None,  # 使用类常量作为默认值
         slide_height_cm: float = None,
+        layout_type: LayoutType | str = None,
     ) -> None:
         """
         初始化/重置幻灯片尺寸并创建空白页
@@ -126,10 +129,18 @@ class PPTOperations:
             slide_count (int): 目标总页数
             slide_width_cm (float): 幻灯片宽度（厘米），默认使用16:9宽屏
             slide_height_cm (float): 幻灯片高度（厘米），默认使用16:9宽屏
+            layout_type (LayoutType | str): 版式类型，如果传入则从 layout_manager 获取尺寸
         """
-        # 使用类常量作为默认值
-        width_cm = slide_width_cm or self.DEFAULT_SLIDE_WIDTH_CM
-        height_cm = slide_height_cm or self.DEFAULT_SLIDE_HEIGHT_CM
+        # 如果传入了 layout_type，优先从 layout_manager 获取尺寸
+        if layout_type and not slide_width_cm and not slide_height_cm:
+            layout_str = layout_type.value if isinstance(layout_type, LayoutType) else layout_type
+            slide_size = layout_manager.get_slide_size(layout_str)
+            width_cm = slide_size.width
+            height_cm = slide_size.height
+        else:
+            # 使用类常量作为默认值
+            width_cm = slide_width_cm or self.DEFAULT_SLIDE_WIDTH_CM
+            height_cm = slide_height_cm or self.DEFAULT_SLIDE_HEIGHT_CM
 
         # 设置幻灯片尺寸
         self.presentation.slide_width = Cm(width_cm)

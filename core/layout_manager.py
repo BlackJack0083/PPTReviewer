@@ -5,7 +5,7 @@ from loguru import logger
 
 from config import setting
 
-from .schemas import GlobalLayoutConfig, LayoutModel, SlotDefinition
+from .schemas import GlobalLayoutConfig, LayoutModel, SlideSize, SlotDefinition
 
 
 class LayoutManager:
@@ -64,6 +64,20 @@ class LayoutManager:
             )
             raise ValueError(f"Undefined common element: {element_name}")
         return layout
+
+    def get_slide_size(self, layout_type: str) -> SlideSize:
+        """获取指定版式的 Slide 尺寸"""
+        if not self._config:
+            self.load_config()
+
+        layout = self._config.layouts.get(layout_type)
+        if not layout:
+            logger.warning(
+                f"Undefined layout type: {layout_type}, returning default slide size."
+            )
+            return SlideSize(width=25.4, height=14.29)
+
+        return layout.slide_size
 
 
 layout_manager = LayoutManager.get_instance()
