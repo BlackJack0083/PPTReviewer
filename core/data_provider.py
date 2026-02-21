@@ -100,13 +100,6 @@ class RealEstateDataProvider:
         # 1. 获取原料
         raw_df = self.dao.fetch_raw_data(self.filter, columns=["dim_area", "dim_price"])
 
-        # analysis_config = [
-        #     "cross-constraint",
-        #     [["area_range", "{}-{}m²", 10], ["price_range", "{}-{}M", 1]],
-        #     ["dim_price", "dim_area"],
-        #     ["count"],
-        # ]
-
         # 计算 min/max
         area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
         area_max = int(raw_df["dim_area"].max()) if not raw_df.empty else 300
@@ -143,9 +136,6 @@ class RealEstateDataProvider:
         )
 
         # 2. 加工产品
-        # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
-        # return result_df
-
         df = self.transformer.process_data_pipeline(raw_df, config)
         return df, config
 
@@ -165,13 +155,6 @@ class RealEstateDataProvider:
         # 计算 dim_area 的 min/max
         area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
         area_max = int(raw_df["dim_area"].max()) if not raw_df.empty else 300
-
-        # analysis_config = [
-        #     "field-constraint",
-        #     [["Area Rng Stats"], ["area_range", "{}-{}m²", 10]],
-        #     ["dim_area", "trade_sets"],
-        #     ["count"],
-        # ]
 
         config = TableAnalysisConfig(
             table_type="field-constraint",
@@ -197,9 +180,6 @@ class RealEstateDataProvider:
         )
 
         # 2. 加工产品
-        # result_df = self.transformer.process_data_pipeline(raw_data=raw_df, options=analysis_config)
-        # return result_df
-
         df = self.transformer.process_data_pipeline(raw_df, config)
         return df, config
 
@@ -219,13 +199,6 @@ class RealEstateDataProvider:
         # 计算 dim_price 的 min/max
         price_min = int(raw_df["dim_price"].min()) if not raw_df.empty else 0
         price_max = int(raw_df["dim_price"].max()) if not raw_df.empty else 20
-
-        # analysis_config = [
-        #     "field-constraint",
-        #     [["Price Rng Stats"], ["price_range", "{}-{}M", "1"]],
-        #     ["dim_price", "trade_sets"],
-        #     ["count"],
-        # ]
 
         config = TableAnalysisConfig(
             table_type="field-constraint",

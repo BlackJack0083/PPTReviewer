@@ -47,13 +47,13 @@ class ResourceManager:
 
     _instance = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._templates: dict[str, TemplateMeta] = {}
         self._text_patterns: dict[str, Any] = {}
         self._is_loaded = False
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> "ResourceManager":
         if cls._instance is None:
             cls._instance = cls()
         return cls._instance
@@ -68,7 +68,7 @@ class ResourceManager:
         self._templates[meta.uid] = meta
         logger.debug(f"Registered template: {meta.uid}")
 
-    def load_all(self):
+    def load_all(self) -> None:
         """一次性加载所有资源"""
         if self._is_loaded:
             return
@@ -78,7 +78,7 @@ class ResourceManager:
         self._is_loaded = True
         logger.info("All static resources loaded.")
 
-    def _load_templates(self, path: Path):
+    def _load_templates(self, path: Path) -> None:
         if not path.exists():
             logger.error(f"Template config not found: {path}")
             return

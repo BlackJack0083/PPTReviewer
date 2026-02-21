@@ -21,7 +21,7 @@ class PresentationContext:
     只负责存入数据，不负责处理数据
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         # 存放所有的 DataFrame，Key 需要与 TemplateMeta.data_mapping 对应
         self._datasets: dict[str, pd.DataFrame] = {}
 
@@ -31,17 +31,17 @@ class PresentationContext:
         # 存放数据分析配置，用于 YAML 导出
         self._configs: dict[str, TableAnalysisConfig] = {}
 
-    def add_dataset(self, key: str, df: pd.DataFrame):
+    def add_dataset(self, key: str, df: pd.DataFrame) -> None:
         """注入表格数据，key 要和 catalog 里定义的一致"""
         self._datasets[key] = df
         logger.debug(f"Context: Added dataset '{key}' shape={df.shape}")
 
-    def add_variable(self, key: str, value: Any):
+    def add_variable(self, key: str, value: Any) -> None:
         """注入文本变量，如 city='北京'"""
         self._variables[key] = value
         logger.debug(f"Context: Added variable '{key}'={value}")
 
-    def add_config(self, key: str, config: TableAnalysisConfig):
+    def add_config(self, key: str, config: TableAnalysisConfig) -> None:
         """注入数据分析配置，用于 YAML 导出"""
         self._configs[key] = config
         logger.debug(f"Context: Added config '{key}'")
@@ -149,7 +149,7 @@ class ContextBuilder:
         provider: RealEstateDataProvider,
         function_key: str,
         **function_params,
-    ):
+    ) -> None:
         """单数据源模式构建"""
         # 获取默认参数并合并用户提供的参数
         params = ContextBuilder.DEFAULT_PARAMS.get(function_key, {}).copy()
@@ -178,7 +178,7 @@ class ContextBuilder:
         provider: RealEstateDataProvider,
         function_keys: list[str],
         **function_params,
-    ):
+    ) -> None:
         """多数据源模式构建"""
         # 获取 data_keys 的所有槽位名（按顺序）
         slot_names = list(template_meta.data_keys.keys())

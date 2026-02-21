@@ -1,6 +1,6 @@
 # ppt_operations.py - PPT操作核心类
 from pathlib import Path
-from typing import Self
+from typing import Any, Self
 
 import pandas as pd
 import pptx_ea_font
@@ -450,7 +450,7 @@ class PPTOperations:
         )
         return graphic_frame.chart
 
-    def _configure_axes(self, chart, config: AxisChartConfig):
+    def _configure_axes(self, chart: Any, config: AxisChartConfig) -> None:
         """通用：配置坐标轴"""
         try:
             # Y轴
