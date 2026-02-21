@@ -75,8 +75,8 @@ class ContextBuilder:
     # 定义每个 function_key 的默认参数
     DEFAULT_PARAMS = {
         "Supply-Transaction Unit Statistic": {"area_range_size": 20},
-        "Area x Price Cross Pivot": {"area_step": 20, "price_step": 5},
-        "Area Segment Distribution": {"step": 20},
+        "Area x Price Cross Pivot": {"area_range_size": 20, "price_range_size": 5},
+        "Area Segment Distribution": {"area_range_size": 20},
         "Price Segment Distribution": {"price_range_size": 1},
     }
 

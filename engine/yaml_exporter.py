@@ -20,6 +20,14 @@ class YAMLExporter:
     负责将 SlideConfig 和 Context 导出为 YAML 文件
     """
 
+    # 定义每个 function_key 需要的参数
+    FUNCTION_KEY_PARAMS = {
+        "Supply-Transaction Unit Statistic": {"area_range_size"},
+        "Area x Price Cross Pivot": {"area_range_size", "price_range_size"},
+        "Area Segment Distribution": {"area_range_size"},
+        "Price Segment Distribution": {"price_range_size"},
+    }
+
     @staticmethod
     def export_slide_config(
         slide_config: SlideRenderConfig,
@@ -109,8 +117,14 @@ class YAMLExporter:
 
             # 获取实际参数值
             params = vars.get("_function_params", {})
-            area_size = params.get("area_range_size", 20)
-            price_size = params.get("price_range_size", 1)
+
+            # 根据 function_key 筛选需要的参数
+            valid_params = YAMLExporter.FUNCTION_KEY_PARAMS.get(func_key, set())
+            fun_args = {}
+            if "area_range_size" in valid_params:
+                fun_args["area_range_size"] = params.get("area_range_size", 20)
+            if "price_range_size" in valid_params:
+                fun_args["price_range_size"] = params.get("price_range_size", 1)
 
             # 构建过滤器
             filter_entry = {
@@ -124,10 +138,7 @@ class YAMLExporter:
                 },
                 "fun_tool": {
                     "fun": func_key,
-                    "args": {
-                        "area_range_size": area_size,
-                        "price_range_size": price_size,
-                    }
+                    "args": fun_args,
                 },
                 "sql_query": [
                     f"SELECT {', '.join(select_cols)} FROM public.{table_name} "
