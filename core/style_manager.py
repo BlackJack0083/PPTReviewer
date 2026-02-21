@@ -21,7 +21,7 @@ class StyleManager:
 
     _instance = None
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._bar_styles: dict[str, BarChartConfig] = {}
         self._line_styles: dict[str, LineChartConfig] = {}
         self._table_styles: dict[str, TableConfig] = {}
@@ -29,12 +29,12 @@ class StyleManager:
         self._is_loaded = False
 
     @classmethod
-    def get_instance(cls):
+    def get_instance(cls) -> "StyleManager":
         if not cls._instance:
             cls._instance = cls()
         return cls._instance
 
-    def load_styles_yaml(self, path: Path = None):
+    def load_styles_yaml(self, path: Path | None = None) -> None:
         """
         加载 styles.yaml 文件
         """

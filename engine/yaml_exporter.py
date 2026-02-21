@@ -14,36 +14,6 @@ from core.layout_manager import layout_manager
 from core.schemas import ChartElement, SlideRenderConfig, TableElement, TextElement
 
 
-# ==================== 静态映射表 ====================
-# 这些映射定义了每个 function_key 对应的查询参数
-# 用于 YAML 导出时填充 slide_filters 中的字段
-
-# select_columns: 需要查询的列
-SELECT_COLUMNS_MAP = {
-    "Supply-Transaction Unit Statistic": ["dim_area", "supply_sets", "trade_sets"],
-    "Area x Price Cross Pivot": ["dim_area", "dim_price"],
-    "Area Segment Distribution": ["dim_area", "trade_sets"],
-    "Price Segment Distribution": ["dim_price", "trade_sets"],
-}
-
-# chart_args_template: 图表参数模板（用于 template_slide 中的图表 args）
-# 这些模板定义了图表的基本参数格式
-CHART_ARGS_TEMPLATES = {
-    "bar": {
-        "format_str": "{}-{}m²",
-        "default_min": "0",
-        "default_max": "200",
-        "default_step": "20",
-    },
-    "line": {
-        "format_str": "{}",
-        "default_min": "0",
-        "default_max": "100",
-        "default_step": "10",
-    },
-}
-
-
 class YAMLExporter:
     """
     YAML 配置导出器
@@ -122,8 +92,20 @@ class YAMLExporter:
             # 获取对应的 function_key
             func_key = function_keys[i] if i < len(function_keys) else function_keys[0]
 
-            # 从映射表获取 select_columns 和 compute_function
-            select_cols = SELECT_COLUMNS_MAP.get(func_key, ["dim_area"])
+            # 从 context.configs 获取配置，提取需要查询的列
+            config = context.get_config(data_key)
+            select_cols = []
+            if config:
+                # 从 dimensions 和 metrics 获取列名
+                for dim in config.dimensions:
+                    if dim.source_col not in select_cols:
+                        select_cols.append(dim.source_col)
+                for metric in config.metrics:
+                    if metric.source_col not in select_cols:
+                        select_cols.append(metric.source_col)
+            else:
+                # 如果没有配置，使用默认列
+                select_cols = ["dim_area"]
 
             # 获取实际参数值
             params = vars.get("_function_params", {})
@@ -221,67 +203,14 @@ class YAMLExporter:
     def _build_chart_args(chart_element: ChartElement) -> dict:
         """从图表元素构建 args 参数
 
-        优先使用 ChartElement.config，否则从 DataFrame 推断
+        使用 ChartElement.config（TableAnalysisConfig）转换为字典格式
         """
-        # 如果有 config，直接使用它
-        if chart_element.config:
-            return YAMLExporter._config_to_dict(chart_element.config)
-
-        # 否则从 DataFrame 推断（向后兼容）
-        df = chart_element.data_payload
-        if df.empty:
-            return {}
-
-        # 从 DataFrame 推断参数
-        index_name = df.index.name or "unknown"
-        columns = df.columns.tolist()
-
-        # 根据 role 确定模板
-        role = chart_element.role.lower()
-        template = CHART_ARGS_TEMPLATES["bar"] if "bar" in role else CHART_ARGS_TEMPLATES["line"]
-
-        # 尝试从 index 解析范围
-        min_val, max_val, step = template["default_min"], template["default_max"], template["default_step"]
-        if len(df.index) > 0:
-            first_idx = str(df.index[0])
-            if "m²" in first_idx:
-                parts = first_idx.replace("m²", "").split("-")
-                if len(parts) == 2:
-                    try:
-                        min_val = parts[0].strip()
-                        step = str(int(parts[1]) - int(parts[0]))
-                    except:
-                        pass
-            elif "M" in first_idx:
-                parts = first_idx.replace("M", "").split("-")
-                if len(parts) == 2:
-                    try:
-                        min_val = parts[0].strip()
-                        step = str(int(parts[1]) - int(parts[0]))
-                    except:
-                        pass
-
-        format_str = template["format_str"]
-        if "M" in index_name:
-            format_str = "{}-{}M"
-
-        return {
-            "table_type": "field-constraint",
-            "dimensions": [
-                {
-                    "source_col": index_name,
-                    "target_col": index_name,
-                    "method": "range",
-                    "format_str": format_str,
-                    "min": min_val,
-                    "max": max_val,
-                    "step": step,
-                }
-            ],
-            "metrics": [
-                {"name": col, "source_col": col, "agg_func": "count"} for col in columns
-            ],
-        }
+        if not chart_element.config:
+            raise ValueError(
+                f"ChartElement.config is required for YAML export. "
+                f"Element role: {chart_element.role}"
+            )
+        return YAMLExporter._config_to_dict(chart_element.config)
 
     @staticmethod
     def _config_to_dict(config) -> dict:
