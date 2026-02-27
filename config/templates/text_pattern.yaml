@@ -8,11 +8,11 @@
       **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}**  Supply and Transaction Unit Statistics in  **{{ Geo_City_Name }}** 's  **{{ Geo_Block_Name }}**
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s core supply-demand area was **{{ Seg_SupplyDemand_Core_Area }}** m², with the upgrade-oriented segment centered on **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s core supply-demand area was **{{ Seg_SupplyDemand_Core_Area }}** , with the upgrade-oriented segment centered on **{{ Seg_SupplyDemand_Upgrade_Area }}**.
       - >-
-        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** m² and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}**.
       - >-
-        The **{{ Geo_Block_Name }}** sector exhibited a dual-tier segmentation from **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**: a primary volume cluster at **{{ Seg_SupplyDemand_Core_Area }}** m² and a secondary upgrade cluster at **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+        The **{{ Geo_Block_Name }}** sector exhibited a dual-tier segmentation from **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**: a primary volume cluster at **{{ Seg_SupplyDemand_Core_Area }}** and a secondary upgrade cluster at **{{ Seg_SupplyDemand_Upgrade_Area }}**.
 
 # ==============================================================================
 # Theme: New-House Cross-Structure Analysis

@@ -282,27 +282,34 @@ class RealEstateDataProvider:
         return df_ppt, conclusion_vars, config
 
     def get_area_price_cross_stats_with_conclusion(
-        self, area_step: int = 20, price_step: int = 1
+        self, area_range_size: int = 20, price_range_size: int = 5
     ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
         """获取面积x价格交叉统计，并返回计算结论和配置
+
+        Args:
+            area_range_size: 面积区间大小
+            price_range_size: 价格区间大小
 
         Returns:
             tuple: (处理后的数据, 结论变量, 分析配置)
         """
-        df, config = self.get_area_price_cross_stats(area_step, price_step)
+        df, config = self.get_area_price_cross_stats(area_range_size, price_range_size)
         conclusion_vars = self.conclusion_gen.get_cross_structure_conclusion(df)
 
         return df, conclusion_vars, config
 
     def get_area_distribution_with_conclusion(
-        self, step: int = 20
+        self, area_range_size: int = 20
     ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
         """获取面积分布，并返回计算结论和配置
+
+        Args:
+            area_range_size: 面积区间大小
 
         Returns:
             tuple: (处理后的数据, 结论变量, 分析配置)
         """
-        df, config = self.get_area_distribution_stats(step)
+        df, config = self.get_area_distribution_stats(area_range_size)
         conclusion_vars = self.conclusion_gen.get_area_distribution_conclusion(df)
 
         # 转置并清洗 (锚点: area_range)

@@ -153,3 +153,46 @@ args:
 ```
 
 请注意：指令越具体、指向的文件和函数越明确越好。
+
+---
+
+## 2026-02-22
+
+### 问题描述
+YAML 导出器 yaml_exporter.py 在导出 fun_tool.args 时，无论 function_key 是什么，都总是输出 `area_range_size` 和 `price_range_size`：
+
+```python
+"fun_tool": {
+    "fun": func_key,
+    "args": {
+        "area_range_size": area_size,
+        "price_range_size": price_size,
+    }
+},
+```
+
+这导致：
+1. 导出的 YAML 参数冗余（不是所有函数都需要这两个参数）
+2. yaml_importer.py 中的 FUNCTION_KEY_PARAMS 与导出参数不一致（如 "step" vs "area_range_size"）
+3. 导入时参数丢失，如 "Area Segment Distribution" 的 `area_range_size: 20` 无法被识别
+
+### 解决方案
+
+1. **yaml_exporter.py** - 添加 FUNCTION_KEY_PARAMS 常量，根据 function_key 筛选需要的参数：
+   ```python
+   FUNCTION_KEY_PARAMS = {
+       "Supply-Transaction Unit Statistic": {"area_range_size"},
+       "Area x Price Cross Pivot": {"area_range_size", "price_range_size"},
+       "Area Segment Distribution": {"area_range_size"},
+       "Price Segment Distribution": {"price_range_size"},
+   }
+   ```
+
+2. **yaml_importer.py** - 同步更新 FUNCTION_KEY_PARAMS 保持一致
+
+### 以后如何避免
+- 导出器和导入器的参数定义必须保持一致，建议使用共享常量
+- 每个 function_key 的参数应该明确定义，避免硬编码输出不需要的参数
+
+### Git Commit
+- 分支: refactor/clean-up-code-base
