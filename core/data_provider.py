@@ -23,6 +23,8 @@ class RealEstateDataProvider:
         "Area x Price Cross Pivot": "get_area_price_cross_stats_with_conclusion",
         "Area Segment Distribution": "get_area_distribution_with_conclusion",
         "Price Segment Distribution": "get_price_distribution_with_conclusion",
+        "Annual Supply-Demand Comparison": "get_annual_supply_demand_comparison_with_conclusion",
+        "Supply-Transaction Area": "get_supply_transaction_area_with_conclusion",
     }
 
     def __init__(
@@ -330,6 +332,108 @@ class RealEstateDataProvider:
 
         # 转置并清洗 (注意锚点变化: price_range)
         df_ppt = self._transform_to_ppt_format(df, index_col="price_range")
+
+        return df_ppt, conclusion_vars, config
+
+    # ==================== 年度供需对比统计 (套数) ====================
+
+    def get_annual_supply_demand_comparison_stats(
+        self,
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
+        """获取年度供需对比统计数据（套数）
+
+        Returns:
+            tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
+        """
+        # 1. 获取原料 (IO Bound)
+        raw_df = self.dao.fetch_raw_data(
+            self.filter, columns=["date_code", "supply_sets", "trade_sets"]
+        )
+
+        # 2. 添加年份列
+        raw_df["year"] = pd.to_datetime(raw_df["date_code"]).dt.year
+
+        # 3. 按年份聚合供应套数和成交套数
+        supply_df = raw_df[raw_df["supply_sets"] == 1].groupby("year").size().reset_index(name="supply_count")
+        deal_df = raw_df[raw_df["trade_sets"] == 1].groupby("year").size().reset_index(name="deal_count")
+
+        # 合并
+        df = pd.merge(supply_df, deal_df, on="year", how="outer").fillna(0)
+        df = df.sort_values("year").reset_index(drop=True)
+
+        config = TableAnalysisConfig(
+            table_type="field-constraint",
+            dimensions=[],
+            metrics=[],
+        )
+
+        return df, config
+
+    def get_annual_supply_demand_comparison_with_conclusion(
+        self,
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取年度供需对比统计数据，并返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        df, config = self.get_annual_supply_demand_comparison_stats()
+        conclusion_vars = self.conclusion_gen.get_supply_deal_flow_detail(df)
+
+        # 转置为 PPT 需要的格式 (锚点: year)
+        df_ppt = self._transform_to_ppt_format(df, index_col="year")
+
+        return df_ppt, conclusion_vars, config
+
+    # ==================== 供应成交面积统计 ====================
+
+    def get_supply_transaction_area_stats(
+        self,
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
+        """获取供应成交面积统计数据
+
+        Returns:
+            tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
+        """
+        # 1. 获取原料 (IO Bound)
+        raw_df = self.dao.fetch_raw_data(
+            self.filter, columns=["date_code", "dim_area", "supply_sets", "trade_sets"]
+        )
+
+        # 2. 添加年份列
+        raw_df["year"] = pd.to_datetime(raw_df["date_code"]).dt.year
+
+        # 3. 按年份聚合供应面积和成交面积
+        # 供应面积: 当 supply_sets=1 时，对 dim_area 求和
+        supply_df = raw_df[raw_df["supply_sets"] == 1].groupby("year")["dim_area"].sum().reset_index(name="supply_area")
+        # 成交面积: 当 trade_sets=1 时，对 dim_area 求和
+        deal_df = raw_df[raw_df["trade_sets"] == 1].groupby("year")["dim_area"].sum().reset_index(name="deal_area")
+
+        # 合并
+        df = pd.merge(supply_df, deal_df, on="year", how="outer").fillna(0)
+        df = df.sort_values("year").reset_index(drop=True)
+
+        config = TableAnalysisConfig(
+            table_type="field-constraint",
+            dimensions=[],
+            metrics=[],
+        )
+
+        return df, config
+
+    def get_supply_transaction_area_with_conclusion(
+        self,
+    ) -> tuple[pd.DataFrame, dict[str, str], TableAnalysisConfig]:
+        """获取供应成交面积统计数据，并返回计算结论和配置
+
+        Returns:
+            tuple: (处理后的数据, 结论变量, 分析配置)
+        """
+        df, config = self.get_supply_transaction_area_stats()
+        conclusion_vars = self.conclusion_gen.get_supply_deal_area_trend(df)
+
+        # 转置为 PPT 需要的格式 (锚点: year)
+        df_ppt = self._transform_to_ppt_format(df, index_col="year")
 
         return df_ppt, conclusion_vars, config
 

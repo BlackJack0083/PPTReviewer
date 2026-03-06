@@ -78,7 +78,8 @@ def get_all_templates() -> list[str]:
         "T02_Area_Dist_Line",
         "T02_Price_Dist_Bar",
         "T02_Price_Dist_Line",
-        "T02_Double_Price_Dist_Line",  # 多数据源示例
+        "T02_Double_Price_Dist_Line",
+        # 多数据源示例
     ]
 
     # 验证模板是否存在

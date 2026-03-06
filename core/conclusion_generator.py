@@ -280,15 +280,21 @@ class ConclusionGenerator:
             f"Deal: {deal_first:.0f}->{deal_last:.0f} ({deal_trend} {deal_pct_str}%)"
         )
 
+        def get_trend_label(trend_noun: str) -> str:
+            """获取趋势的标签形式: increase -> an increase, decrease -> a decrease"""
+            return f"an {trend_noun}" if trend_noun == "increase" else f"a {trend_noun}"
+
         return {
-            "Metric_Supply_Volume_Start": fmt_num(sup_first),
-            "Metric_Supply_Volume_End": fmt_num(sup_last),
-            "Metric_Supply_Change_Rate": sup_pct_str,
-            "Enum_Supply_Trend_Direction": sup_trend,
-            "Metric_Deal_Volume_Start": fmt_num(deal_first),
-            "Metric_Deal_Volume_End": fmt_num(deal_last),
-            "Metric_Deal_Change_Rate": deal_pct_str,
-            "Enum_Deal_Trend_Direction": deal_trend,
+            "Metric_Vol_Supply_Base": fmt_num(sup_first),
+            "Metric_Vol_Supply_Terminal": fmt_num(sup_last),
+            "Metric_Var_Supply_Pct": sup_pct_str,
+            "Enum_Supply_Trend": sup_trend,
+            "Enum_Supply_Trend_Label": get_trend_label(sup_trend),
+            "Metric_Vol_Trans_Base": fmt_num(deal_first),
+            "Metric_Vol_Trans_Terminal": fmt_num(deal_last),
+            "Metric_Var_Trans_Pct": deal_pct_str,
+            "Enum_Deal_Trend": deal_trend,
+            "Enum_Deal_Trend_Label": get_trend_label(deal_trend),
         }
 
     # ==================== 主题4: Supply-Transaction Area ====================
@@ -340,10 +346,10 @@ class ConclusionGenerator:
         )
 
         return {
-            "Enum_Supply_Area_Trend": sup_trend,
-            "Metric_Supply_Area_Change_Rate": sup_change_val,
-            "Enum_Deal_Area_Trend": deal_trend,
-            "Metric_Deal_Area_Change_Rate": deal_change_val,
+            "Enum_Supply_Trend": sup_trend,
+            "Metric_Var_Supply_Pct": sup_change_val,
+            "Enum_Deal_Trend": deal_trend,
+            "Metric_Var_Trans_Pct": deal_change_val,
         }
 
     # ==================== 主题5: Historical Delivery Metrics ====================

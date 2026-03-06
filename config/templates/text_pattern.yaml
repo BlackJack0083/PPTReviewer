@@ -101,22 +101,22 @@
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Annual Supply-Demand Comparison Analysis (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in this sector **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Supply_Base }}** units to **{{ Metric_Vol_Supply_Terminal }}** units (a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Supply_Pct }}**%), and transaction volume **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units (a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Pct }}**%).
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in this sector **{{ Enum_Supply_Trend }}** from **{{ Metric_Vol_Supply_Base }}** units to **{{ Metric_Vol_Supply_Terminal }}** units (a **{{ Enum_Supply_Trend_Label }}** of **{{ Metric_Var_Supply_Pct }}**%), and transaction volume **{{ Enum_Deal_Trend }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units (a **{{ Enum_Deal_Trend_Label }}** of **{{ Metric_Var_Trans_Pct }}**%).
       - >-
-        While listings **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Supply_Pct }}**% (reaching **{{ Metric_Vol_Supply_Terminal }}** units), transactions simultaneously **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% (ending at **{{ Metric_Vol_Trans_Terminal }}** units) between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+        While listings **{{ Enum_Supply_Trend }}** by **{{ Metric_Var_Supply_Pct }}**% (reaching **{{ Metric_Vol_Supply_Terminal }}** units), transactions simultaneously **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**% (ending at **{{ Metric_Vol_Trans_Terminal }}** units) between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
       - >-
-        Comparing **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, supply **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Supply_Terminal }}** ({{ Metric_Var_Supply_Pct }}% **{{ Trend_Direction_Label }}**), and demand **{{ Trend_Trajectory_Type }}** to **{{ Metric_Vol_Trans_Terminal }}** ({{ Metric_Var_Trans_Pct }}% **{{ Trend_Direction_Label }}**).
+        Comparing **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, supply **{{ Enum_Supply_Trend }}** to **{{ Metric_Vol_Supply_Terminal }}** ({{ Metric_Var_Supply_Pct }}% **{{ Enum_Supply_Trend_Label }}**), and demand **{{ Enum_Deal_Trend }}** to **{{ Metric_Vol_Trans_Terminal }}** ({{ Metric_Var_Trans_Pct }}% **{{ Enum_Deal_Trend_Label }}**).
 
   "Supply-Transaction Area":
     chart_caption: >-
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** : Historical Supply and Transaction Area Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, inventory in this region **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Supply_Pct }}**%, while the transaction area **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**%.
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, inventory in this region **{{ Enum_Supply_Trend }}** by **{{ Metric_Var_Supply_Pct }}**%, while the transaction area **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**%.
       - >-
-        Area-wise inventory **{{ Trend_Trajectory_Type }}** at a **{{ Metric_Var_Supply_Pct }}**% rate, contrasting with the transaction area which **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% through **{{ Temporal_End_Year }}**.
+        Area-wise inventory **{{ Enum_Supply_Trend }}** at a **{{ Metric_Var_Supply_Pct }}**% rate, contrasting with the transaction area which **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**% through **{{ Temporal_End_Year }}**.
       - >-
-        The region experienced a **{{ Metric_Var_Supply_Pct }}**% **{{ Trend_Trajectory_Type }}** in supply area and a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Trajectory_Type }}** in sold area between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+        The region experienced a **{{ Metric_Var_Supply_Pct }}%** **{{ Enum_Supply_Trend }}** in supply area and a **{{ Metric_Var_Trans_Pct }}%** **{{ Enum_Deal_Trend }}** in sold area between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
 
 # ==============================================================================
 # Theme: Resale-House Capacity & Structure

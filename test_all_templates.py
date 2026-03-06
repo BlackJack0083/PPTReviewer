@@ -41,6 +41,11 @@ ALL_TEMPLATES = [
     "T02_Area_Dist_Line",
     "T02_Price_Dist_Bar",
     "T02_Price_Dist_Line",
+    # ReSlide_04: New-House Market Capacity Analysis
+    "T04_Annual_Supply_Demand_Bar",
+    "T04_Annual_Supply_Demand_Line",
+    "T04_Supply_Transaction_Area_Bar",
+    "T04_Supply_Transaction_Area_Line",
 ]
 
 

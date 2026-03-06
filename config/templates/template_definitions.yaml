@@ -116,3 +116,51 @@
     chart_left: "newhouse_area_dist_data"
     chart_right: "newhouse_price_dist_data"
 
+# ==============================================================================
+# ReSlide_04: New-House Market Capacity Analysis
+# ==============================================================================
+# 版式：双栏折线图
+# summaries数量: 3个（索引0,1,2）
+
+# 2. Annual Supply-Demand Comparison
+- uid: "T04_Annual_Supply_Demand_Bar"
+  theme_key: "New-House Market Capacity Analysis"
+  function_key: "Annual Supply-Demand Comparison"
+  layout_type: "double_column_bar"
+  summary_item: 1
+  style_config_id: "compare_tangerine_gray"
+  data_keys:
+    chart_left: "annual_supply_data"
+    chart_right: "annual_demand_data"
+
+- uid: "T04_Annual_Supply_Demand_Line"
+  theme_key: "New-House Market Capacity Analysis"
+  function_key: "Annual Supply-Demand Comparison"
+  layout_type: "double_column_line"
+  summary_item: 2
+  style_config_id: "compare_tangerine_gray"
+  data_keys:
+    chart_left: "annual_supply_data"
+    chart_right: "annual_demand_data"
+
+# 3. Supply-Transaction Area
+- uid: "T04_Supply_Transaction_Area_Bar"
+  theme_key: "New-House Market Capacity Analysis"
+  function_key: "Supply-Transaction Area"
+  layout_type: "double_column_bar"
+  summary_item: 1
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    chart_left: "supply_area_data"
+    chart_right: "transaction_area_data"
+
+- uid: "T04_Supply_Transaction_Area_Line"
+  theme_key: "New-House Market Capacity Analysis"
+  function_key: "Supply-Transaction Area"
+  layout_type: "double_column_line"
+  summary_item: 2
+  style_config_id: "marketing_orange_green"
+  data_keys:
+    chart_left: "supply_area_data"
+    chart_right: "transaction_area_data"
+
