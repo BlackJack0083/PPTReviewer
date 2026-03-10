@@ -11,6 +11,12 @@ from core import ContextBuilder, resource_manager
 from core.data_provider import RealEstateDataProvider
 from engine import PPTGenerationEngine
 
+
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+
 # 测试数据配置
 TEST_CONFIGS = [
     {
