@@ -7,22 +7,21 @@ from pathlib import Path
 import yaml
 from loguru import logger
 
-from core.schemas import SlideRenderConfig
-from core import PPTOperations
-from core import layout_manager
-from engine.slide_renderers import RendererFactory
-from core import PresentationContext, resource_manager
+from common.function_specs import filter_function_args
+from core import PPTOperations, PresentationContext, resource_manager
 from core.data_provider import RealEstateDataProvider
 from core.schemas import (
     BinningRule,
     ChartElement,
     LayoutModel,
     MetricRule,
+    SlideRenderConfig,
     TableAnalysisConfig,
+    TableElement,
     TextElement,
 )
-
 from engine.builder import SlideConfigBuilder
+from engine.slide_renderers import RendererFactory
 
 
 class YAMLImporter:
@@ -38,36 +37,22 @@ class YAMLImporter:
             return yaml.safe_load(f)
 
     @staticmethod
-    def parse_template_id(yaml_filename: str) -> str:
-        """从 YAML 文件名解析 template_id
+    def resolve_template_id(yaml_data: dict, yaml_path: str | Path) -> str:
+        """仅从 YAML meta 解析 template_id（单一 schema 模式）"""
+        meta = yaml_data.get("meta", {})
+        if not isinstance(meta, dict):
+            raise ValueError(
+                f"YAML missing 'meta' section: {yaml_path}. "
+                "Expected meta.template_id."
+            )
 
-        例如: BeijingBeiguan-Luyuan-T01_Supply_Trans_Bar-3719fe5e4d378185.yaml
-              -> T01_Supply_Trans_Bar
-        """
-        # 移除 .yaml 后缀
-        name_without_ext = yaml_filename.replace(".yaml", "")
-        # 按 - 分割，取最后一个之前的部分作为 template_id
-        parts = name_without_ext.split("-")
-        # 找到 Txx_ 开头的部分
-        for part in parts:
-            if part.startswith("T") and "_" in part:
-                return part
-        # 如果找不到，返回原名称的最后一部分
-        return parts[-1] if parts else name_without_ext
-
-    # 定义每个 function_key 需要的参数
-    FUNCTION_KEY_PARAMS = {
-        "Supply-Transaction Unit Statistic": {"area_range_size"},
-        "Area x Price Cross Pivot": {"area_range_size", "price_range_size"},
-        "Area Segment Distribution": {"area_range_size"},
-        "Price Segment Distribution": {"price_range_size"},
-    }
-
-    @staticmethod
-    def _filter_function_args(function_key: str, args: dict) -> dict:
-        """过滤参数，只保留 function_key 需要的参数"""
-        valid_params = YAMLImporter.FUNCTION_KEY_PARAMS.get(function_key, set())
-        return {k: v for k, v in args.items() if k in valid_params}
+        template_id = meta.get("template_id")
+        if not isinstance(template_id, str) or not template_id.strip():
+            raise ValueError(
+                f"YAML missing 'meta.template_id': {yaml_path}. "
+                "Expected non-empty template_id."
+            )
+        return template_id.strip()
 
     @staticmethod
     def build_config_from_yaml(args_config: dict) -> TableAnalysisConfig:
@@ -123,10 +108,9 @@ class YAMLImporter:
         slide_filters = yaml_data.get("slide_filters", [])
         template_slide = yaml_data.get("template_slide", {})
 
-        # 3. 从文件名解析 template_id
-        yaml_filename = Path(yaml_path).name
-        template_id = YAMLImporter.parse_template_id(yaml_filename)
-        logger.info(f"Parsed template_id: {template_id}")
+        # 3. 解析 template_id（单一 schema：meta.template_id）
+        template_id = YAMLImporter.resolve_template_id(yaml_data, yaml_path)
+        logger.info(f"Resolved template_id: {template_id}")
 
         # 4. 获取数据（支持多个 slide_filter，对应双栏图）
         if not slide_filters:
@@ -170,7 +154,7 @@ class YAMLImporter:
             fun_args = fun_tool.get("args", {})
 
             # 过滤参数
-            valid_args = YAMLImporter._filter_function_args(function_key, fun_args)
+            valid_args = filter_function_args(function_key, fun_args)
             logger.info(f"[{idx+1}/{len(slide_filters)}] Calling {function_key} with args: {valid_args}")
 
             # 调用对应的数据方法
@@ -192,7 +176,7 @@ class YAMLImporter:
 
         # 添加数据集和配置（支持多个）
         data_keys = list(template_meta.data_keys.values())
-        for idx, (df, config) in enumerate(zip(all_data, all_configs)):
+        for idx, (df, config) in enumerate(zip(all_data, all_configs, strict=False)):
             if idx < len(data_keys):
                 data_key = data_keys[idx]
                 context.add_dataset(data_key, df)
@@ -258,7 +242,7 @@ class YAMLImporter:
             elif elem_type == "table":
                 # 表格使用第一个数据
                 elements.append(
-                    ChartElement(  # 复用 ChartElement 作为表格容器
+                    TableElement(
                         role=role,
                         layout=layout,
                         data_key=data_keys[0] if data_keys else "data",

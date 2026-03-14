@@ -9,6 +9,8 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
+from common.function_specs import get_default_function_args
+
 from .data_provider import RealEstateDataProvider
 from .resources import TemplateMeta
 from .schemas import TableAnalysisConfig
@@ -71,14 +73,6 @@ class ContextBuilder:
     根据 TemplateMeta 中的 function_key 和 data_keys 自动调用对应的数据方法
     支持单个或多个 function_key（多数据源）
     """
-
-    # 定义每个 function_key 的默认参数
-    DEFAULT_PARAMS = {
-        "Supply-Transaction Unit Statistic": {"area_range_size": 20},
-        "Area x Price Cross Pivot": {"area_range_size": 20, "price_range_size": 5},
-        "Area Segment Distribution": {"area_range_size": 20},
-        "Price Segment Distribution": {"price_range_size": 1},
-    }
 
     @staticmethod
     def build_context(
@@ -152,7 +146,7 @@ class ContextBuilder:
     ) -> None:
         """单数据源模式构建"""
         # 获取默认参数并合并用户提供的参数
-        params = ContextBuilder.DEFAULT_PARAMS.get(function_key, {}).copy()
+        params = get_default_function_args(function_key)
         params.update(function_params)
 
         # 调用数据方法
@@ -170,6 +164,8 @@ class ContextBuilder:
         # 添加结论变量
         for key, value in conclusion_vars.items():
             context.add_variable(key, value)
+        # 保存一份原始结论变量，用于 YAML summary 槽位真值导出
+        context.add_variable("_conclusion_vars", dict(conclusion_vars))
 
     @staticmethod
     def _build_multiple_datasources(
@@ -195,7 +191,7 @@ class ContextBuilder:
             data_key_name = template_meta.data_keys[slot_name]
 
             # 获取默认参数并合并用户提供的参数
-            params = ContextBuilder.DEFAULT_PARAMS.get(function_key, {}).copy()
+            params = get_default_function_args(function_key)
             params.update(function_params)
 
             # 调用数据方法
@@ -223,6 +219,8 @@ class ContextBuilder:
             if i == 0:
                 for key, value in conclusion_vars.items():
                     context.add_variable(key, value)
+                # 保存一份原始结论变量，用于 YAML summary 槽位真值导出
+                context.add_variable("_conclusion_vars", dict(conclusion_vars))
                 logger.info(
                     f"  -> 结论变量已添加: {len(conclusion_vars)} 个（来自左图/上图）"
                 )

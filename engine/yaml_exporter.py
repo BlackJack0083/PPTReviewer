@@ -3,12 +3,14 @@ YAML 导出器
 在生成 PPT 时同步生成配置 YAML 文件
 记录 query_filters, slide_filters, template_slide
 """
+import re
 from hashlib import md5
 from pathlib import Path
 
 import yaml
 from loguru import logger
 
+from common.function_specs import get_default_function_args
 from core import PresentationContext, resource_manager
 from core.layout_manager import layout_manager
 from core.schemas import ChartElement, SlideRenderConfig, TableElement, TextElement
@@ -19,14 +21,6 @@ class YAMLExporter:
     YAML 配置导出器
     负责将 SlideConfig 和 Context 导出为 YAML 文件
     """
-
-    # 定义每个 function_key 需要的参数
-    FUNCTION_KEY_PARAMS = {
-        "Supply-Transaction Unit Statistic": {"area_range_size"},
-        "Area x Price Cross Pivot": {"area_range_size", "price_range_size"},
-        "Area Segment Distribution": {"area_range_size"},
-        "Price Segment Distribution": {"price_range_size"},
-    }
 
     @staticmethod
     def export_slide_config(
@@ -50,14 +44,22 @@ class YAMLExporter:
         # 3. 构建 template_slide（来自 slide_config）
         template_slide = YAMLExporter._build_template_slide(slide_config)
 
-        # 4. 组装 YAML 数据
+        # 4. 构建 summary 绑定信息（模板 + 真值槽位）
+        summary_binding = YAMLExporter._build_summary_binding(template_meta, context)
+
+        # 5. 构建模板元信息（供 YAML 导入重建时使用）
+        meta = YAMLExporter._build_meta(template_meta, template_id)
+
+        # 6. 组装 YAML 数据
         yaml_data = {
+            "meta": meta,
             "query_filters": query_filters,
             "slide_filters": slide_filters,
             "template_slide": template_slide,
+            "summary_binding": summary_binding,
         }
 
-        # 5. 生成文件路径并写入
+        # 7. 生成文件路径并写入
         yaml_path = YAMLExporter._write_yaml(
             yaml_data, output_file_path,
             context.variables.get("Geo_City_Name", "Unknown"),
@@ -71,17 +73,30 @@ class YAMLExporter:
     # ==================== 构建方法 ====================
 
     @staticmethod
+    def _build_meta(template_meta, template_id: str) -> dict:
+        """构建导入重建所需的最小元信息"""
+        layout_type = (
+            template_meta.layout_type.value
+            if hasattr(template_meta.layout_type, "value")
+            else template_meta.layout_type
+        )
+        return {
+            "template_id": template_id,
+            "layout_type": layout_type,
+            "style_id": template_meta.style_config_id,
+            "theme_key": template_meta.theme_key,
+            "function_keys": template_meta.function_keys,
+        }
+
+    @staticmethod
     def _build_query_filters(context: PresentationContext) -> dict:
         """从 context 构建 query_filters"""
         vars = context.variables
         return {
             "city": vars.get("Geo_City_Name", "Unknown"),
             "block": vars.get("Geo_Block_Name", "Unknown"),
-            "project": vars.get("project", "default"),
             "start_date": f"{vars.get('Temporal_Start_Year', '2020')}-01-01",
             "end_date": f"{vars.get('Temporal_End_Year', '2022')}-12-31",
-            "area_range_size": vars.get("area_range_size", 20),
-            "price_range_size": vars.get("price_range_size", 1),
         }
 
     @staticmethod
@@ -96,7 +111,7 @@ class YAMLExporter:
         table_name = vars.get("_table_name", "unknown_table")
 
         # 遍历每个槽位
-        for i, (slot_name, data_key) in enumerate(data_keys.items()):
+        for i, (_slot_name, data_key) in enumerate(data_keys.items()):
             # 获取对应的 function_key
             func_key = function_keys[i] if i < len(function_keys) else function_keys[0]
 
@@ -118,13 +133,12 @@ class YAMLExporter:
             # 获取实际参数值
             params = vars.get("_function_params", {})
 
-            # 根据 function_key 筛选需要的参数
-            valid_params = YAMLExporter.FUNCTION_KEY_PARAMS.get(func_key, set())
-            fun_args = {}
-            if "area_range_size" in valid_params:
-                fun_args["area_range_size"] = params.get("area_range_size", 20)
-            if "price_range_size" in valid_params:
-                fun_args["price_range_size"] = params.get("price_range_size", 1)
+            # 根据 function_key 动态组装参数：
+            # 以默认参数为底，再用 _function_params 中同名键覆盖
+            fun_args = get_default_function_args(func_key)
+            for key in list(fun_args.keys()):
+                if key in params:
+                    fun_args[key] = params[key]
 
             # 构建过滤器
             filter_entry = {
@@ -151,6 +165,55 @@ class YAMLExporter:
             filters.append(filter_entry)
 
         return filters
+
+    @staticmethod
+    def _build_summary_binding(template_meta, context: PresentationContext) -> dict:
+        """构建 summary 模板绑定信息，用于后续按槽位注入错误"""
+        vars = context.variables
+
+        summary_template = resource_manager.get_summary_template(
+            template_meta.theme_key,
+            template_meta.primary_function_key,
+            template_meta.summary_item,
+        )
+        template_keys = YAMLExporter._extract_template_variables(summary_template)
+
+        fixed_context = {}
+        for key in template_keys:
+            if key.startswith(("Geo_", "Temporal_")) and key in vars:
+                fixed_context[key] = vars[key]
+
+        truth_slots = {}
+        raw_conclusion_vars = vars.get("_conclusion_vars", {})
+        if isinstance(raw_conclusion_vars, dict):
+            for key in template_keys:
+                if key in raw_conclusion_vars:
+                    truth_slots[key] = raw_conclusion_vars[key]
+        else:
+            # 降级：若没有显式记录结论变量，则根据模板字段反查 context
+            for key in template_keys:
+                if key in vars and key not in fixed_context:
+                    truth_slots[key] = vars[key]
+
+        return {
+            "summary_template": summary_template,
+            "summary_slots_truth": truth_slots,
+            "summary_context_fixed": fixed_context,
+            "summary_slot_overrides": {},
+            "target_text_role": "body-text",
+        }
+
+    @staticmethod
+    def _extract_template_variables(template_text: str) -> list[str]:
+        """提取 Jinja 模板变量名，保持出现顺序并去重"""
+        pattern = r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}"
+        ordered = []
+        seen = set()
+        for match in re.findall(pattern, template_text):
+            if match not in seen:
+                seen.add(match)
+                ordered.append(match)
+        return ordered
 
     @staticmethod
     def _build_template_slide(slide_config: SlideRenderConfig) -> dict:
@@ -273,7 +336,8 @@ class YAMLExporter:
         ppt_path = Path(ppt_path)
 
         # 生成唯一 ID
-        unique_id = md5(f"{city}{block}{template_id}".encode()).hexdigest()[:16]
+        # noqa: S324 - 仅用于文件名去重，不用于安全场景
+        unique_id = md5(f"{city}{block}{template_id}".encode()).hexdigest()[:16]  # noqa: S324
         safe_block = block.replace(" ", "").replace("/", "")
         yaml_filename = f"{city}{safe_block}-{template_id}-{unique_id}.yaml"
 
