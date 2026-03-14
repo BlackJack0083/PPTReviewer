@@ -26,9 +26,9 @@
       - >-
         From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** units were transacted, with the **{{ Seg_Price_Stratum_Modal }}** price segment and **{{ Seg_Area_Stratum_Modal }}** area segment having the highest transactions at **{{ Metric_Transaction_Velocity_Peak }}** units.
       - >-
-        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in  **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** m² and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}** m².
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market in **{{ Geo_Block_Name }}** was concentrated around **{{ Seg_Price_Stratum_Modal }}** in total price and **{{ Seg_Area_Stratum_Modal }}** in area, with a peak cluster of **{{ Metric_Transaction_Velocity_Peak }}** units.
       - >-
-        The  **{{ Geo_Block_Name }}**  sector exhibited a dual-tier segmentation from  **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}** : a primary volume cluster at  **{{ Seg_SupplyDemand_Core_Area }}**  m² and a secondary upgrade cluster at  **{{ Seg_SupplyDemand_Upgrade_Area }}**  m².
+        In **{{ Geo_Block_Name }}**, cross-structure analysis for **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** shows the dominant intersection at **{{ Seg_Price_Stratum_Modal }}** (price) and **{{ Seg_Area_Stratum_Modal }}** (area), totaling **{{ Metric_Transaction_Velocity_Peak }}** units.
 
   "Area Segment Distribution":
     chart_caption: >-

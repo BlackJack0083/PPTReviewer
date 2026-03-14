@@ -8,8 +8,8 @@ bar_configs:
     gap_width: 150
     overlap: 0
     has_legend: true
-    has_data_labels: true
-    y_axis_visible: false
+    has_data_labels: false
+    y_axis_visible: true
     grouping: "clustered"
 
   # 原来的 Double Column Bar 样式
@@ -20,8 +20,8 @@ bar_configs:
     gap_width: 100
     overlap: 0
     has_legend: true
-    has_data_labels: true
-    y_axis_visible: false
+    has_data_labels: false
+    y_axis_visible: true
     grouping: "clustered"
 
 # 2. 折线图样式定义

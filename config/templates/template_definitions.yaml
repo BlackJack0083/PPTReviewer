@@ -125,7 +125,9 @@
 # 2. Annual Supply-Demand Comparison
 - uid: "T04_Annual_Supply_Demand_Bar"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: "Annual Supply-Demand Comparison"
+  function_key: 
+    - "Annual Supply-Demand Comparison"
+    - "Supply-Transaction Area"
   layout_type: "double_column_bar"
   summary_item: 1
   style_config_id: "compare_tangerine_gray"
@@ -135,9 +137,11 @@
 
 - uid: "T04_Annual_Supply_Demand_Line"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: "Annual Supply-Demand Comparison"
+  function_key: 
+    - "Annual Supply-Demand Comparison"
+    - "Supply-Transaction Area"
   layout_type: "double_column_line"
-  summary_item: 2
+  summary_item: 0
   style_config_id: "compare_tangerine_gray"
   data_keys:
     chart_left: "annual_supply_data"
@@ -147,20 +151,18 @@
 - uid: "T04_Supply_Transaction_Area_Bar"
   theme_key: "New-House Market Capacity Analysis"
   function_key: "Supply-Transaction Area"
-  layout_type: "double_column_bar"
+  layout_type: "single_column_bar"
   summary_item: 1
   style_config_id: "marketing_orange_green"
   data_keys:
-    chart_left: "supply_area_data"
-    chart_right: "transaction_area_data"
+    chart_main: "annual_supply_data"
 
 - uid: "T04_Supply_Transaction_Area_Line"
   theme_key: "New-House Market Capacity Analysis"
   function_key: "Supply-Transaction Area"
-  layout_type: "double_column_line"
+  layout_type: "single_column_line"
   summary_item: 2
   style_config_id: "marketing_orange_green"
   data_keys:
-    chart_left: "supply_area_data"
-    chart_right: "transaction_area_data"
+    chart_main: "annual_demand_data"
 

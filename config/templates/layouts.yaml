@@ -13,7 +13,7 @@ common:
     x: 5.2
     y: 3.6
     width: 15.0
-    height: 0.8
+    height: 1.3
     alignment: "居中"
 
 # 2. 具体版式定义
