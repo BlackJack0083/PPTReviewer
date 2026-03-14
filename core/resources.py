@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+import threading
 from typing import Any
 
 import yaml
@@ -46,16 +47,20 @@ class ResourceManager:
     """
 
     _instance = None
+    _instance_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._templates: dict[str, TemplateMeta] = {}
         self._text_patterns: dict[str, Any] = {}
         self._is_loaded = False
+        self._load_lock = threading.Lock()
 
     @classmethod
     def get_instance(cls) -> "ResourceManager":
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def register_template(self, meta: TemplateMeta) -> None:
@@ -72,11 +77,14 @@ class ResourceManager:
         """一次性加载所有资源"""
         if self._is_loaded:
             return
+        with self._load_lock:
+            if self._is_loaded:
+                return
 
-        self._load_templates(setting.TEMPLATE_CONFIG_PATH)
-        self._load_text_patterns(setting.TEXT_PATTERN_PATH)
-        self._is_loaded = True
-        logger.info("All static resources loaded.")
+            self._load_templates(setting.TEMPLATE_CONFIG_PATH)
+            self._load_text_patterns(setting.TEXT_PATTERN_PATH)
+            self._is_loaded = True
+            logger.info("All static resources loaded.")
 
     def _load_templates(self, path: Path) -> None:
         if not path.exists():
@@ -128,9 +136,11 @@ class ResourceManager:
                 self._text_patterns[theme][func] = {
                     "slide_title": slide_title,  # 从父级获取并保存
                     "chart_caption": Template(func_content.get("chart_caption", "")),
+                    "raw_chart_caption": func_content.get("chart_caption", ""),
                     "summaries": [
                         Template(s) for s in func_content.get("summaries", [])
                     ],
+                    "raw_summaries": list(func_content.get("summaries", [])),
                 }
 
     def render_text(
@@ -159,6 +169,18 @@ class ResourceManager:
             logger.error(f"Text pattern not found: {theme} -> {func}")
             raise ValueError(f"Invalid text pattern: {theme} -> {func}") from e
         return ""
+
+    def get_summary_template(self, theme: str, func: str, variant_idx: int = 0) -> str:
+        """获取原始 summary 模板字符串（未渲染）"""
+        try:
+            target = self._text_patterns[theme][func]
+            summaries = target.get("raw_summaries", [])
+            if variant_idx >= len(summaries):
+                raise ValueError(f"Variant index out of range: {variant_idx}")
+            return summaries[variant_idx]
+        except KeyError as e:
+            logger.error(f"Text pattern not found: {theme} -> {func}")
+            raise ValueError(f"Invalid text pattern: {theme} -> {func}") from e
 
 
 # 全局单例
