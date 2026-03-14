@@ -16,6 +16,11 @@ dependencies = [
     "sqlalchemy>=2.0.45",
     "psycopg2-binary>=2.9.11",
     "openpyxl>=3.1.5",
+    "langgraph>=0.6.7",
+    "openai>=2.6.1",
+    "langchain>=1.0.0",
+    "langchain-openai>=0.3.0",
+    "tqdm>=4.67.1",
 ]
 
 [project.optional-dependencies]
