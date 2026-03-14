@@ -93,8 +93,9 @@ class ConclusionGenerator:
         df = df.apply(pd.to_numeric, errors="coerce").fillna(0).astype(int)
         total = df.values.sum()
         i, j = np.unravel_index(df.values.argmax(), df.shape)
-        modal_price = df.index[i]
-        modal_area = df.columns[j]
+        # crosstab_row=area_range (index), crosstab_col=price_range (columns)
+        modal_area = df.index[i]
+        modal_price = df.columns[j]
         peak_value = df.values.max()
 
         logger.info(
