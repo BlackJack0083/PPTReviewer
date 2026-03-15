@@ -5,21 +5,19 @@ from typing import Any
 
 from common.function_specs import get_default_function_args
 
+_TEMPLATE_VAR_PATTERN = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
+
 
 def _normalize_table_name(table_name: str) -> str:
     """兼容大小写差异：guangzhou_new_house -> Guangzhou_new_house"""
-    if "_" not in table_name:
+    head, sep, tail = table_name.partition("_")
+    if not sep:
         return table_name
-    parts = table_name.split("_")
-    if not parts:
-        return table_name
-    parts[0] = parts[0].capitalize()
-    return "_".join(parts)
+    return f"{head.capitalize()}_{tail}"
 
 
 def _extract_template_vars(template_text: str) -> list[str]:
-    pattern = r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}"
-    return list(dict.fromkeys(re.findall(pattern, template_text)))
+    return list(dict.fromkeys(_TEMPLATE_VAR_PATTERN.findall(template_text)))
 
 
 @dataclass

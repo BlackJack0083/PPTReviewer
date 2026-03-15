@@ -46,7 +46,7 @@ def build_react_agent_graph(
         "Required extraction fields from image:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
         "- template_id and table_name must be selected from candidate lists.\n\n"
-        "Required tool sequence (minimum):\n"
+        "Required tool:\n"
         "1) resolve_plan(template_id) -> get function_key and function_args\n"
         "2) query_conclusion_vars(city, block, start_year, end_year, table_name, function_key, function_args)\n"
         "3) build_expected_summary(template_id, city, block, start_year, end_year, conclusion_vars)\n\n"
@@ -170,56 +170,46 @@ def build_react_tools(tools):
 
 
 def extract_final_ai_message_text(state: dict[str, Any]) -> str:
-    messages = state.get("messages", [])
-    for msg in reversed(messages):
-        msg_type = getattr(msg, "type", "")
-        if msg_type != "ai":
+    for msg in reversed(state.get("messages", [])):
+        if getattr(msg, "type", "") != "ai":
             continue
-        text = _content_to_text(getattr(msg, "content", ""))
-        if text:
-            return text
+        content = getattr(msg, "content", "")
+        if isinstance(content, str):
+            text = content.strip()
+            if text:
+                return text
+            continue
+        if not isinstance(content, list):
+            continue
+        texts = [
+            str(item.get("text"))
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text" and item.get("text")
+        ]
+        if texts:
+            return "\n".join(texts).strip()
     return ""
-
-
-def _content_to_text(content: Any) -> str:
-    if isinstance(content, str):
-        return content.strip()
-    if not isinstance(content, list):
-        return ""
-
-    texts: list[str] = []
-    for item in content:
-        if isinstance(item, dict) and item.get("type") == "text":
-            text_value = item.get("text", "")
-            if text_value:
-                texts.append(str(text_value))
-            continue
-        if getattr(item, "type", None) == "text":
-            text_value = getattr(item, "text", "")
-            if text_value:
-                texts.append(str(text_value))
-    return "\n".join(texts).strip() if texts else ""
 
 
 def coerce_structured_response_dict(value: Any) -> dict[str, Any]:
     if value is None:
         return {}
+    if hasattr(value, "model_dump"):
+        value = value.model_dump()
+    if isinstance(value, str):
+        try:
+            value = parse_json_object(value)
+        except Exception:  # noqa: BLE001 - best effort parser
+            return {}
     if isinstance(value, dict):
         return value
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump()
-        if isinstance(dumped, dict):
-            return dumped
-    if isinstance(value, str):
-        return parse_json_object(value)
-    raise TypeError(f"Unsupported structured_response type: {type(value)}")
+    return {}
 
 
 def extract_react_output_json(state: dict[str, Any]) -> dict[str, Any]:
-    structured = state.get("structured_response")
-    if structured is not None:
-        return coerce_structured_response_dict(structured)
-
+    structured_json = coerce_structured_response_dict(state.get("structured_response"))
+    if structured_json:
+        return structured_json
     final_text = extract_final_ai_message_text(state)
     if final_text:
         return parse_json_object(final_text)
@@ -228,20 +218,8 @@ def extract_react_output_json(state: dict[str, Any]) -> dict[str, Any]:
 
 def extract_called_tools(state: dict[str, Any]) -> list[str]:
     """Extract actual tool-call sequence from AI messages in react state."""
-    called: list[str] = []
-    messages = state.get("messages", [])
-    for msg in messages:
-        tool_calls = getattr(msg, "tool_calls", None)
-        if not isinstance(tool_calls, list):
-            continue
-        for call in tool_calls:
-            if isinstance(call, dict):
-                name = call.get("name")
-            else:
-                name = getattr(call, "name", None)
-            if isinstance(name, str) and name:
-                called.append(name)
-    return called
+    trace = _build_tool_trace(state.get("messages", []))
+    return [item["name"] for item in trace]
 
 
 def extract_react_claim_and_evidence(
@@ -253,32 +231,7 @@ def extract_react_claim_and_evidence(
     Claim mainly comes from query_conclusion_vars arguments.
     Evidence comes from resolve_plan + build_expected_summary outputs.
     """
-    messages = state.get("messages", [])
-    calls_by_id: dict[str, dict[str, Any]] = {}
-
-    # 1) collect tool call args from AI messages
-    for msg in messages:
-        tool_calls = getattr(msg, "tool_calls", None)
-        if not isinstance(tool_calls, list):
-            continue
-        for call in tool_calls:
-            if not isinstance(call, dict):
-                continue
-            call_id = call.get("id")
-            name = call.get("name")
-            if not isinstance(call_id, str) or not isinstance(name, str):
-                continue
-            calls_by_id[call_id] = {"name": name, "args": _to_dict(call.get("args")), "result": {}}
-
-    # 2) attach tool return payload by tool_call_id
-    for msg in messages:
-        if getattr(msg, "type", "") != "tool":
-            continue
-        call_id = getattr(msg, "tool_call_id", None)
-        if isinstance(call_id, str) and call_id in calls_by_id:
-            calls_by_id[call_id]["result"] = _to_dict(getattr(msg, "content", None))
-
-    trace = list(calls_by_id.values())
+    trace = _build_tool_trace(state.get("messages", []))
 
     def _last(tool_name: str) -> dict[str, Any]:
         for item in reversed(trace):
@@ -339,14 +292,40 @@ def _to_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
     if isinstance(value, str):
-        parsed = _try_parse_json_object(value)
-        if parsed is not None:
-            return parsed
+        try:
+            return parse_json_object(value)
+        except Exception:  # noqa: BLE001 - best effort parser
+            return {}
     return {}
 
 
-def _try_parse_json_object(text: str) -> dict[str, Any] | None:
-    try:
-        return parse_json_object(text)
-    except Exception:  # noqa: BLE001 - best effort parser
-        return None
+def _build_tool_trace(messages: list[Any]) -> list[dict[str, Any]]:
+    trace: list[dict[str, Any]] = []
+    call_by_id: dict[str, dict[str, Any]] = {}
+    for msg in messages:
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not isinstance(tool_calls, list):
+            continue
+        for call in tool_calls:
+            if isinstance(call, dict):
+                call_id = call.get("id")
+                name = call.get("name")
+                args = call.get("args")
+            else:
+                call_id = getattr(call, "id", None)
+                name = getattr(call, "name", None)
+                args = getattr(call, "args", None)
+            if not isinstance(name, str) or not name:
+                continue
+            item = {"name": name, "args": _to_dict(args), "result": {}}
+            trace.append(item)
+            if isinstance(call_id, str) and call_id:
+                call_by_id[call_id] = item
+
+    for msg in messages:
+        if getattr(msg, "type", "") != "tool":
+            continue
+        call_id = getattr(msg, "tool_call_id", None)
+        if isinstance(call_id, str) and call_id in call_by_id:
+            call_by_id[call_id]["result"] = _to_dict(getattr(msg, "content", None))
+    return trace

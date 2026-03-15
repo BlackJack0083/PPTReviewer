@@ -1,4 +1,3 @@
-import json
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -20,15 +19,6 @@ from .workflows.no_tool_flow import build_no_tool_graph
 from .workflows.with_tool_flow import build_with_tool_graph, evidence_to_dict
 
 Mode = Literal["no_tool", "with_tool", "with_tool_react"]
-
-
-def _safe_parse_json_object(text: str) -> dict[str, Any] | None:
-    if not text:
-        return None
-    try:
-        return parse_json_object(text)
-    except Exception:  # noqa: BLE001 - best effort for debug normalization
-        return None
 
 
 @dataclass
@@ -97,6 +87,7 @@ class PPTSummaryJudgeAgent:
         render_backend: str = "auto",
         poppler_path: str | None = None,
         graph_config: dict[str, Any] | None = None,
+        include_debug: bool = False,
     ) -> AgentResult:
         resolved_image_path = ensure_image_exists(
             Path(image_path),
@@ -112,21 +103,22 @@ class PPTSummaryJudgeAgent:
                 config=graph_config,
             )
             no_tool_raw = state.get("no_tool_raw", "")
-            final_json = _safe_parse_json_object(no_tool_raw) or {
-                "has_issue": bool(state.get("has_issue", False))
-            }
+            parsed_json: dict[str, Any] | None = None
+            try:
+                parsed_json = parse_json_object(no_tool_raw) if no_tool_raw else None
+            except Exception:  # noqa: BLE001 - fallback to boolean-only output
+                parsed_json = None
+            final_json = parsed_json or {"has_issue": bool(state.get("has_issue", False))}
+
+            final_data: dict[str, Any] = {"json": final_json}
+            if include_debug or parsed_json is None:
+                final_data["text"] = no_tool_raw
+
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="no_tool",
-                final={"json": final_json, "text": no_tool_raw},
-                debug={
-                    "raw": {
-                        "extract_raw": "",
-                        "judge_raw": no_tool_raw,
-                        "final_raw": no_tool_raw,
-                        "structured_raw": "",
-                    }
-                },
+                final=final_data,
+                debug={},
             )
 
         if mode == "with_tool":
@@ -136,28 +128,40 @@ class PPTSummaryJudgeAgent:
             )
             evidence = state.get("evidence")
             judge_raw = state.get("judge_raw", "")
-            final_json = _safe_parse_json_object(judge_raw) or {
-                "has_issue": bool(state.get("has_issue", False))
-            }
+            parsed_json: dict[str, Any] | None = None
+            try:
+                parsed_json = parse_json_object(judge_raw) if judge_raw else None
+            except Exception:  # noqa: BLE001 - fallback to boolean-only output
+                parsed_json = None
+            final_json = parsed_json or {"has_issue": bool(state.get("has_issue", False))}
+
+            final_data: dict[str, Any] = {"json": final_json}
+            if include_debug or parsed_json is None:
+                final_data["text"] = judge_raw
+
+            debug_data: dict[str, Any] = {}
+            if include_debug:
+                routed_template_meta: dict[str, Any] | None = None
+                routed_template_meta_raw = state.get("routed_template_meta", "")
+                if isinstance(routed_template_meta_raw, str) and routed_template_meta_raw:
+                    try:
+                        routed_template_meta = parse_json_object(routed_template_meta_raw)
+                    except Exception:  # noqa: BLE001 - debug best effort
+                        routed_template_meta = None
+                debug_data = {
+                    "claim_raw": state.get("claim_raw", ""),
+                    "tool_defs": self.tools.available_tools(),
+                    "routed_template_meta": routed_template_meta,
+                }
+
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="with_tool",
                 claim=state.get("parsed_claim"),
                 evidence=evidence_to_dict(evidence) if evidence else None,
                 tool_calls=list(state.get("tool_plan", [])),
-                final={"json": final_json, "text": judge_raw},
-                debug={
-                    "raw": {
-                        "extract_raw": state.get("claim_raw", ""),
-                        "judge_raw": judge_raw,
-                        "final_raw": judge_raw,
-                        "structured_raw": "",
-                    },
-                    "tool_defs": self.tools.available_tools(),
-                    "routed_template_meta": _safe_parse_json_object(
-                        state.get("routed_template_meta", "")
-                    ),
-                },
+                final=final_data,
+                debug=debug_data,
             )
 
         if mode == "with_tool_react":
@@ -184,30 +188,25 @@ class PPTSummaryJudgeAgent:
                 if structured is not None
                 else {}
             )
+            final_json = structured_json if structured_json else parsed
+            final_data: dict[str, Any] = {"json": final_json}
+            if include_debug:
+                final_data["text"] = final_text
+
+            debug_data: dict[str, Any] = {}
+            if include_debug:
+                debug_data = {
+                    "tool_defs": self.tools.available_tools(),
+                    "message_count": len(state.get("messages", [])),
+                }
             return AgentResult(
                 has_issue=bool(parsed.get("has_issue", False)),
                 mode="with_tool_react",
                 claim=react_claim,
                 evidence=react_evidence,
                 tool_calls=called_tools,
-                final={
-                    "json": structured_json if structured_json else parsed,
-                    "text": final_text,
-                },
-                debug={
-                    "raw": {
-                        "extract_raw": "",
-                        "judge_raw": final_text,
-                        "final_raw": final_text,
-                        "structured_raw": (
-                            json.dumps(structured_json, ensure_ascii=False)
-                            if structured_json
-                            else ""
-                        ),
-                    },
-                    "tool_defs": self.tools.available_tools(),
-                    "message_count": len(state.get("messages", [])),
-                },
+                final=final_data,
+                debug=debug_data,
             )
 
         raise ValueError(f"Unknown mode: {mode}")

@@ -23,26 +23,14 @@ def _extract_message_text(message: Any) -> str | None:
         return text or None
 
     if isinstance(content, list):
-        texts: list[str] = []
-        for item in content:
-            if isinstance(item, dict):
-                if item.get("type") == "text" and item.get("text"):
-                    texts.append(str(item["text"]))
-                continue
-            if getattr(item, "type", None) == "text" and getattr(item, "text", None):
-                texts.append(str(getattr(item, "text")))
-        if texts:
-            merged = "\n".join(texts).strip()
-            return merged or None
-
-    refusal = getattr(message, "refusal", None)
-    if isinstance(refusal, str) and refusal.strip():
-        return refusal.strip()
+        texts = [str(item.get("text", "")).strip() for item in content if isinstance(item, dict) and item.get("type") == "text"]
+        merged = "\n".join(t for t in texts if t).strip()
+        return merged or None
     return None
 
 
 class Client:
-    """OpenAI SDK client (compatible with DashScope OpenAI endpoints)."""
+    """OpenAI SDK client."""
 
     def __init__(
         self,
@@ -57,10 +45,6 @@ class Client:
         self.timeout_sec = timeout_sec
         self.enable_thinking = enable_thinking
         self.api_key = api_key or os.getenv("DASHSCOPE_API_KEY")
-        if not self.api_key:
-            raise ValueError(
-                "Missing API key. Set DASHSCOPE_API_KEY env var or pass api_key explicitly."
-            )
         self._client = OpenAI(
             api_key=self.api_key,
             base_url=self.base_url,
@@ -73,7 +57,7 @@ class Client:
         user_prompt: str,
         image_path: Path | None = None,
         temperature: float = 0.0,
-        max_tokens: int = 4096,
+        max_tokens: int = 8192,
         response_format: Literal["json_object"] | None = None,
         max_retries: int = 3,
     ) -> str:
@@ -104,21 +88,20 @@ class Client:
         for attempt in range(retries + 1):
             try:
                 response = self._client.chat.completions.create(**request_kwargs)
-            except APITimeoutError as exc:
+            except (APITimeoutError, APIConnectionError, APIError) as exc:
                 last_error = exc
-                if attempt >= retries:
-                    raise RuntimeError(f"DashScope request timeout: {exc}") from exc
-                time.sleep(0.8 * (attempt + 1))
-                continue
-            except APIConnectionError as exc:
-                last_error = exc
-                if attempt >= retries:
-                    raise RuntimeError(f"DashScope connection failed: {exc}") from exc
-                time.sleep(0.8 * (attempt + 1))
-                continue
-            except APIError as exc:
-                body = exc.body if hasattr(exc, "body") else str(exc)
-                raise RuntimeError(f"DashScope APIError {exc.status_code}: {body}") from exc
+                status_code = getattr(exc, "status_code", None)
+                retryable = isinstance(exc, (APITimeoutError, APIConnectionError)) or status_code in { 
+                    408, 409, 429, 500, 502, 503, 504,}
+
+                if retryable and attempt < retries:
+                    time.sleep(0.8 * (attempt + 1))
+                    continue
+
+                if isinstance(exc, APIError):
+                    body = exc.body if hasattr(exc, "body") else str(exc)
+                    raise RuntimeError(f"DashScope APIError {status_code}: {body}") from exc
+                raise RuntimeError(f"DashScope request failed: {exc}") from exc
 
             if not response.choices:
                 last_error = RuntimeError(f"No choices in model response: {response}")
