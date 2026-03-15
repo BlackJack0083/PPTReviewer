@@ -343,7 +343,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--workers",
         type=int,
-        default=1,
+        default=10,
         help="Async concurrency per mode",
     )
     parser.add_argument(
@@ -361,6 +361,11 @@ def parse_args() -> argparse.Namespace:
         "--sample-eval-filename",
         default=None,
         help="Filename under sample eval dir (default: <run_id>.jsonl)",
+    )
+    parser.add_argument(
+        "--log-file",
+        default=None,
+        help="Optional log file path (default: output/log/<run_id>_<split>_<mode>.log)",
     )
     return parser.parse_args()
 
@@ -413,6 +418,21 @@ def main() -> None:
 
     modes = ["no_tool", "with_tool", "with_tool_react"] if args.mode == "both" else [args.mode]
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    if args.log_file:
+        log_path = Path(args.log_file).resolve()
+    else:
+        log_path = (PROJECT_ROOT / "output" / "log" / f"{run_id}_{args.split}_{args.mode}.log").resolve()
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.add(
+        str(log_path),
+        level="INFO",
+        encoding="utf-8",
+        enqueue=True,
+        backtrace=False,
+        diagnose=False,
+    )
+    logger.info(f"Logging to file: {log_path}")
+
     run_results: list[dict[str, Any]] = []
     sample_eval_filename = args.sample_eval_filename or f"{run_id}.jsonl"
 
