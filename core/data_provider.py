@@ -257,8 +257,8 @@ class RealEstateDataProvider:
         df_transposed = df_copy.T
 
         # 3. 清洗类型 (解决 int64 is not JSON serializable 问题)
-        # 遍历所有单元格，如果有 item() 方法则调用
-        df_final = df_transposed.applymap(
+        # pandas>=3 已移除 applymap，统一使用 DataFrame.map
+        df_final = df_transposed.map(
             lambda x: x.item() if hasattr(x, "item") else x
         )
 
