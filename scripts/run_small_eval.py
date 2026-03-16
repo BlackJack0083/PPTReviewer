@@ -12,6 +12,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-posix fallback
+    fcntl = None
+
 from dotenv import load_dotenv
 from loguru import logger
 from tqdm.auto import tqdm
@@ -46,8 +51,24 @@ def read_jsonl(path: Path) -> list[dict[str, Any]]:
 
 def append_jsonl(path: Path, record: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+
+    # Use an advisory file lock on POSIX so multiple eval processes
+    # can safely append to the same jsonl manifest.
+    if fcntl is not None:
+        lock_path = path.parent / f"{path.name}.lock"
+        with open(lock_path, "a", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                with open(path, "a", encoding="utf-8") as f:
+                    f.write(line)
+            finally:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+        return
+
+    # Fallback (e.g., non-POSIX): best-effort append without inter-process lock.
     with open(path, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        f.write(line)
 
 
 def to_gt_case(dataset_root: Path, sample_row: dict[str, Any]) -> dict[str, Any]:
