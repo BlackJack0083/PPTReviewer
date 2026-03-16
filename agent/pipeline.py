@@ -66,6 +66,7 @@ class PPTSummaryJudgeAgent:
             tools=self.tools,
             template_candidates=self.template_candidates,
             table_candidates=self.table_candidates,
+            normalize_template_id=self.tools.normalize_template_id,
         )
         self._with_tool_react_graph = build_react_agent_graph(
             model_name=self.model,

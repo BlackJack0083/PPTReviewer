@@ -2,7 +2,8 @@ from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain_core.messages import HumanMessage
+from langchain.agents.middleware import AgentMiddleware
+from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from pydantic import BaseModel
@@ -14,6 +15,26 @@ from agent.json_utils import parse_json_object
 class ReactJudgeOutput(BaseModel):
     has_issue: bool
 
+
+class ToolRetryMiddleware(AgentMiddleware):
+    """Return tool exceptions to the agent as observations for self-correction."""
+
+    def wrap_tool_call(self, request, handler):
+        tool_call = request.tool_call if isinstance(request.tool_call, dict) else {}
+        tool_name = str(tool_call.get("name", ""))
+        tool_call_id = str(tool_call.get("id", "") or "tool_error")
+
+        try:
+            return handler(request)
+        except Exception as exc:  # noqa: BLE001 - middleware handles selective retry
+            error_text = str(exc)
+
+            return ToolMessage(
+                tool_call_id=tool_call_id,
+                name=tool_name or None,
+                status="error",
+                content=error_text,
+            )
 
 def build_react_agent_graph(
     *,
@@ -39,26 +60,57 @@ def build_react_agent_graph(
         "Task: determine whether the slide summary has factual issues.\n"
         f"Allowed template_id candidates: {template_candidates}\n"
         f"Allowed table_name candidates: {table_candidates}\n\n"
+        
         "Hard rules:\n"
         "- You MUST use tools before final judgment. Do not decide only by visual impression.\n"
         "- You MUST return final output as strict JSON only: {\"has_issue\": true|false}.\n"
         "- Do not output explanations in the final answer.\n\n"
+        "- In this task, once time you are suggested to use one tool."
+        "- When you receive tool error message, you can analyze the error and try to call the tool again with corrected arguments. You can retry as many times as you want until you get a successful tool response. Do not give up easily.\n\n"
+        
         "Required extraction fields from image:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
         "- template_id and table_name must be selected from candidate lists.\n\n"
+        "- template_id must be copied exactly from the candidate list (use alias names when provided).\n\n"
+        
+        "Block normalization rule:\n"
+        "- block must be pure block name only (e.g., \"Baolong Technology Park\").\n"
+        "- Do NOT output \"Shenzhen Baolong Technology Park\" when city is already Shenzhen.\n\n"
+        
         "Required tool:\n"
         "1) resolve_plan(template_id) -> get function_key and function_args\n"
         "2) query_conclusion_vars(city, block, start_year, end_year, table_name, function_key, function_args)\n"
         "3) build_expected_summary(template_id, city, block, start_year, end_year, conclusion_vars)\n\n"
+        
+        "Tool-call constraints:\n"
+        "- query_conclusion_vars.function_key must exactly equal resolve_plan.function_key.\n"
+        "- query_conclusion_vars.function_args must come from resolve_plan.function_args.\n"
+        "- Never invent function_key such as \"get_stats\".\n\n"
+        
+        "Example tool sequence A:\n"
+        "- extracted: template_id=New-House Supply_Transaction Area Analysis Line Chart, city=Shenzhen, block=Baolong Technology Park\n"
+        "- call resolve_plan(\"New-House Supply_Transaction Area Analysis Line Chart\")\n"
+        "- receive function_key=\"Supply-Transaction Area\", function_args={}\n"
+        "- call query_conclusion_vars(..., function_key=\"Supply-Transaction Area\", function_args={})\n"
+        "- call build_expected_summary(...)\n\n"
+        
+        "Example tool sequence B:\n"
+        "- extracted: template_id=New-House Cross-Structure Area Analysis Bar Chart, city=Beijing, block=Mapo\n"
+        "- call resolve_plan(\"New-House Cross-Structure Area Analysis Bar Chart\")\n"
+        "- receive function_key=\"Price Segment Distribution\", function_args={\"price_range_size\": 5}\n"
+        "- call query_conclusion_vars(..., function_key=\"Price Segment Distribution\", function_args={\"price_range_size\": 5})\n"
+        "- call build_expected_summary(...)\n\n"
+        
         "Judgment criterion:\n"
         "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
-        "- If any key factual mismatch exists (value/range/trend/unit/time), return has_issue=true.\n"
+        "- If any key factual mismatch exists, return has_issue=true.\n"
         "- Otherwise return has_issue=false."
     )
     return create_agent(
         model=model,
         tools=build_react_tools(tools),
         system_prompt=system_prompt,
+        middleware=[ToolRetryMiddleware()],
         response_format=ReactJudgeOutput,
     )
 

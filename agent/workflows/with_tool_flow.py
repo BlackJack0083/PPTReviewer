@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -13,13 +14,21 @@ def build_with_tool_graph(
     tools,
     template_candidates: list[str],
     table_candidates: list[str],
+    normalize_template_id=None,
 ) -> Any:
     graph = StateGraph(dict)
     graph.add_node(
         "extract_claim",
         _node_extract_claim(client, template_candidates, table_candidates),
     )
-    graph.add_node("validate_claim", _node_validate_claim())
+    graph.add_node(
+        "validate_claim",
+        _node_validate_claim(
+            template_candidates,
+            table_candidates,
+            normalize_template_id,
+        ),
+    )
     graph.add_node("plan_tools", _node_plan_tools())
     graph.add_node("run_tools", _node_run_tools(tools))
     graph.add_node("judge_with_tool", _node_judge_with_tool(client))
@@ -71,6 +80,9 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             "Read the slide image and extract fields for database verification.\n"
             f"- template_id must be one of: {template_candidates}\n"
             f"- table_name must be one of: {table_candidates}\n"
+            "- template_id must be copied exactly from candidate list (prefer human-readable alias names when provided).\n"
+            "- block must be pure block name only, never prepend city.\n"
+            
             "Return JSON with keys:\n"
             "{\n"
             "  \"template_id\": \"...\",\n"
@@ -81,6 +93,29 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             "  \"end_year\": \"YYYY\",\n"
             "  \"summary_text\": \"exact summary sentence from slide\"\n"
             "}\n"
+            
+            "Example A:\n"
+            "Input text: \"**Shenzhen** **Baolong Technology Park** ...\"\n"
+            "Output:\n"
+            "{\"template_id\":\"New-House Supply_Transaction Area Analysis Line Chart\","
+            "\"table_name\":\"Shenzhen_new_house\","
+            "\"city\":\"Shenzhen\","
+            "\"block\":\"Baolong Technology Park\","
+            "\"start_year\":\"2020\","
+            "\"end_year\":\"2024\","
+            "\"summary_text\":\"The region experienced ...\"}\n"
+            
+            "Example B:\n"
+            "Input text: \"**2020**-**2024** **Beijing** **Mapo** Area and Total Price Cross Statistics\"\n"
+            "Output:\n"
+            "{\"template_id\":\"New-House Cross-Structure Analysis Table\","
+            "\"table_name\":\"Beijing_new_house\","
+            "\"city\":\"Beijing\","
+            "\"block\":\"Mapo\","
+            "\"start_year\":\"2020\","
+            "\"end_year\":\"2024\","
+            "\"summary_text\":\"From 2020 to 2024, ...\"}\n"
+            
             "Use best effort. Output JSON only."
         )
         response = client.chat(
@@ -95,7 +130,15 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
     return _run
 
 
-def _node_validate_claim():
+def _node_validate_claim(
+    template_candidates: list[str],
+    table_candidates: list[str],
+    normalize_template_id=None,
+):
+    template_set = set(template_candidates)
+    table_set = set(table_candidates)
+    year_pattern = re.compile(r"^\d{4}$")
+
     def _run(state: dict[str, Any]) -> dict[str, Any]:
         claim = state["parsed_claim"]
         required_keys = [
@@ -110,6 +153,29 @@ def _node_validate_claim():
         missing = [k for k in required_keys if not claim.get(k)]
         if missing:
             raise ValueError(f"Claim extraction missing keys: {missing}; claim={claim}")
+
+        template_id = str(claim["template_id"]).strip()
+        canonical_template_id = (
+            normalize_template_id(template_id)
+            if callable(normalize_template_id)
+            else template_id
+        )
+        table_name = str(claim["table_name"]).strip()
+        start_year = str(claim["start_year"]).strip()
+        end_year = str(claim["end_year"]).strip()
+        if template_id not in template_set:
+            raise ValueError(f"Claim extraction invalid template_id: {template_id}")
+        if table_name not in table_set:
+            raise ValueError(f"Claim extraction invalid table_name: {table_name}")
+        if not year_pattern.fullmatch(start_year) or not year_pattern.fullmatch(end_year):
+            raise ValueError(
+                f"Claim extraction invalid year format: start={start_year}, end={end_year}"
+            )
+        if int(start_year) > int(end_year):
+            raise ValueError(
+                f"Claim extraction invalid year range: start={start_year}, end={end_year}"
+            )
+        claim["template_id"] = canonical_template_id
         return _with_carried_state(state)
 
     return _run

@@ -6,6 +6,26 @@ from typing import Any
 from common.function_specs import get_default_function_args
 
 _TEMPLATE_VAR_PATTERN = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
+_NON_ALNUM_PATTERN = re.compile(r"[^\w\u4e00-\u9fff]+", re.UNICODE)
+
+# 用户自定义外显 template_id（给 agent 看）
+# key: 原始 canonical template_id
+# value: 外显 alias（建议唯一、清晰）
+TEMPLATE_ID_ALIASES: dict[str, str] = {
+    "T01_Supply_Trans_Bar": "Block Supply_Transaction Unit Statistic Bar Chart",
+    "T01_Supply_Trans_Line": "Block Supply_Transaction Unit Statistic Line Chart",
+    "T02_Cross_Pivot_Table": "New-House Cross-Structure Analysis Table",
+    "T02_Area_Dist_Bar": "New-House Cross-Structure Area Analysis Bar Chart",
+    "T02_Area_Dist_Line": "New-House Cross-Structure Area Analysis Line Chart",
+    "T02_Price_Dist_Bar": "New-House Cross-Structure Price Analysis Bar Chart",
+    "T02_Price_Dist_Line": "New-House Cross-Structure Price Analysis Line Chart",
+    "T02_Double_Price_Dist_Line": "New-House Cross-Structure Price Analysis Double Line Chart",
+    "T02_Double_Price_Dist_Bar": "New-House Cross-Structure Price Analysis Double Bar Chart",
+    "T04_Annual_Supply_Demand_Bar": "New-House Annual Supply_Demand Analysis Bar Chart",
+    "T04_Annual_Supply_Demand_Line": "New-House Annual Supply_Demand Analysis Line Chart",
+    "T04_Supply_Transaction_Area_Line": "New-House Supply_Transaction Area Analysis Line Chart",
+    "T04_Supply_Transaction_Area_Bar": "New-House Supply_Transaction Area Analysis Bar Chart",
+}
 
 
 def _normalize_table_name(table_name: str) -> str:
@@ -18,6 +38,10 @@ def _normalize_table_name(table_name: str) -> str:
 
 def _extract_template_vars(template_text: str) -> list[str]:
     return list(dict.fromkeys(_TEMPLATE_VAR_PATTERN.findall(template_text)))
+
+
+def _normalize_identifier(text: str) -> str:
+    return _NON_ALNUM_PATTERN.sub("", str(text).strip().lower())
 
 
 @dataclass
@@ -44,9 +68,54 @@ class LocalDataTools:
 
         resource_manager.load_all()
         self.resource_manager = resource_manager
+        self._canonical_template_ids = sorted(self.resource_manager.all_templates.keys())
+        self._canonical_to_exposed = self._build_canonical_to_exposed_map()  # 载入别名
+        self._alias_to_canonical = self._build_alias_to_canonical_map()
 
     def list_template_ids(self) -> list[str]:
-        return sorted(self.resource_manager.all_templates.keys())
+        """返回给 agent 的模板 ID 列表（优先使用用户定义 alias）。"""
+        return [self._canonical_to_exposed[t] for t in self._canonical_template_ids]
+
+    def list_canonical_template_ids(self) -> list[str]:
+        return list(self._canonical_template_ids)
+
+    def normalize_template_id(self, template_id: str) -> str:
+        """将 alias / 外显 ID / 原始 ID 统一映射为 canonical template_id。"""
+        raw = str(template_id).strip()
+        if raw in self.resource_manager.all_templates:
+            return raw
+        return self._alias_to_canonical.get(_normalize_identifier(raw), raw)
+
+    def _build_canonical_to_exposed_map(self) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for canonical in self._canonical_template_ids:
+            alias = TEMPLATE_ID_ALIASES.get(canonical, canonical)
+            alias = str(alias).strip()
+            mapping[canonical] = alias
+        return mapping
+
+    def _build_alias_to_canonical_map(self) -> dict[str, str]:
+        """
+        将别名映射回原本 template id
+        """
+        
+        alias_bucket: dict[str, set[str]] = {}
+
+        def add_alias(alias_text: str, canonical: str) -> None:
+            key = _normalize_identifier(alias_text)
+            if key:
+                alias_bucket.setdefault(key, set()).add(canonical)
+
+        for canonical, exposed in self._canonical_to_exposed.items():
+            add_alias(canonical, canonical)
+            add_alias(exposed, canonical)
+
+        # 仅接受唯一映射，避免 alias 冲突误路由
+        return {
+            alias: next(iter(targets))
+            for alias, targets in alias_bucket.items()
+            if len(targets) == 1
+        }
 
     def list_table_names(self) -> list[str]:
         # 先给当前项目常用表，后续可动态读取 DB schema
@@ -85,6 +154,8 @@ class LocalDataTools:
         }
 
     def resolve_template_meta(self, template_id: str):
+        # 将别名template_id 映射为原始 template_id
+        template_id = self.normalize_template_id(template_id)
         template_meta = self.resource_manager.get_template(template_id)
         if template_meta is None:
             raise ValueError(f"Unknown template_id: {template_id}")
