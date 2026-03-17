@@ -161,8 +161,12 @@ class ConclusionGenerator:
         """
         df = df_data.copy()
 
-        cols = df.select_dtypes(include="number").columns
-        count_col = [c for c in cols if c != "price_range"][0]
+        cols = [c for c in df.select_dtypes(include="number").columns if c != "price_range"]
+        if not cols:
+            raise ValueError(
+                "No numeric metric column found for price distribution conclusion."
+            )
+        count_col = cols[0]
 
         best_selling_row = df.loc[df[count_col].idxmax()]
 
@@ -319,7 +323,7 @@ class ConclusionGenerator:
             deal_first, deal_last = d_series.iloc[0], d_series.iloc[-1]
         except (IndexError, ValueError):
             logger.error("Error parsing area trend columns")
-            return {}
+            raise ValueError("Invalid data format for supply/deal area trend analysis")
 
         sup_diff = sup_last - sup_first
         deal_diff = deal_last - deal_first

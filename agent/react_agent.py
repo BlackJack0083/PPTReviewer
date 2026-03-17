@@ -3,6 +3,7 @@ from typing import Any
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import AgentMiddleware
+from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
@@ -27,13 +28,13 @@ class ToolRetryMiddleware(AgentMiddleware):
         try:
             return handler(request)
         except Exception as exc:  # noqa: BLE001 - middleware handles selective retry
-            error_text = str(exc)
+            error_text = str(exc).strip() or repr(exc)
 
             return ToolMessage(
                 tool_call_id=tool_call_id,
                 name=tool_name or None,
                 status="error",
-                content=error_text,
+                content=f"Tool execution failed: {error_text}",
             )
 
 def build_react_agent_graph(
@@ -103,15 +104,18 @@ def build_react_agent_graph(
         
         "Judgment criterion:\n"
         "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
-        "- If any key factual mismatch exists, return has_issue=true.\n"
-        "- Otherwise return has_issue=false."
+        "- If any key factual mismatch exists, return JSON: {\"has_issue\": true}.\n"
+        "- Otherwise return JSON: {\"has_issue\": false}."
     )
     return create_agent(
         model=model,
         tools=build_react_tools(tools),
         system_prompt=system_prompt,
         middleware=[ToolRetryMiddleware()],
-        response_format=ReactJudgeOutput,
+        response_format=ToolStrategy(
+            ReactJudgeOutput,
+            handle_errors=True,
+        ),
     )
 
 
@@ -265,6 +269,9 @@ def extract_react_output_json(state: dict[str, Any]) -> dict[str, Any]:
     final_text = extract_final_ai_message_text(state)
     if final_text:
         return parse_json_object(final_text)
+    tool_call_json = _extract_react_output_from_tool_calls(state.get("messages", []))
+    if tool_call_json:
+        return tool_call_json
     raise ValueError("React agent returned no structured_response and empty final AI text.")
 
 
@@ -351,6 +358,50 @@ def _to_dict(value: Any) -> dict[str, Any]:
     return {}
 
 
+def _read_tool_call_parts(call: Any) -> tuple[str | None, Any, str | None]:
+    if isinstance(call, dict):
+        call_id = call.get("id")
+        name = call.get("name")
+        args = call.get("args")
+        function = call.get("function")
+    else:
+        call_id = getattr(call, "id", None)
+        name = getattr(call, "name", None)
+        args = getattr(call, "args", None)
+        function = getattr(call, "function", None)
+
+    if (not name or args is None) and function is not None:
+        if isinstance(function, dict):
+            name = name or function.get("name")
+            if args is None:
+                args = function.get("arguments")
+        else:
+            name = name or getattr(function, "name", None)
+            if args is None:
+                args = getattr(function, "arguments", None)
+
+    normalized_name = name if isinstance(name, str) and name else None
+    normalized_call_id = call_id if isinstance(call_id, str) and call_id else None
+    return normalized_name, args, normalized_call_id
+
+
+def _extract_react_output_from_tool_calls(messages: list[Any]) -> dict[str, Any]:
+    for msg in reversed(messages):
+        if getattr(msg, "type", "") != "ai":
+            continue
+        tool_calls = getattr(msg, "tool_calls", None)
+        if not isinstance(tool_calls, list):
+            continue
+        for call in reversed(tool_calls):
+            name, args, _call_id = _read_tool_call_parts(call)
+            if name != "ReactJudgeOutput":
+                continue
+            parsed = _to_dict(args)
+            if parsed:
+                return parsed
+    return {}
+
+
 def _build_tool_trace(messages: list[Any]) -> list[dict[str, Any]]:
     trace: list[dict[str, Any]] = []
     call_by_id: dict[str, dict[str, Any]] = {}
@@ -359,19 +410,12 @@ def _build_tool_trace(messages: list[Any]) -> list[dict[str, Any]]:
         if not isinstance(tool_calls, list):
             continue
         for call in tool_calls:
-            if isinstance(call, dict):
-                call_id = call.get("id")
-                name = call.get("name")
-                args = call.get("args")
-            else:
-                call_id = getattr(call, "id", None)
-                name = getattr(call, "name", None)
-                args = getattr(call, "args", None)
-            if not isinstance(name, str) or not name:
+            name, args, call_id = _read_tool_call_parts(call)
+            if not name:
                 continue
             item = {"name": name, "args": _to_dict(args), "result": {}}
             trace.append(item)
-            if isinstance(call_id, str) and call_id:
+            if call_id:
                 call_by_id[call_id] = item
 
     for msg in messages:

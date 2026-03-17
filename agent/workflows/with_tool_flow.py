@@ -276,7 +276,10 @@ def _node_judge_with_tool(client):
                 f"expected_summary_from_tool:\n{evidence.expected_summary}\n\n"
                 f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
                 "If any key factual mismatch exists (trend/range/value), set has_issue=true.\n"
-                "Output JSON only."
+                "Judgment criterion:\n"
+                "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
+                "- If any key factual mismatch exists, return JSON: {\"has_issue\": true}.\n"
+                "- Otherwise return JSON: {\"has_issue\": false}."
             ),
             image_path=None,
             response_format="json_object",

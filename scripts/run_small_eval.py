@@ -180,7 +180,11 @@ def run_mode_eval(
                 err_text = row["error"]
                 can_retry = (
                     attempt < retries
-                    and "Model returned empty content." in err_text
+                    and (
+                        "Model returned empty content." in err_text
+                        or "React agent returned no structured_response and empty final AI text."
+                        in err_text
+                    )
                 )
                 if not can_retry:
                     return idx, row
