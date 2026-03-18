@@ -64,10 +64,11 @@ def build_react_agent_graph(
         
         "Hard rules:\n"
         "- You MUST use tools before final judgment. Do not decide only by visual impression.\n"
-        "- You MUST return final output as strict JSON only: {\"has_issue\": true|false}.\n"
-        "- Do not output explanations in the final answer.\n\n"
-        "- In this task, once time you are suggested to use one tool."
-        "- When you receive tool error message, you can analyze the error and try to call the tool again with corrected arguments. You can retry as many times as you want until you get a successful tool response. Do not give up easily.\n\n"
+        "- Final answer MUST be one structured output tool call: ReactJudgeOutput(has_issue=...).\n"
+        "- Do NOT output plain-text JSON in the final step.\n"
+        "- Do not output explanations in the final answer.\n"
+        "- If a tool call fails, retry with corrected arguments, but keep retries bounded (at most 2 retries per failed step).\n"
+        "- If some tool step still fails after bounded retries, make the best judgment from available evidence and still finish with ReactJudgeOutput.\n\n"
         
         "Required extraction fields from image:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
@@ -98,14 +99,14 @@ def build_react_agent_graph(
         "Example tool sequence B:\n"
         "- extracted: template_id=New-House Cross-Structure Area Analysis Bar Chart, city=Beijing, block=Mapo\n"
         "- call resolve_plan(\"New-House Cross-Structure Area Analysis Bar Chart\")\n"
-        "- receive function_key=\"Price Segment Distribution\", function_args={\"price_range_size\": 5}\n"
-        "- call query_conclusion_vars(..., function_key=\"Price Segment Distribution\", function_args={\"price_range_size\": 5})\n"
+        "- receive function_key=\"Area Segment Distribution\", function_args={\"area_range_size\": 20}\n"
+        "- call query_conclusion_vars(..., function_key=\"Area Segment Distribution\", function_args={\"area_range_size\": 20})\n"
         "- call build_expected_summary(...)\n\n"
         
         "Judgment criterion:\n"
         "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
-        "- If any key factual mismatch exists, return JSON: {\"has_issue\": true}.\n"
-        "- Otherwise return JSON: {\"has_issue\": false}."
+        "- If any key factual mismatch exists, call ReactJudgeOutput(has_issue=true).\n"
+        "- Otherwise call ReactJudgeOutput(has_issue=false)."
     )
     return create_agent(
         model=model,
@@ -123,7 +124,7 @@ def build_react_input_messages(image_path: Path) -> dict[str, Any]:
     user_prompt = (
         "Analyze this slide image and determine whether the summary has factual issue.\n"
         "You must use tools for evidence before final judgment.\n"
-        "Final output must be JSON: {\"has_issue\": true|false}."
+        "Final output must be one ReactJudgeOutput tool call."
     )
     return {
         "messages": [

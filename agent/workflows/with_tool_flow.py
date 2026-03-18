@@ -81,6 +81,7 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             f"- template_id must be one of: {template_candidates}\n"
             f"- table_name must be one of: {table_candidates}\n"
             "- template_id must be copied exactly from candidate list (prefer human-readable alias names when provided).\n"
+            "- do not invent a new template_id or table_name outside candidates.\n"
             "- block must be pure block name only, never prepend city.\n"
             
             "Return JSON with keys:\n"
@@ -116,7 +117,7 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             "\"end_year\":\"2024\","
             "\"summary_text\":\"From 2020 to 2024, ...\"}\n"
             
-            "Use best effort. Output JSON only."
+            "If uncertain, choose the nearest candidate from the lists and still output valid JSON only."
         )
         response = client.chat(
             system_prompt,
@@ -275,9 +276,6 @@ def _node_judge_with_tool(client):
                 f"summary_text_from_image:\n{claim['summary_text']}\n\n"
                 f"expected_summary_from_tool:\n{evidence.expected_summary}\n\n"
                 f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
-                "If any key factual mismatch exists (trend/range/value), set has_issue=true.\n"
-                "Judgment criterion:\n"
-                "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
                 "- If any key factual mismatch exists, return JSON: {\"has_issue\": true}.\n"
                 "- Otherwise return JSON: {\"has_issue\": false}."
             ),
