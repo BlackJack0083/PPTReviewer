@@ -1,4 +1,4 @@
-# CLAUDE.md
+# AGENT.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
@@ -43,6 +43,8 @@ PPTGenerationEngine (generates PPT)
 | `core/` | Business logic: database, DAO, data provider, transformers, schemas |
 | `engine/` | PPT generation: ppt_engine, builder, slide_renderers |
 | `config/` | Settings and YAML templates |
+| `agent/` | PPT summary verification agent: LLM client, no-tool/with-tool/ReAct workflows, local tool adapter, orchestration pipeline |
+| `common/` | Shared tool/function specs (e.g., function default args and allowed arg keys) |
 
 ### Key Files
 
@@ -54,10 +56,28 @@ PPTGenerationEngine (generates PPT)
 - `engine/ppt_engine.py` - PPTGenerationEngine
 - `engine/builder.py` - SlideConfigBuilder
 - `engine/slide_renderers.py` - Slide renderers
+- `agent/pipeline.py` - `PPTSummaryJudgeAgent` unified entry (`no_tool` / `with_tool` / `with_tool_react`)
+- `agent/client.py` - OpenAI-compatible vision chat client + retry handling
+- `agent/react_agent.py` - LangChain ReAct graph, tool middleware, output parsing helpers
+- `agent/tools_local.py` - Local tool layer for template routing, DB query vars, expected summary generation, template alias mapping
+- `agent/workflows/no_tool_flow.py` - no-tool binary judge graph
+- `agent/workflows/with_tool_flow.py` - extract-validate-plan-run-judge graph with tool evidence
+- `common/function_specs.py` - Canonical `function_key` defaults and argument whitelist
 - `config/templates/template_definitions.yaml` - Template definitions
 - `config/templates/layouts.yaml` - Layout configurations
 - `config/templates/styles.yaml` - Style configurations
 - `config/templates/text_pattern.yaml` - Jinja2 text templates
+
+### Agent Modes (Summary Verifier)
+
+- `no_tool`: Visual-only check, directly outputs `{"has_issue": true|false}`.
+- `with_tool`: Extract claim -> validate fields -> call local tools -> final judge with evidence.
+- `with_tool_react`: LangChain ReAct agent calls tools iteratively, then returns structured `ReactJudgeOutput`.
+
+### Agent Entry Points
+
+- Single run entry: `agent/run_single.py`
+- Batch/small eval: `scripts/run_small_eval.py`
 
 ## Database Schema
 
@@ -94,3 +114,20 @@ uvx pre-commit run --all_files
 - **必须附上 git commit ID**
 
 **同样的问题不要犯两次！**
+
+## 第一性原理
+
+请使用第一性原理思考。你不能总是假设我非常清楚自己想要什么和该怎么得到。请保持审慎，从原始需求和问题触发，如果动机和目标不清晰，停下来和我讨论。
+
+## 方案规范
+
+当需要你给出修改方案或重构方案时必须符合以下规范：
+
+- 不允许给出兼容性或补丁性的方案
+- 不允许过度设计，保持最短路径实现且不能违反第一性要求
+- 不允许自行给出我提供的需求以外的方案，例如一些兜底和降级方案，这可能导致业务逻辑偏移问题
+- 必须保证方案的逻辑正确，必须经过全链路的逻辑验证
+
+## 可能遇到的问题及解决方法
+
+- 网络一直无法连接: 关闭代理
