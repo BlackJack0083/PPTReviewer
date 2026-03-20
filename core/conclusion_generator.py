@@ -85,7 +85,7 @@ class ConclusionGenerator:
             dict: 包含交叉分析的结论变量
         """
         df = df_data.copy()
-        df = df.set_index("price_area")
+        df = df.set_index("area_range")
         if "total" in df.index:
             df = df.drop("total")
         if "total" in df.columns:

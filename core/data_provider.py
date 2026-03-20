@@ -10,6 +10,10 @@ from .schemas import BinningRule, MetricRule, QueryFilter, TableAnalysisConfig
 from .transformers import StatTransformer
 
 
+class NoDataFoundError(ValueError):
+    """Raised when a DB query returns no rows for the extracted arguments."""
+
+
 class RealEstateDataProvider:
     """
     Facade Layer
@@ -45,6 +49,25 @@ class RealEstateDataProvider:
 
         self.transformer = StatTransformer()
 
+    def _fetch_raw_data_or_raise(
+        self,
+        *,
+        columns: list[str],
+        function_key: str,
+    ) -> pd.DataFrame:
+        """Fetch raw rows once and fail fast with a diagnosis if the query is empty."""
+        raw_df = self.dao.fetch_raw_data(self.filter, columns=columns)
+        if not raw_df.empty:
+            return raw_df
+
+        raise NoDataFoundError(
+            "No data found for "
+            f"function_key='{function_key}', city='{self.filter.city}', "
+            f"block='{self.filter.block}', table_name='{self.filter.table_name}', "
+            f"start_date='{self.filter.start_date}', end_date='{self.filter.end_date}'. "
+            "Check block normalization or extracted arguments."
+        )
+
     def get_supply_transaction_stats(
         self, area_range_size: int = 20
     ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
@@ -53,9 +76,9 @@ class RealEstateDataProvider:
         Returns:
             tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
         """
-        # 1. 获取原料 (IO Bound)
-        raw_df = self.dao.fetch_raw_data(
-            self.filter, columns=["dim_area", "supply_sets", "trade_sets"]
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["dim_area", "supply_sets", "trade_sets"],
+            function_key="Supply-Transaction Unit Statistic",
         )
 
         # 计算 dim_area 的 min/max
@@ -99,8 +122,10 @@ class RealEstateDataProvider:
     def get_area_price_cross_stats(
         self, area_range_size: int = 20, price_range_size: int = 1
     ) -> pd.DataFrame:
-        # 1. 获取原料
-        raw_df = self.dao.fetch_raw_data(self.filter, columns=["dim_area", "dim_price"])
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["dim_area", "dim_price"],
+            function_key="Area x Price Cross Pivot",
+        )
 
         # 计算 min/max
         area_min = int(raw_df["dim_area"].min()) if not raw_df.empty else 0
@@ -149,9 +174,9 @@ class RealEstateDataProvider:
         Returns:
             tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
         """
-        # 1. 获取原料
-        raw_df = self.dao.fetch_raw_data(
-            self.filter, columns=["dim_area", "trade_sets"]
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["dim_area", "trade_sets"],
+            function_key="Area Segment Distribution",
         )
 
         # 计算 dim_area 的 min/max
@@ -193,9 +218,9 @@ class RealEstateDataProvider:
         Returns:
             tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
         """
-        # 1. 获取原料
-        raw_df = self.dao.fetch_raw_data(
-            self.filter, columns=["dim_price", "trade_sets"]
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["dim_price", "trade_sets"],
+            function_key="Price Segment Distribution",
         )
 
         # 计算 dim_price 的 min/max
@@ -345,9 +370,9 @@ class RealEstateDataProvider:
         Returns:
             tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
         """
-        # 1. 获取原料 (IO Bound)
-        raw_df = self.dao.fetch_raw_data(
-            self.filter, columns=["date_code", "supply_sets", "trade_sets"]
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["date_code", "supply_sets", "trade_sets"],
+            function_key="Annual Supply-Demand Comparison",
         )
 
         # 2. 添加年份列
@@ -395,9 +420,9 @@ class RealEstateDataProvider:
         Returns:
             tuple[pd.DataFrame, TableAnalysisConfig]: 处理后的数据和分析配置
         """
-        # 1. 获取原料 (IO Bound)
-        raw_df = self.dao.fetch_raw_data(
-            self.filter, columns=["date_code", "dim_area", "supply_sets", "trade_sets"]
+        raw_df = self._fetch_raw_data_or_raise(
+            columns=["date_code", "dim_area", "supply_sets", "trade_sets"],
+            function_key="Supply-Transaction Area",
         )
 
         # 2. 添加年份列

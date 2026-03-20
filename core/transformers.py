@@ -132,8 +132,8 @@ class StatTransformer:
         # 压缩交叉表
         result = compact_dataframe(result, max_rows=16, max_cols=18, mode="crosstab")
 
-        # 整理索引，保持原有格式习惯
-        result.index.name = "price_area"
+        # Keep the exported row label aligned with the actual crosstab row dimension.
+        result.index.name = config.crosstab_row
         result.reset_index(inplace=True)
 
         return result

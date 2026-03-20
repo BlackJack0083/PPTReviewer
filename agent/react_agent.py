@@ -124,6 +124,7 @@ def build_react_input_messages(image_path: Path) -> dict[str, Any]:
     user_prompt = (
         "Analyze this slide image and determine whether the summary has factual issue.\n"
         "You must use tools for evidence before final judgment.\n"
+        "Use native API tool calls only. Do not output <tool_call> tags or plain-text fake tool calls.\n"
         "Final output must be one ReactJudgeOutput tool call."
     )
     return {
