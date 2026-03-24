@@ -3,19 +3,17 @@
 完整测试所有 PPT 模板
 测试所有表、所有block、所有模板ID是否能正常工作
 """
+import os
+import sys
 import traceback
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from loguru import logger
 
 from core import ContextBuilder, resource_manager
 from core.data_provider import RealEstateDataProvider
 from engine import PPTGenerationEngine
-
-
-import sys
-import os
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 # 测试数据配置
 TEST_CONFIGS = [
@@ -47,6 +45,8 @@ ALL_TEMPLATES = [
     "T02_Area_Dist_Line",
     "T02_Price_Dist_Bar",
     "T02_Price_Dist_Line",
+    "T02_Double_Price_Dist_Line",
+    "T02_Double_Price_Dist_Bar",
     # ReSlide_04: New-House Market Capacity Analysis
     "T04_Annual_Supply_Demand_Bar",
     "T04_Annual_Supply_Demand_Line",

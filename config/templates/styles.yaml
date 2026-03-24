@@ -24,6 +24,18 @@ bar_configs:
     y_axis_visible: true
     grouping: "clustered"
 
+  # 商务蓝色风格（柱状图）
+  business_blue_solid:
+    style_name: "2_blue_lightblue"
+    font_name: "Arial"
+    font_size: 12
+    gap_width: 100
+    overlap: 0
+    has_legend: true
+    has_data_labels: false
+    y_axis_visible: true
+    grouping: "clustered"
+
 # 2. 折线图样式定义
 line_configs:
   # 原来的 Single Column Line 样式
