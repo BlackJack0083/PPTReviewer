@@ -11,6 +11,7 @@ from .react_agent import (
     coerce_structured_response_dict,
     extract_called_tools,
     extract_react_claim_and_evidence,
+    extract_react_edit_action,
     extract_final_ai_message_text,
     extract_react_output_json,
 )
@@ -25,6 +26,9 @@ Mode = Literal["no_tool", "with_tool", "with_tool_react"]
 class AgentResult:
     has_issue: bool
     mode: Mode
+    shape_id: str | None = None
+    updated_summary: str | None = None
+    execution_success: bool | None = None
     claim: dict[str, Any] | None = None
     evidence: dict[str, Any] | None = None
     tool_calls: list[str] = field(default_factory=list)
@@ -83,6 +87,7 @@ class PPTSummaryJudgeAgent:
         image_path: str | Path,
         mode: Mode,
         *,
+        yaml_path: str | Path | None = None,
         auto_render_image: bool = True,
         render_dpi: int = 200,
         render_backend: str = "auto",
@@ -97,10 +102,17 @@ class PPTSummaryJudgeAgent:
             render_backend=render_backend,
             poppler_path=poppler_path,
         )
+        resolved_yaml_path = self._resolve_yaml_path(resolved_image_path, yaml_path)
+        editable_shapes = self.tools.list_editable_textboxes(resolved_yaml_path)
 
         if mode == "no_tool":
             state = self._no_tool_graph.invoke(
-                {"image_path": resolved_image_path, "mode": "no_tool"},
+                {
+                    "image_path": resolved_image_path,
+                    "mode": "no_tool",
+                    "yaml_path": resolved_yaml_path,
+                    "editable_shapes": editable_shapes,
+                },
                 config=graph_config,
             )
             no_tool_raw = state.get("no_tool_raw", "")
@@ -118,13 +130,20 @@ class PPTSummaryJudgeAgent:
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="no_tool",
+                shape_id=state.get("shape_id"),
+                updated_summary=state.get("updated_summary"),
                 final=final_data,
                 debug={},
             )
 
         if mode == "with_tool":
             state = self._with_tool_graph.invoke(
-                {"image_path": resolved_image_path, "mode": "with_tool"},
+                {
+                    "image_path": resolved_image_path,
+                    "mode": "with_tool",
+                    "yaml_path": resolved_yaml_path,
+                    "editable_shapes": editable_shapes,
+                },
                 config=graph_config,
             )
             evidence = state.get("evidence")
@@ -158,6 +177,9 @@ class PPTSummaryJudgeAgent:
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="with_tool",
+                shape_id=state.get("shape_id"),
+                updated_summary=state.get("updated_summary"),
+                execution_success=state.get("execution_success"),
                 claim=state.get("parsed_claim"),
                 evidence=evidence_to_dict(evidence) if evidence else None,
                 tool_calls=list(state.get("tool_plan", [])),
@@ -168,10 +190,14 @@ class PPTSummaryJudgeAgent:
         if mode == "with_tool_react":
             react_graph_config = dict(graph_config or {})
             react_graph_config.setdefault("recursion_limit", self.react_recursion_limit)
-            state = self._with_tool_react_graph.invoke(
-                build_react_input_messages(resolved_image_path),
-                config=react_graph_config,
-            )
+            self.tools.set_runtime_yaml_path(resolved_yaml_path)
+            try:
+                state = self._with_tool_react_graph.invoke(
+                    build_react_input_messages(resolved_image_path),
+                    config=react_graph_config,
+                )
+            finally:
+                self.tools.clear_runtime_yaml_path()
             parsed = extract_react_output_json(state)
             final_text = extract_final_ai_message_text(state)
             structured = state.get("structured_response")
@@ -184,6 +210,7 @@ class PPTSummaryJudgeAgent:
                 if name in allowed_tool_names
             ]
             react_claim, react_evidence = extract_react_claim_and_evidence(state)
+            react_edit = extract_react_edit_action(state) or {}
             structured_json = (
                 coerce_structured_response_dict(structured)
                 if structured is not None
@@ -203,6 +230,9 @@ class PPTSummaryJudgeAgent:
             return AgentResult(
                 has_issue=bool(parsed.get("has_issue", False)),
                 mode="with_tool_react",
+                shape_id=str(react_edit.get("shape_id", "")).strip() or None,
+                updated_summary=str(react_edit.get("updated_summary", "")).strip() or None,
+                execution_success=react_edit.get("execution_success"),
                 claim=react_claim,
                 evidence=react_evidence,
                 tool_calls=called_tools,
@@ -211,3 +241,27 @@ class PPTSummaryJudgeAgent:
             )
 
         raise ValueError(f"Unknown mode: {mode}")
+
+    def _resolve_yaml_path(
+        self,
+        image_path: Path,
+        yaml_path: str | Path | None,
+    ) -> Path:
+        if yaml_path is not None:
+            resolved_yaml_path = Path(yaml_path).resolve()
+            if not resolved_yaml_path.exists():
+                raise FileNotFoundError(f"YAML file not found: {resolved_yaml_path}")
+            return resolved_yaml_path
+
+        sibling_slide_yaml = image_path.with_name("slide.yaml")
+        if sibling_slide_yaml.exists():
+            return sibling_slide_yaml.resolve()
+
+        same_stem_yaml = image_path.with_suffix(".yaml")
+        if same_stem_yaml.exists():
+            return same_stem_yaml.resolve()
+
+        raise FileNotFoundError(
+            f"Cannot infer yaml_path from image: {image_path}. "
+            "Pass yaml_path explicitly or place slide.yaml beside the image."
+        )

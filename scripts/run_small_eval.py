@@ -163,6 +163,7 @@ def run_mode_eval(
                 agent_result: AgentResult = agent.judge(  # type: ignore[arg-type]
                     image_path,
                     mode=mode,
+                    yaml_path=dataset_root / row["target_yaml"],
                     auto_render_image=auto_render_images,
                     render_dpi=render_dpi,
                     render_backend=render_backend,

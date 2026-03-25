@@ -1,4 +1,5 @@
 import re
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -44,6 +45,10 @@ def _normalize_identifier(text: str) -> str:
     return _NON_ALNUM_PATTERN.sub("", str(text).strip().lower())
 
 
+def _default_text_edit_yaml_path(yaml_path: Path) -> Path:
+    return yaml_path.with_name(f"{yaml_path.stem}-text_edited.yaml")
+
+
 @dataclass
 class ToolEvidence:
     template_id: str
@@ -59,6 +64,13 @@ class ToolEvidence:
     expected_summary_slots: dict[str, str]
 
 
+@dataclass
+class EditAction:
+    shape_id: str | None
+    updated_summary: str | None
+    execution_success: bool | None = None
+
+
 class LocalDataTools:
     """本地低级工具（DB查询+统计），后续可替换为 MCP 实现。"""
 
@@ -71,6 +83,7 @@ class LocalDataTools:
         self._canonical_template_ids = sorted(self.resource_manager.all_templates.keys())
         self._canonical_to_exposed = self._build_canonical_to_exposed_map()  # 载入别名
         self._alias_to_canonical = self._build_alias_to_canonical_map()
+        self._runtime_context = threading.local()
 
     def list_template_ids(self) -> list[str]:
         """返回给 agent 的模板 ID 列表（优先使用用户定义 alias）。"""
@@ -139,7 +152,24 @@ class LocalDataTools:
                 "name": "build_expected_summary",
                 "args": ["template_id", "city", "block", "start_year", "end_year", "conclusion_vars"],
             },
+            {"name": "list_editable_textboxes", "args": []},
+            {"name": "apply_textbox_edit", "args": ["shape_id", "new_text"]},
         ]
+
+    def set_runtime_yaml_path(self, yaml_path: str | Path) -> None:
+        self._runtime_context.yaml_path = str(Path(yaml_path))
+
+    def clear_runtime_yaml_path(self) -> None:
+        if hasattr(self._runtime_context, "yaml_path"):
+            del self._runtime_context.yaml_path
+
+    def _resolve_runtime_yaml_path(self, yaml_path: str | Path | None) -> Path:
+        if yaml_path is not None:
+            return Path(yaml_path)
+        runtime_yaml_path = getattr(self._runtime_context, "yaml_path", None)
+        if runtime_yaml_path:
+            return Path(runtime_yaml_path)
+        raise ValueError("Missing yaml_path for text edit operation.")
 
     def resolve_plan(self, template_id: str) -> dict[str, Any]:
         """根据 template_id 生成数据查询与文本渲染计划。"""
@@ -186,7 +216,7 @@ class LocalDataTools:
             block=block,
             start_year=start_year,
             end_year=end_year,
-            table_name=_normalize_table_name(table_name),
+            table_name=table_name,
         )
         _df, conclusion_vars, _config = provider.execute_by_function_key(
             function_key, **function_args
@@ -304,6 +334,80 @@ class LocalDataTools:
             expected_summary=expected_summary,
             expected_summary_slots=summary_slots,
         )
+
+    def list_editable_textboxes(
+        self,
+        yaml_path: str | Path | None = None,
+    ) -> list[dict[str, str]]:
+        """
+        列出 YAML 中当前页可编辑的 textBox。
+
+        供 runtime 在调用 agent 前组织上下文时使用。
+        """
+        from engine.summary_injector import SummaryInjector
+
+        resolved_yaml_path = self._resolve_runtime_yaml_path(yaml_path)
+        data = SummaryInjector.load_yaml(resolved_yaml_path)
+        elements = data.get("template_slide", {}).get("elements", [])
+        editable_shapes: list[dict[str, str]] = []
+
+        for elem in elements:
+            if elem.get("type") != "textBox":
+                continue
+            editable_shapes.append(
+                {
+                    "shape_id": str(elem.get("id", "")).strip(),
+                    "role": str(elem.get("role", "")).strip(),
+                    "text": str(elem.get("text", "")),
+                }
+            )
+
+        return [shape for shape in editable_shapes if shape["shape_id"]]
+
+    def apply_textbox_edit(
+        self,
+        shape_id: str,
+        new_text: str,
+        yaml_path: str | Path | None = None,
+        output_yaml_path: str | Path | None = None,
+        output_ppt_path: str | Path | None = None,
+    ) -> bool:
+        """
+        修改单个 textBox 的文本，并基于更新后的 YAML 重新渲染 PPT。
+
+        说明：
+        - `yaml_path` 由 workflow/runtime 持有并隐式注入。
+        - agent 只需要关心 `shape_id` 和 `new_text`。
+        """
+        from engine.summary_injector import SummaryInjector
+        from engine.yaml_importer import rebuild_ppt_from_yaml
+
+        yaml_path = self._resolve_runtime_yaml_path(yaml_path)
+        output_yaml = Path(output_yaml_path) if output_yaml_path else _default_text_edit_yaml_path(yaml_path)
+        output_ppt = Path(output_ppt_path) if output_ppt_path else output_yaml.with_suffix(".pptx")
+
+        data = SummaryInjector.load_yaml(yaml_path)
+        elements = data.get("template_slide", {}).get("elements", [])
+        target_shape_id = str(shape_id).strip()
+        updated = False
+
+        for elem in elements:
+            if elem.get("type") != "textBox":
+                continue
+            if str(elem.get("id", "")).strip() != target_shape_id:
+                continue
+            elem["text"] = str(new_text)
+            updated = True
+            break
+
+        if not updated:
+            raise ValueError(f"TextBox shape_id not found: {target_shape_id}")
+
+        output_yaml.parent.mkdir(parents=True, exist_ok=True)
+        output_ppt.parent.mkdir(parents=True, exist_ok=True)
+        SummaryInjector.save_yaml(data, output_yaml)
+        rebuild_ppt_from_yaml(str(output_yaml), str(output_ppt))
+        return True
 
 
 def image_path_from_yaml_path(dataset_root: Path, yaml_rel_path: str) -> Path:

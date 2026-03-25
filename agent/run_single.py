@@ -40,6 +40,11 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run PPT summary judge on one image")
     parser.add_argument("--image", required=True, help="Path to slide image (.png/.jpg)")
     parser.add_argument(
+        "--yaml",
+        default=None,
+        help="Optional path to slide YAML; inferred from image directory when omitted",
+    )
+    parser.add_argument(
         "--mode",
         choices=["no_tool", "with_tool", "with_tool_react"],
         default="with_tool",
@@ -118,6 +123,7 @@ def main() -> None:
     result = agent.judge(
         image_path,
         mode=args.mode,
+        yaml_path=args.yaml,
         auto_render_image=not args.no_auto_render_image,
         render_dpi=args.render_dpi,
         render_backend=args.render_backend,

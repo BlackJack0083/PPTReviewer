@@ -57,8 +57,8 @@ def build_react_agent_graph(
         extra_body=extra_body,
     )
     system_prompt = (
-        "You are a strict PPT summary verifier with tool access.\n"
-        "Task: determine whether the slide summary has factual issues.\n"
+        "You are a strict PPT summary corrector with tool access.\n"
+        "Task: determine whether the slide summary has factual issues and, if needed, edit the correct textbox.\n"
         f"Allowed template_id candidates: {template_candidates}\n"
         f"Allowed table_name candidates: {table_candidates}\n\n"
         
@@ -68,7 +68,9 @@ def build_react_agent_graph(
         "- Do NOT output plain-text JSON in the final step.\n"
         "- Do not output explanations in the final answer.\n"
         "- If a tool call fails, retry with corrected arguments, but keep retries bounded (at most 2 retries per failed step).\n"
-        "- If some tool step still fails after bounded retries, make the best judgment from available evidence and still finish with ReactJudgeOutput.\n\n"
+        "- If some tool step still fails after bounded retries, make the best judgment from available evidence and still finish with ReactJudgeOutput.\n"
+        "- If has_issue=true, you MUST call list_editable_textboxes() and then apply_textbox_edit(shape_id=..., new_text=...).\n"
+        "- If has_issue=false, do NOT call apply_textbox_edit.\n\n"
         
         "Required extraction fields from image:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
@@ -82,7 +84,9 @@ def build_react_agent_graph(
         "Required tool:\n"
         "1) resolve_plan(template_id) -> get function_key and function_args\n"
         "2) query_conclusion_vars(city, block, start_year, end_year, table_name, function_key, function_args)\n"
-        "3) build_expected_summary(template_id, city, block, start_year, end_year, conclusion_vars)\n\n"
+        "3) build_expected_summary(template_id, city, block, start_year, end_year, conclusion_vars)\n"
+        "4) list_editable_textboxes() -> get editable textbox candidates\n"
+        "5) apply_textbox_edit(shape_id, new_text) -> execute the final correction\n\n"
         
         "Tool-call constraints:\n"
         "- query_conclusion_vars.function_key must exactly equal resolve_plan.function_key.\n"
@@ -105,7 +109,7 @@ def build_react_agent_graph(
         
         "Judgment criterion:\n"
         "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
-        "- If any key factual mismatch exists, call ReactJudgeOutput(has_issue=true).\n"
+        "- If any key factual mismatch exists, choose the most appropriate textbox from list_editable_textboxes(), call apply_textbox_edit with the corrected final text, then call ReactJudgeOutput(has_issue=true).\n"
         "- Otherwise call ReactJudgeOutput(has_issue=false)."
     )
     return create_agent(
@@ -220,10 +224,33 @@ def build_react_tools(tools):
             conclusion_vars={str(k): str(v) for k, v in conclusion_vars.items()},
         )
 
+    @tool
+    def list_editable_textboxes() -> list[dict[str, str]]:
+        """
+        List editable textbox candidates for the current slide.
+
+        Returns:
+        - list of {shape_id, role, text}
+        """
+        return tools.list_editable_textboxes()
+
+    @tool
+    def apply_textbox_edit(shape_id: str, new_text: str) -> bool:
+        """
+        Apply one textbox edit to the current slide and rebuild the PPT.
+
+        Inputs:
+        - shape_id: one textbox id returned by list_editable_textboxes
+        - new_text: corrected final text
+        """
+        return tools.apply_textbox_edit(shape_id=shape_id, new_text=new_text)
+
     return [
         resolve_plan,
         query_conclusion_vars,
         build_expected_summary,
+        list_editable_textboxes,
+        apply_textbox_edit,
     ]
 
 
@@ -349,6 +376,20 @@ def extract_react_claim_and_evidence(
     return claim, evidence
 
 
+def extract_react_edit_action(state: dict[str, Any]) -> dict[str, Any] | None:
+    trace = _build_tool_trace(state.get("messages", []))
+    for item in reversed(trace):
+        if item.get("name") != "apply_textbox_edit":
+            continue
+        args = item.get("args", {})
+        return {
+            "shape_id": args.get("shape_id"),
+            "updated_summary": args.get("new_text"),
+            "execution_success": item.get("status") != "error",
+        }
+    return None
+
+
 def _to_dict(value: Any) -> dict[str, Any]:
     if isinstance(value, dict):
         return value
@@ -415,7 +456,7 @@ def _build_tool_trace(messages: list[Any]) -> list[dict[str, Any]]:
             name, args, call_id = _read_tool_call_parts(call)
             if not name:
                 continue
-            item = {"name": name, "args": _to_dict(args), "result": {}}
+            item = {"name": name, "args": _to_dict(args), "result": {}, "status": None}
             trace.append(item)
             if call_id:
                 call_by_id[call_id] = item
@@ -426,4 +467,5 @@ def _build_tool_trace(messages: list[Any]) -> list[dict[str, Any]]:
         call_id = getattr(msg, "tool_call_id", None)
         if isinstance(call_id, str) and call_id in call_by_id:
             call_by_id[call_id]["result"] = _to_dict(getattr(msg, "content", None))
+            call_by_id[call_id]["status"] = getattr(msg, "status", None)
     return trace
