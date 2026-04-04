@@ -77,6 +77,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Optional run name for LangSmith tracing",
     )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="Optional run id for edited output filenames",
+    )
     return parser.parse_args()
 
 
@@ -123,6 +128,7 @@ def main() -> None:
     result = agent.judge(
         image_path,
         mode=args.mode,
+        run_id=args.run_id or run_name,
         yaml_path=args.yaml,
         auto_render_image=not args.no_auto_render_image,
         render_dpi=args.render_dpi,

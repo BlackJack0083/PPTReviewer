@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
 
@@ -12,6 +13,7 @@ from .react_agent import (
     extract_called_tools,
     extract_react_claim_and_evidence,
     extract_react_edit_action,
+    extract_react_protocol_info,
     extract_final_ai_message_text,
     extract_react_output_json,
 )
@@ -26,9 +28,12 @@ Mode = Literal["no_tool", "with_tool", "with_tool_react"]
 class AgentResult:
     has_issue: bool
     mode: Mode
+    run_id: str | None = None
     shape_id: str | None = None
     updated_summary: str | None = None
     execution_success: bool | None = None
+    edit_attempted: bool = False
+    protocol_violations: list[str] = field(default_factory=list)
     claim: dict[str, Any] | None = None
     evidence: dict[str, Any] | None = None
     tool_calls: list[str] = field(default_factory=list)
@@ -45,7 +50,7 @@ class PPTSummaryJudgeAgent:
         template_candidates: list[str] | None = None,
         table_candidates: list[str] | None = None,
         enable_thinking: bool | None = False,
-        react_recursion_limit: int = 10,
+        react_recursion_limit: int = 15,
     ):
         self.client = Client(
             model=model,
@@ -87,6 +92,7 @@ class PPTSummaryJudgeAgent:
         image_path: str | Path,
         mode: Mode,
         *,
+        run_id: str | None = None,
         yaml_path: str | Path | None = None,
         auto_render_image: bool = True,
         render_dpi: int = 200,
@@ -95,6 +101,7 @@ class PPTSummaryJudgeAgent:
         graph_config: dict[str, Any] | None = None,
         include_debug: bool = False,
     ) -> AgentResult:
+        effective_run_id = run_id or self._default_run_id(mode)
         resolved_image_path = ensure_image_exists(
             Path(image_path),
             auto_render_image=auto_render_image,
@@ -110,6 +117,7 @@ class PPTSummaryJudgeAgent:
                 {
                     "image_path": resolved_image_path,
                     "mode": "no_tool",
+                    "run_id": effective_run_id,
                     "yaml_path": resolved_yaml_path,
                     "editable_shapes": editable_shapes,
                 },
@@ -130,8 +138,10 @@ class PPTSummaryJudgeAgent:
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="no_tool",
+                run_id=effective_run_id,
                 shape_id=state.get("shape_id"),
                 updated_summary=state.get("updated_summary"),
+                edit_attempted=False,
                 final=final_data,
                 debug={},
             )
@@ -141,6 +151,7 @@ class PPTSummaryJudgeAgent:
                 {
                     "image_path": resolved_image_path,
                     "mode": "with_tool",
+                    "run_id": effective_run_id,
                     "yaml_path": resolved_yaml_path,
                     "editable_shapes": editable_shapes,
                 },
@@ -177,12 +188,14 @@ class PPTSummaryJudgeAgent:
             return AgentResult(
                 has_issue=bool(state.get("has_issue", False)),
                 mode="with_tool",
+                run_id=effective_run_id,
                 shape_id=state.get("shape_id"),
                 updated_summary=state.get("updated_summary"),
                 execution_success=state.get("execution_success"),
+                edit_attempted=bool(state.get("edit_attempted", False)),
                 claim=state.get("parsed_claim"),
                 evidence=evidence_to_dict(evidence) if evidence else None,
-                tool_calls=list(state.get("tool_plan", [])),
+                tool_calls=list(state.get("tool_calls", [])),
                 final=final_data,
                 debug=debug_data,
             )
@@ -191,6 +204,7 @@ class PPTSummaryJudgeAgent:
             react_graph_config = dict(graph_config or {})
             react_graph_config.setdefault("recursion_limit", self.react_recursion_limit)
             self.tools.set_runtime_yaml_path(resolved_yaml_path)
+            self.tools.set_runtime_run_id(effective_run_id)
             try:
                 state = self._with_tool_react_graph.invoke(
                     build_react_input_messages(resolved_image_path),
@@ -198,6 +212,7 @@ class PPTSummaryJudgeAgent:
                 )
             finally:
                 self.tools.clear_runtime_yaml_path()
+                self.tools.clear_runtime_run_id()
             parsed = extract_react_output_json(state)
             final_text = extract_final_ai_message_text(state)
             structured = state.get("structured_response")
@@ -211,6 +226,11 @@ class PPTSummaryJudgeAgent:
             ]
             react_claim, react_evidence = extract_react_claim_and_evidence(state)
             react_edit = extract_react_edit_action(state) or {}
+            final_has_issue = bool(parsed.get("has_issue", False))
+            react_protocol = extract_react_protocol_info(
+                state,
+                final_has_issue=final_has_issue,
+            )
             structured_json = (
                 coerce_structured_response_dict(structured)
                 if structured is not None
@@ -226,13 +246,25 @@ class PPTSummaryJudgeAgent:
                 debug_data = {
                     "tool_defs": self.tools.available_tools(),
                     "message_count": len(state.get("messages", [])),
+                    "react_protocol": react_protocol,
                 }
             return AgentResult(
-                has_issue=bool(parsed.get("has_issue", False)),
+                has_issue=final_has_issue,
                 mode="with_tool_react",
+                run_id=effective_run_id,
                 shape_id=str(react_edit.get("shape_id", "")).strip() or None,
                 updated_summary=str(react_edit.get("updated_summary", "")).strip() or None,
-                execution_success=react_edit.get("execution_success"),
+                execution_success=(
+                    False
+                    if react_protocol["protocol_violation"]
+                    else (
+                        react_edit.get("execution_success")
+                        if react_edit
+                        else (False if final_has_issue else None)
+                    )
+                ),
+                edit_attempted=bool(react_protocol["edit_attempted"]),
+                protocol_violations=list(react_protocol["protocol_violations"]),
                 claim=react_claim,
                 evidence=react_evidence,
                 tool_calls=called_tools,
@@ -241,6 +273,10 @@ class PPTSummaryJudgeAgent:
             )
 
         raise ValueError(f"Unknown mode: {mode}")
+
+    def _default_run_id(self, mode: Mode) -> str:
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        return f"{mode}-{timestamp}"
 
     def _resolve_yaml_path(
         self,

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import random
+import re
 import sys
 import threading
 import time
@@ -20,6 +21,7 @@ except ImportError:  # pragma: no cover - non-posix fallback
 from dotenv import load_dotenv
 from loguru import logger
 from tqdm.auto import tqdm
+import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -71,6 +73,55 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
         f.write(line)
 
 
+_MARKDOWN_EMPHASIS_PATTERN = re.compile(r"\*\*")
+_WHITESPACE_PATTERN = re.compile(r"\s+")
+
+
+def normalize_summary_text(text: str | None) -> str:
+    if text is None:
+        return ""
+    normalized = _MARKDOWN_EMPHASIS_PATTERN.sub("", str(text))
+    normalized = _WHITESPACE_PATTERN.sub(" ", normalized)
+    return normalized.strip()
+
+
+def load_yaml(path: Path) -> dict[str, Any]:
+    with open(path, encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    return data if isinstance(data, dict) else {}
+
+
+def extract_textbox_map(data: dict[str, Any]) -> dict[str, str]:
+    elements = data.get("template_slide", {}).get("elements", [])
+    textbox_map: dict[str, str] = {}
+    for elem in elements:
+        if not isinstance(elem, dict) or elem.get("type") != "textBox":
+            continue
+        shape_id = str(elem.get("id", "")).strip()
+        if not shape_id:
+            continue
+        textbox_map[shape_id] = str(elem.get("text", ""))
+    return textbox_map
+
+
+def resolve_gold_text_edit(
+    dataset_root: Path,
+    source_yaml_rel: str,
+    target_yaml_rel: str,
+) -> tuple[str | None, str | None]:
+    source_map = extract_textbox_map(load_yaml(dataset_root / source_yaml_rel))
+    target_map = extract_textbox_map(load_yaml(dataset_root / target_yaml_rel))
+    changed_shape_ids = [
+        shape_id
+        for shape_id, source_text in source_map.items()
+        if target_map.get(shape_id) != source_text
+    ]
+    if len(changed_shape_ids) != 1:
+        return None, None
+    gold_shape_id = changed_shape_ids[0]
+    return gold_shape_id, source_map.get(gold_shape_id)
+
+
 def to_gt_case(dataset_root: Path, sample_row: dict[str, Any]) -> dict[str, Any]:
     gt_yaml = dataset_root / sample_row["gt_yaml"]
     gt_yaml_rel = sample_row["gt_yaml"]
@@ -86,6 +137,8 @@ def to_gt_case(dataset_root: Path, sample_row: dict[str, Any]) -> dict[str, Any]
         "target_yaml": gt_yaml_rel,
         "target_ppt": gt_ppt_rel,
         "target_image": target_image_rel,
+        "gold_shape_id": None,
+        "gold_updated_summary": None,
     }
 
 
@@ -94,6 +147,11 @@ def to_injected_case(dataset_root: Path, inj_row: dict[str, Any]) -> dict[str, A
     output_yaml_rel = inj_row["output_yaml"]
     output_ppt_rel = inj_row.get("output_ppt", str(Path(output_yaml_rel).with_name("slide.pptx")))
     target_image_rel = str(Path(output_yaml_rel).with_name("slide.png"))
+    gold_shape_id, gold_updated_summary = resolve_gold_text_edit(
+        dataset_root,
+        inj_row["source_yaml"],
+        output_yaml_rel,
+    )
     return {
         "case_id": f"inj-{inj_row['injection_id']}",
         "kind": "injected",
@@ -105,13 +163,22 @@ def to_injected_case(dataset_root: Path, inj_row: dict[str, Any]) -> dict[str, A
         "target_yaml": output_yaml_rel,
         "target_ppt": output_ppt_rel,
         "target_image": target_image_rel,
+        "gold_shape_id": gold_shape_id,
+        "gold_updated_summary": gold_updated_summary,
     }
 
 
 def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     valid = [r for r in rows if r.get("pred_has_issue") is not None]
     if not valid:
-        return {"accuracy": 0.0, "precision": 0.0, "recall": 0.0, "f1": 0.0}
+        return {
+            "accuracy": 0.0,
+            "precision": 0.0,
+            "recall": 0.0,
+            "f1": 0.0,
+            "shape_selection_accuracy": 0.0,
+            "final_success_rate": 0.0,
+        }
 
     tp = sum(1 for r in valid if r["expected_has_issue"] and r["pred_has_issue"])
     tn = sum(1 for r in valid if (not r["expected_has_issue"]) and (not r["pred_has_issue"]))
@@ -122,16 +189,41 @@ def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+
+    injected = [
+        r
+        for r in valid
+        if r.get("kind") == "injected"
+        and r.get("gold_shape_id") is not None
+        and r.get("gold_updated_summary") is not None
+    ]
+    shape_hits = sum(
+        1 for r in injected if r.get("pred_shape_id") == r.get("gold_shape_id")
+    )
+    final_hits = sum(
+        1
+        for r in injected
+        if r.get("pred_shape_id") == r.get("gold_shape_id")
+        and normalize_summary_text(r.get("pred_updated_summary"))
+        == normalize_summary_text(r.get("gold_updated_summary"))
+    )
+    shape_selection_accuracy = shape_hits / len(injected) if injected else 0.0
+    final_success_rate = final_hits / len(injected) if injected else 0.0
+
     return {
         "accuracy": round(accuracy, 4),
         "precision": round(precision, 4),
         "recall": round(recall, 4),
         "f1": round(f1, 4),
+        "shape_selection_accuracy": round(shape_selection_accuracy, 4),
+        "final_success_rate": round(final_success_rate, 4),
     }
 
 
 def run_mode_eval(
     agent_factory: Callable[[], PPTSummaryJudgeAgent],
+    dataset_root: Path,
+    run_id: str,
     mode: str,
     cases: list[dict[str, Any]],
     auto_render_images: bool,
@@ -163,6 +255,7 @@ def run_mode_eval(
                 agent_result: AgentResult = agent.judge(  # type: ignore[arg-type]
                     image_path,
                     mode=mode,
+                    run_id=f"{run_id}-{mode}-{row['case_id']}",
                     yaml_path=dataset_root / row["target_yaml"],
                     auto_render_image=auto_render_images,
                     render_dpi=render_dpi,
@@ -170,11 +263,38 @@ def run_mode_eval(
                     poppler_path=poppler_path,
                 )
                 row["pred_has_issue"] = bool(agent_result.has_issue)
+                row["pred_shape_id"] = agent_result.shape_id
+                row["pred_updated_summary"] = agent_result.updated_summary
+                row["execution_success"] = agent_result.execution_success
+                row["edit_attempted"] = agent_result.edit_attempted
+                row["protocol_violations"] = list(agent_result.protocol_violations)
+                row["tool_call_count"] = len(agent_result.tool_calls)
+                row["shape_selection_correct"] = (
+                    row.get("pred_shape_id") == row.get("gold_shape_id")
+                    if row.get("gold_shape_id") is not None
+                    else None
+                )
+                row["final_success"] = (
+                    row.get("pred_shape_id") == row.get("gold_shape_id")
+                    and normalize_summary_text(row.get("pred_updated_summary"))
+                    == normalize_summary_text(row.get("gold_updated_summary"))
+                    if row.get("gold_shape_id") is not None
+                    and row.get("gold_updated_summary") is not None
+                    else None
+                )
                 row["ok"] = row["pred_has_issue"] == row["expected_has_issue"]
                 row["agent_result"] = asdict(agent_result)
                 return idx, row
             except Exception as exc:  # noqa: BLE001
                 row["pred_has_issue"] = None
+                row["pred_shape_id"] = None
+                row["pred_updated_summary"] = None
+                row["execution_success"] = None
+                row["edit_attempted"] = False
+                row["protocol_violations"] = []
+                row["tool_call_count"] = 0
+                row["shape_selection_correct"] = None
+                row["final_success"] = None
                 row["ok"] = False
                 row["error"] = str(exc)
                 last_row = row
@@ -263,6 +383,16 @@ def write_sample_eval_records(
             "target_ppt": row.get("target_ppt", ""),
             "expected_has_issue": row.get("expected_has_issue"),
             "pred_has_issue": row.get("pred_has_issue"),
+            "gold_shape_id": row.get("gold_shape_id"),
+            "pred_shape_id": row.get("pred_shape_id"),
+            "gold_updated_summary": row.get("gold_updated_summary"),
+            "pred_updated_summary": row.get("pred_updated_summary"),
+            "shape_selection_correct": row.get("shape_selection_correct"),
+            "final_success": row.get("final_success"),
+            "execution_success": row.get("execution_success"),
+            "edit_attempted": row.get("edit_attempted"),
+            "protocol_violations": row.get("protocol_violations", []),
+            "tool_call_count": row.get("tool_call_count"),
             "ok": row.get("ok"),
             "error": row.get("error", ""),
             "agent_result": row.get("agent_result"),
@@ -291,6 +421,14 @@ def build_case_manifest_records(
                 "target_ppt": row.get("target_ppt", ""),
                 "expected_has_issue": row.get("expected_has_issue"),
                 "pred_has_issue": row.get("pred_has_issue"),
+                "gold_shape_id": row.get("gold_shape_id"),
+                "pred_shape_id": row.get("pred_shape_id"),
+                "gold_updated_summary": row.get("gold_updated_summary"),
+                "final_success": row.get("final_success"),
+                "execution_success": row.get("execution_success"),
+                "edit_attempted": row.get("edit_attempted"),
+                "protocol_violations": row.get("protocol_violations", []),
+                "tool_call_count": row.get("tool_call_count"),
                 "ok": row.get("ok"),
                 "error": row.get("error", ""),
                 "report_path": str(report_path),
@@ -466,6 +604,8 @@ def main() -> None:
         logger.info(f"=== Running mode: {mode} ===")
         mode_result = run_mode_eval(
             agent_factory=make_agent,
+            dataset_root=dataset_root,
+            run_id=run_id,
             mode=mode,
             cases=cases,
             auto_render_images=args.auto_render_images,

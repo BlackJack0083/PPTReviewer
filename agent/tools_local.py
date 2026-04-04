@@ -1,6 +1,6 @@
 import re
-import threading
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -45,8 +45,18 @@ def _normalize_identifier(text: str) -> str:
     return _NON_ALNUM_PATTERN.sub("", str(text).strip().lower())
 
 
-def _default_text_edit_yaml_path(yaml_path: Path) -> Path:
-    return yaml_path.with_name(f"{yaml_path.stem}-text_edited.yaml")
+def _sanitize_run_id(run_id: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "_", str(run_id).strip())
+    return sanitized.strip("._-") or "run"
+
+
+def _fallback_run_id() -> str:
+    return datetime.now(timezone.utc).strftime("adhoc-%Y%m%dT%H%M%S%fZ")
+
+
+def _default_text_edit_yaml_path(yaml_path: Path, run_id: str | None = None) -> Path:
+    resolved_run_id = _sanitize_run_id(run_id) if run_id else _fallback_run_id()
+    return yaml_path.with_name(f"{yaml_path.stem}-text_edited-{resolved_run_id}.yaml")
 
 
 @dataclass
@@ -83,7 +93,8 @@ class LocalDataTools:
         self._canonical_template_ids = sorted(self.resource_manager.all_templates.keys())
         self._canonical_to_exposed = self._build_canonical_to_exposed_map()  # 载入别名
         self._alias_to_canonical = self._build_alias_to_canonical_map()
-        self._runtime_context = threading.local()
+        self._runtime_yaml_path: str | None = None
+        self._runtime_run_id: str | None = None
 
     def list_template_ids(self) -> list[str]:
         """返回给 agent 的模板 ID 列表（优先使用用户定义 alias）。"""
@@ -157,19 +168,32 @@ class LocalDataTools:
         ]
 
     def set_runtime_yaml_path(self, yaml_path: str | Path) -> None:
-        self._runtime_context.yaml_path = str(Path(yaml_path))
+        self._runtime_yaml_path = str(Path(yaml_path))
 
     def clear_runtime_yaml_path(self) -> None:
-        if hasattr(self._runtime_context, "yaml_path"):
-            del self._runtime_context.yaml_path
+        self._runtime_yaml_path = None
+
+    def set_runtime_run_id(self, run_id: str) -> None:
+        self._runtime_run_id = str(run_id)
+
+    def clear_runtime_run_id(self) -> None:
+        self._runtime_run_id = None
 
     def _resolve_runtime_yaml_path(self, yaml_path: str | Path | None) -> Path:
         if yaml_path is not None:
             return Path(yaml_path)
-        runtime_yaml_path = getattr(self._runtime_context, "yaml_path", None)
+        runtime_yaml_path = self._runtime_yaml_path
         if runtime_yaml_path:
             return Path(runtime_yaml_path)
         raise ValueError("Missing yaml_path for text edit operation.")
+
+    def _resolve_runtime_run_id(self, run_id: str | None) -> str:
+        if run_id is not None:
+            return str(run_id)
+        runtime_run_id = self._runtime_run_id
+        if runtime_run_id:
+            return str(runtime_run_id)
+        return _fallback_run_id()
 
     def resolve_plan(self, template_id: str) -> dict[str, Any]:
         """根据 template_id 生成数据查询与文本渲染计划。"""
@@ -369,6 +393,7 @@ class LocalDataTools:
         shape_id: str,
         new_text: str,
         yaml_path: str | Path | None = None,
+        run_id: str | None = None,
         output_yaml_path: str | Path | None = None,
         output_ppt_path: str | Path | None = None,
     ) -> bool:
@@ -383,7 +408,12 @@ class LocalDataTools:
         from engine.yaml_importer import rebuild_ppt_from_yaml
 
         yaml_path = self._resolve_runtime_yaml_path(yaml_path)
-        output_yaml = Path(output_yaml_path) if output_yaml_path else _default_text_edit_yaml_path(yaml_path)
+        resolved_run_id = self._resolve_runtime_run_id(run_id)
+        output_yaml = (
+            Path(output_yaml_path)
+            if output_yaml_path
+            else _default_text_edit_yaml_path(yaml_path, resolved_run_id)
+        )
         output_ppt = Path(output_ppt_path) if output_ppt_path else output_yaml.with_suffix(".pptx")
 
         data = SummaryInjector.load_yaml(yaml_path)

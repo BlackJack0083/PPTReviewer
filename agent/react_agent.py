@@ -37,6 +37,7 @@ class ToolRetryMiddleware(AgentMiddleware):
                 content=f"Tool execution failed: {error_text}",
             )
 
+
 def build_react_agent_graph(
     *,
     model_name: str,
@@ -61,56 +62,61 @@ def build_react_agent_graph(
         "Task: determine whether the slide summary has factual issues and, if needed, edit the correct textbox.\n"
         f"Allowed template_id candidates: {template_candidates}\n"
         f"Allowed table_name candidates: {table_candidates}\n\n"
-        
-        "Hard rules:\n"
+
+        "Operating rules:\n"
         "- You MUST use tools before final judgment. Do not decide only by visual impression.\n"
         "- Final answer MUST be one structured output tool call: ReactJudgeOutput(has_issue=...).\n"
         "- Do NOT output plain-text JSON in the final step.\n"
         "- Do not output explanations in the final answer.\n"
         "- If a tool call fails, retry with corrected arguments, but keep retries bounded (at most 2 retries per failed step).\n"
         "- If some tool step still fails after bounded retries, make the best judgment from available evidence and still finish with ReactJudgeOutput.\n"
-        "- If has_issue=true, you MUST call list_editable_textboxes() and then apply_textbox_edit(shape_id=..., new_text=...).\n"
-        "- If has_issue=false, do NOT call apply_textbox_edit.\n\n"
-        
+        "- If the input slide is factually correct, finish with ReactJudgeOutput(has_issue=false) and do not edit anything.\n"
+        "- If the input slide has a factual mismatch, you MUST complete one final textbox edit before finishing.\n"
+        "- When has_issue=true, you MUST first build the expected summary, then inspect editable textboxes, then call apply_textbox_edit(shape_id=..., new_text=...), and only then finish with ReactJudgeOutput(has_issue=true).\n"
+        "- apply_textbox_edit(shape_id=..., new_text=...) is the final execution action. Use it only after you are already confident the input slide has an issue and you know the corrected text.\n"
+        "- After apply_textbox_edit, immediately finish with ReactJudgeOutput(has_issue=true).\n"
+        "- Do NOT call apply_textbox_edit more than once.\n"
+        "- Do NOT call any more business tools after apply_textbox_edit.\n\n"
+
         "Required extraction fields from image:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
         "- template_id and table_name must be selected from candidate lists.\n\n"
-        "- template_id must be copied exactly from the candidate list (use alias names when provided).\n\n"
-        
+         "- template_id must be copied exactly from the candidate list.\n\n"
+
         "Block normalization rule:\n"
         "- block must be pure block name only (e.g., \"Baolong Technology Park\").\n"
         "- Do NOT output \"Shenzhen Baolong Technology Park\" when city is already Shenzhen.\n\n"
-        
+
         "Required tool:\n"
         "1) resolve_plan(template_id) -> get function_key and function_args\n"
         "2) query_conclusion_vars(city, block, start_year, end_year, table_name, function_key, function_args)\n"
         "3) build_expected_summary(template_id, city, block, start_year, end_year, conclusion_vars)\n"
         "4) list_editable_textboxes() -> get editable textbox candidates\n"
         "5) apply_textbox_edit(shape_id, new_text) -> execute the final correction\n\n"
-        
+
         "Tool-call constraints:\n"
         "- query_conclusion_vars.function_key must exactly equal resolve_plan.function_key.\n"
         "- query_conclusion_vars.function_args must come from resolve_plan.function_args.\n"
         "- Never invent function_key such as \"get_stats\".\n\n"
-        
+
         "Example tool sequence A:\n"
         "- extracted: template_id=New-House Supply_Transaction Area Analysis Line Chart, city=Shenzhen, block=Baolong Technology Park\n"
         "- call resolve_plan(\"New-House Supply_Transaction Area Analysis Line Chart\")\n"
         "- receive function_key=\"Supply-Transaction Area\", function_args={}\n"
         "- call query_conclusion_vars(..., function_key=\"Supply-Transaction Area\", function_args={})\n"
         "- call build_expected_summary(...)\n\n"
-        
+
         "Example tool sequence B:\n"
         "- extracted: template_id=New-House Cross-Structure Area Analysis Bar Chart, city=Beijing, block=Mapo\n"
         "- call resolve_plan(\"New-House Cross-Structure Area Analysis Bar Chart\")\n"
         "- receive function_key=\"Area Segment Distribution\", function_args={\"area_range_size\": 20}\n"
         "- call query_conclusion_vars(..., function_key=\"Area Segment Distribution\", function_args={\"area_range_size\": 20})\n"
         "- call build_expected_summary(...)\n\n"
-        
+
         "Judgment criterion:\n"
         "- Compare summary_text from image against tool-derived expected_summary and expected_summary_slots.\n"
-        "- If any key factual mismatch exists, choose the most appropriate textbox from list_editable_textboxes(), call apply_textbox_edit with the corrected final text, then call ReactJudgeOutput(has_issue=true).\n"
-        "- Otherwise call ReactJudgeOutput(has_issue=false)."
+        "- If any key factual mismatch exists, the input slide should be judged as has_issue=true.\n"
+        "- Otherwise the input slide should be judged as has_issue=false."
     )
     return create_agent(
         model=model,
@@ -128,6 +134,9 @@ def build_react_input_messages(image_path: Path) -> dict[str, Any]:
     user_prompt = (
         "Analyze this slide image and determine whether the summary has factual issue.\n"
         "You must use tools for evidence before final judgment.\n"
+        "Decide autonomously which tools to use, but follow the completion rules strictly.\n"
+        "If the slide is correct, finish with ReactJudgeOutput(has_issue=false).\n"
+        "If the slide has a factual issue, you must call build_expected_summary, then list_editable_textboxes, then apply_textbox_edit exactly once, and only then finish with ReactJudgeOutput(has_issue=true).\n"
         "Use native API tool calls only. Do not output <tool_call> tags or plain-text fake tool calls.\n"
         "Final output must be one ReactJudgeOutput tool call."
     )
@@ -388,6 +397,48 @@ def extract_react_edit_action(state: dict[str, Any]) -> dict[str, Any] | None:
             "execution_success": item.get("status") != "error",
         }
     return None
+
+
+def extract_react_protocol_info(
+    state: dict[str, Any],
+    *,
+    final_has_issue: bool | None = None,
+) -> dict[str, Any]:
+    trace = _build_tool_trace(state.get("messages", []))
+    edit_indices = [
+        idx for idx, item in enumerate(trace) if item.get("name") == "apply_textbox_edit"
+    ]
+    editable_list_indices = [
+        idx for idx, item in enumerate(trace) if item.get("name") == "list_editable_textboxes"
+    ]
+    violations: list[str] = []
+
+    if final_has_issue is False and edit_indices:
+        violations.append("edit_called_when_has_issue_false")
+    if final_has_issue is True and not edit_indices:
+        violations.append("missing_required_edit_when_has_issue_true")
+    if len(edit_indices) > 1:
+        violations.append("multiple_edit_calls")
+    if edit_indices:
+        last_edit_index = edit_indices[-1]
+        trailing_tools = [
+            str(item.get("name", ""))
+            for item in trace[last_edit_index + 1 :]
+            if str(item.get("name", "")) != "ReactJudgeOutput"
+        ]
+        if trailing_tools:
+            violations.append("nonterminal_tools_after_edit")
+    else:
+        trailing_tools = []
+
+    return {
+        "edit_attempted": bool(edit_indices),
+        "edit_call_count": len(edit_indices),
+        "textbox_list_call_count": len(editable_list_indices),
+        "protocol_violation": bool(violations),
+        "protocol_violations": violations,
+        "trailing_tools_after_edit": trailing_tools,
+    }
 
 
 def _to_dict(value: Any) -> dict[str, Any]:

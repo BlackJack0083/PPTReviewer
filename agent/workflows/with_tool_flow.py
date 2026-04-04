@@ -29,16 +29,23 @@ def build_with_tool_graph(
             normalize_template_id,
         ),
     )
-    graph.add_node("plan_tools", _node_plan_tools())
     graph.add_node("run_tools", _node_run_tools(tools))
     graph.add_node("judge_with_tool", _node_judge_with_tool(client))
+    graph.add_node("plan_text_edit", _node_plan_text_edit(client))
     graph.add_node("apply_text_edit", _node_apply_text_edit(tools))
     graph.set_entry_point("extract_claim")
     graph.add_edge("extract_claim", "validate_claim")
-    graph.add_edge("validate_claim", "plan_tools")
-    graph.add_edge("plan_tools", "run_tools")
+    graph.add_edge("validate_claim", "run_tools")
     graph.add_edge("run_tools", "judge_with_tool")
-    graph.add_edge("judge_with_tool", "apply_text_edit")
+    graph.add_conditional_edges(
+        "judge_with_tool",
+        _route_after_judge,
+        {
+            "plan_text_edit": "plan_text_edit",
+            "end": END,
+        },
+    )
+    graph.add_edge("plan_text_edit", "apply_text_edit")
     graph.add_edge("apply_text_edit", END)
     return graph.compile()
 
@@ -62,11 +69,19 @@ def _with_carried_state(state: dict[str, Any], **updates: Any) -> dict[str, Any]
     carried_keys = (
         "parsed_claim",
         "claim_raw",
-        "tool_plan",
+        "tool_calls",
         "evidence",
         "routed_template_meta",
         "editable_shapes",
+        "run_id",
         "yaml_path",
+        "has_issue",
+        "shape_id",
+        "updated_summary",
+        "judge_raw",
+        "edit_plan_raw",
+        "execution_success",
+        "edit_attempted",
     )
     result = {k: state[k] for k in carried_keys if k in state}
     result.update(updates)
@@ -130,7 +145,11 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             response_format="json_object",
         )
         claim = parse_json_object(response)
-        return {"parsed_claim": claim, "claim_raw": response}
+        return _with_carried_state(
+            state,
+            parsed_claim=claim,
+            claim_raw=response,
+        )
 
     return _run
 
@@ -182,18 +201,6 @@ def _node_validate_claim(
             )
         claim["template_id"] = canonical_template_id
         return _with_carried_state(state)
-
-    return _run
-
-
-def _node_plan_tools():
-    def _run(state: dict[str, Any]) -> dict[str, Any]:
-        tool_plan = [
-            "resolve_plan",
-            "query_conclusion_vars",
-            "build_expected_summary",
-        ]
-        return _with_carried_state(state, tool_plan=tool_plan)
 
     return _run
 
@@ -251,6 +258,11 @@ def _node_run_tools(tools):
         )
         return _with_carried_state(
             state,
+            tool_calls=[
+                "resolve_plan",
+                "query_conclusion_vars",
+                "build_expected_summary",
+            ],
             evidence=evidence,
             routed_template_meta=json.dumps(
                 {
@@ -269,27 +281,21 @@ def _node_judge_with_tool(client):
     def _run(state: dict[str, Any]) -> dict[str, Any]:
         claim = state["parsed_claim"]
         evidence: ToolEvidence = state["evidence"]
-        editable_shapes = state.get("editable_shapes", [])
         judge_response = client.chat(
             system_prompt=(
-                "You are the final grounded corrector. "
+                "You are the final grounded judge. "
                 "Compare the summary text from image with evidence from data tools, "
-                "then decide whether a textbox edit is needed. Return strict JSON only."
+                "and decide only whether the input slide has a factual issue. "
+                "Return strict JSON only."
             ),
             user_prompt=(
                 "Determine whether the summary is inconsistent with tool evidence.\n"
                 f"summary_text_from_image:\n{claim['summary_text']}\n\n"
                 f"expected_summary_from_tool:\n{evidence.expected_summary}\n\n"
                 f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
-                f"editable_textboxes:\n{json.dumps(editable_shapes, ensure_ascii=False)}\n\n"
                 "Output JSON with this schema:\n"
-                "- If no correction is needed: {\"has_issue\": false}\n"
-                "- If correction is needed: "
-                "{\"has_issue\": true, \"shape_id\": \"...\", \"updated_summary\": \"...\"}\n\n"
+                "{\"has_issue\": true|false}\n\n"
                 "Rules:\n"
-                "- shape_id must be chosen from editable_textboxes.\n"
-                "- Prefer correcting the summary/body-text textbox rather than title/caption unless evidence clearly shows otherwise.\n"
-                "- updated_summary must be the corrected final text.\n"
                 "- If any key factual mismatch exists, set has_issue=true.\n"
                 "- Otherwise set has_issue=false."
             ),
@@ -300,9 +306,54 @@ def _node_judge_with_tool(client):
         return _with_carried_state(
             state,
             has_issue=bool(parsed.get("has_issue", False)),
+            shape_id=None,
+            updated_summary=None,
+            judge_raw=judge_response,
+            execution_success=None,
+            edit_attempted=False,
+        )
+
+    return _run
+
+
+def _route_after_judge(state: dict[str, Any]) -> str:
+    return "plan_text_edit" if state.get("has_issue", False) else "end"
+
+
+def _node_plan_text_edit(client):
+    def _run(state: dict[str, Any]) -> dict[str, Any]:
+        evidence: ToolEvidence = state["evidence"]
+        editable_shapes = state.get("editable_shapes", [])
+        plan_response = client.chat(
+            system_prompt=(
+                "You are the grounded text edit planner. "
+                "The slide has already been judged incorrect. "
+                "Choose the correct textbox and produce the corrected final summary text. "
+                "Return strict JSON only."
+            ),
+            user_prompt=(
+                "The input slide is already confirmed to have a factual issue.\n"
+                "Use the tool evidence below to plan exactly one textbox edit.\n\n"
+                f"expected_summary_from_tool:\n{evidence.expected_summary}\n\n"
+                f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
+                f"editable_textboxes:\n{json.dumps(editable_shapes, ensure_ascii=False)}\n\n"
+                "Output JSON with this schema:\n"
+                "{\"shape_id\": \"...\", \"updated_summary\": \"...\"}\n\n"
+                "Rules:\n"
+                "- shape_id must be chosen from editable_textboxes.\n"
+                "- Prefer correcting the summary/body-text textbox rather than title/caption unless evidence clearly shows otherwise.\n"
+                "- updated_summary must be the corrected final text to write into that textbox.\n"
+                "- Do not return has_issue here; the issue has already been confirmed."
+            ),
+            image_path=None,
+            response_format="json_object",
+        )
+        parsed = parse_json_object(plan_response)
+        return _with_carried_state(
+            state,
             shape_id=str(parsed.get("shape_id", "")).strip() or None,
             updated_summary=str(parsed.get("updated_summary", "")).strip() or None,
-            judge_raw=judge_response,
+            edit_plan_raw=plan_response,
         )
 
     return _run
@@ -311,7 +362,11 @@ def _node_judge_with_tool(client):
 def _node_apply_text_edit(tools):
     def _run(state: dict[str, Any]) -> dict[str, Any]:
         if not state.get("has_issue", False):
-            return _with_carried_state(state, execution_success=None)
+            return _with_carried_state(
+                state,
+                execution_success=None,
+                edit_attempted=False,
+            )
 
         shape_id = str(state.get("shape_id", "")).strip()
         updated_summary = str(state.get("updated_summary", "")).strip()
@@ -322,18 +377,38 @@ def _node_apply_text_edit(tools):
             if isinstance(item, dict)
         }
 
-        if not shape_id:
-            raise ValueError("Workflow correction missing shape_id.")
-        if not updated_summary:
-            raise ValueError("Workflow correction missing updated_summary.")
-        if shape_id not in editable_shape_ids:
-            raise ValueError(f"Workflow selected invalid shape_id: {shape_id}")
+        if not shape_id or not updated_summary or shape_id not in editable_shape_ids:
+            return _with_carried_state(
+                state,
+                execution_success=False,
+                edit_attempted=False,
+            )
 
-        execution_success = tools.apply_textbox_edit(
-            shape_id=shape_id,
-            new_text=updated_summary,
-            yaml_path=state["yaml_path"],
+        edit_attempted = False
+        try:
+            edit_attempted = True
+            apply_kwargs = {
+                "shape_id": shape_id,
+                "new_text": updated_summary,
+                "yaml_path": state["yaml_path"],
+            }
+            if state.get("run_id"):
+                apply_kwargs["run_id"] = state["run_id"]
+            execution_success = tools.apply_textbox_edit(
+                **apply_kwargs,
+            )
+        except Exception:  # noqa: BLE001 - execution failure should not erase model prediction
+            execution_success = False
+
+        tool_calls = list(state.get("tool_calls", []))
+        if edit_attempted:
+            tool_calls.append("apply_textbox_edit")
+
+        return _with_carried_state(
+            state,
+            execution_success=bool(execution_success),
+            edit_attempted=edit_attempted,
+            tool_calls=tool_calls,
         )
-        return _with_carried_state(state, execution_success=bool(execution_success))
 
     return _run
