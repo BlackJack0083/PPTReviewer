@@ -189,9 +189,7 @@ context.add_variables(conclusion)  # 添加结论变量
 
 # 5. 生成PPT
 engine = PPTGenerationEngine("output/report.pptx")
-engine.generate_multiple_slides([
-    {"template_id": "T02_Area_Dist_Bar", "context": context}
-])
+engine.generate_single_slide("T02_Area_Dist_Bar", context)
 ```
 
 ---
@@ -332,7 +330,8 @@ python-pptx 生成最终.pptx文件
 ```yaml
 - uid: "Your_Template_ID"
   theme_key: "Your Theme"
-  function_key: "Your Function"
+  function_key:
+    - "Your Function"
   layout_type: "single_column_bar"
   summary_item: 1
   style_config_id: "marketing_orange_green"
