@@ -109,10 +109,7 @@ def test_single_template(template_id, config, block, start_year, end_year):
         # 生成PPT
         output_file = f"output/test_{template_id}_{config['table']}_{block.replace(' ', '_')}.pptx"
         engine = PPTGenerationEngine(output_file)
-
-        engine.generate_multiple_slides(
-            [{"template_id": template_id, "context": context}]
-        )
+        engine.generate_single_slide(template_id, context)
 
         logger.success(f"✓ 模板 {template_id} 测试成功！")
         logger.success(f"✓ 输出文件: {output_file}")
