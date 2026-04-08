@@ -5,7 +5,7 @@ from typing import Any, Literal
 import pandas as pd
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class QueryFilter(BaseModel):
@@ -123,6 +123,31 @@ class SlotDefinition(LayoutModel):
     role: str
 
 
+class TextSlotDefinition(LayoutModel):
+    """文本槽位定义，绑定到具体的文本语义部件。"""
+
+    part: Literal["slide_title", "summary", "caption"]
+    role: str
+    function_index: int | None = Field(
+        default=None,
+        ge=0,
+        description="caption 对应的 function_keys 下标，仅 caption 允许设置",
+    )
+
+    @model_validator(mode="after")
+    def validate_function_binding(self) -> "TextSlotDefinition":
+        if self.part == "caption":
+            if self.function_index is None:
+                raise ValueError("caption text slot requires function_index")
+            return self
+
+        if self.function_index is not None:
+            raise ValueError(
+                "Only caption text slots may declare function_index"
+            )
+        return self
+
+
 class SlideSize(BaseModel):
     """Slide 尺寸配置"""
     width: float = Field(25.4, description="宽度 (cm)")
@@ -135,11 +160,32 @@ class LayoutConfig(BaseModel):
         default_factory=lambda: SlideSize(width=25.4, height=14.29),
         description="Slide 尺寸"
     )
+    text_slots: list[TextSlotDefinition] = Field(
+        default_factory=list,
+        description="文本槽位配置",
+    )
     slots: list[SlotDefinition] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_text_slots(self) -> "LayoutConfig":
+        part_counts = {
+            "slide_title": 0,
+            "summary": 0,
+            "caption": 0,
+        }
+        for slot in self.text_slots:
+            part_counts[slot.part] += 1
+
+        if part_counts["slide_title"] != 1:
+            raise ValueError("Each layout must define exactly one slide_title text slot")
+        if part_counts["summary"] != 1:
+            raise ValueError("Each layout must define exactly one summary text slot")
+        if part_counts["caption"] < 1:
+            raise ValueError("Each layout must define at least one caption text slot")
+        return self
 
 
 class GlobalLayoutConfig(BaseModel):
-    common: dict[str, LayoutModel]  # 通用元素也直接用 LayoutModel
     layouts: dict[str, LayoutConfig]
 
 

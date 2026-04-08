@@ -4,7 +4,7 @@
 # 每个模板定义包含：
 # - uid: 模板唯一标识符
 # - theme_key: 文案主题（对应 text_pattern.yaml）
-# - function_key: 功能名称（对应 text_pattern.yaml）
+# - function_key: 功能名称列表（对应 text_pattern.yaml）
 # - layout_type: 版式类型（对应 layouts.yaml）
 # - summary_item: 使用的第几个 summary（从1开始，对应索引0,1,2...）
 # - style_config_id: 样式配置ID（对应 styles.yaml）
@@ -19,7 +19,8 @@
 
 - uid: "T01_Supply_Trans_Bar"
   theme_key: "Block Area Segment Distribution"
-  function_key: "Supply-Transaction Unit Statistic"
+  function_key:
+    - "Supply-Transaction Unit Statistic"
   layout_type: "single_column_bar"
   summary_item: 1
   style_config_id: "marketing_orange_green"
@@ -28,7 +29,8 @@
 
 - uid: "T01_Supply_Trans_Line"
   theme_key: "Block Area Segment Distribution"
-  function_key: "Supply-Transaction Unit Statistic"
+  function_key:
+    - "Supply-Transaction Unit Statistic"
   layout_type: "single_column_line"
   summary_item: 2
   style_config_id: "marketing_orange_green"
@@ -44,7 +46,8 @@
 # summaries数量: 3个（索引0,1,2）
 - uid: "T02_Cross_Pivot_Table"
   theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Area x Price Cross Pivot"
+  function_key:
+    - "Area x Price Cross Pivot"
   layout_type: "single_column_table"
   summary_item: 0
   style_config_id: "business_blue_solid"
@@ -55,7 +58,8 @@
 # summaries数量: 3个（索引0,1,2）
 - uid: "T02_Area_Dist_Bar"
   theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Area Segment Distribution"
+  function_key:
+    - "Area Segment Distribution"
   layout_type: "single_column_bar"
   summary_item: 1
   style_config_id: "compare_tangerine_gray"
@@ -64,7 +68,8 @@
 
 - uid: "T02_Area_Dist_Line"
   theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Area Segment Distribution"
+  function_key:
+    - "Area Segment Distribution"
   layout_type: "single_column_line"
   summary_item: 2
   style_config_id: "compare_tangerine_gray"
@@ -75,7 +80,8 @@
 # summaries数量: 3个（索引0,1,2）
 - uid: "T02_Price_Dist_Bar"
   theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Price Segment Distribution"
+  function_key:
+    - "Price Segment Distribution"
   layout_type: "single_column_bar"
   summary_item: 0
   style_config_id: "marketing_orange_green"
@@ -84,7 +90,8 @@
 
 - uid: "T02_Price_Dist_Line"
   theme_key: "New-House Cross-Structure Analysis"
-  function_key: "Price Segment Distribution"
+  function_key:
+    - "Price Segment Distribution"
   layout_type: "single_column_line"
   summary_item: 2
   style_config_id: "business_blue_solid"
@@ -150,7 +157,8 @@
 # 3. Supply-Transaction Area
 - uid: "T04_Supply_Transaction_Area_Bar"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: "Supply-Transaction Area"
+  function_key:
+    - "Supply-Transaction Area"
   layout_type: "single_column_bar"
   summary_item: 1
   style_config_id: "marketing_orange_green"
@@ -159,10 +167,10 @@
 
 - uid: "T04_Supply_Transaction_Area_Line"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: "Supply-Transaction Area"
+  function_key:
+    - "Supply-Transaction Area"
   layout_type: "single_column_line"
   summary_item: 2
   style_config_id: "marketing_orange_green"
   data_keys:
     chart_main: "annual_demand_data"
-

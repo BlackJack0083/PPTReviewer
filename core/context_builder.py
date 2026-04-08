@@ -71,7 +71,6 @@ class ContextBuilder:
     """
     上下文构建器
     根据 TemplateMeta 中的 function_key 和 data_keys 自动调用对应的数据方法
-    支持单个或多个 function_key（多数据源）
     """
 
     @staticmethod
@@ -110,8 +109,8 @@ class ContextBuilder:
         # 添加表名（用于 YAML 导出）
         context.add_variable("_table_name", provider.filter.table_name)
 
-        # 2. 获取所有的 function_keys
-        function_keys = template_meta.function_keys
+        # 2. 获取所有的 function_key
+        function_keys = template_meta.function_key
 
         # 3. 判断是单数据源还是多数据源
         if len(function_keys) == 1:

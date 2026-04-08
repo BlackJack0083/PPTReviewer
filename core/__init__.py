@@ -15,6 +15,7 @@ from .schemas import (
     LineChartConfig,
     RectangleStyleModel,
     SlotDefinition,
+    TextSlotDefinition,
     TextContentModel,
 )
 from .style_manager import style_manager
@@ -36,6 +37,7 @@ __all__ = [
     "resource_manager",
     "TemplateMeta",
     "SlotDefinition",
+    "TextSlotDefinition",
     "GlobalLayoutConfig",
     "LayoutConfig",
     "layout_manager",

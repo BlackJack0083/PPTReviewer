@@ -5,7 +5,7 @@ from loguru import logger
 
 from config import setting
 
-from .schemas import GlobalLayoutConfig, LayoutModel, SlideSize, SlotDefinition
+from .schemas import GlobalLayoutConfig, SlideSize, SlotDefinition, TextSlotDefinition
 
 
 class LayoutManager:
@@ -46,24 +46,18 @@ class LayoutManager:
 
         layout = self._config.layouts.get(layout_type)
         if not layout:
-            logger.warning(
-                f"Undefined layout type: {layout_type}, returning empty slots."
-            )
-            return []
+            raise ValueError(f"Undefined layout type: {layout_type}")
         return layout.slots
 
-    def get_common_layout(self, element_name: str) -> LayoutModel:
-        """获取公共版式的元素配置: 包括 title, caption, textbox"""
+    def get_text_slots(self, layout_type: str) -> list[TextSlotDefinition]:
+        """获取指定版式的文本槽位配置。"""
         if not self._config:
             self.load_config()
 
-        layout = self._config.common.get(element_name)
+        layout = self._config.layouts.get(layout_type)
         if not layout:
-            logger.warning(
-                f"Undefined common element: {element_name}, returning empty layout."
-            )
-            raise ValueError(f"Undefined common element: {element_name}")
-        return layout
+            raise ValueError(f"Undefined layout type: {layout_type}")
+        return layout.text_slots
 
     def get_slide_size(self, layout_type: str) -> SlideSize:
         """获取指定版式的 Slide 尺寸"""
@@ -72,10 +66,7 @@ class LayoutManager:
 
         layout = self._config.layouts.get(layout_type)
         if not layout:
-            logger.warning(
-                f"Undefined layout type: {layout_type}, returning default slide size."
-            )
-            return SlideSize(width=25.4, height=14.29)
+            raise ValueError(f"Undefined layout type: {layout_type}")
 
         return layout.slide_size
 

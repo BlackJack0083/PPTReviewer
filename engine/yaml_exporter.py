@@ -73,65 +73,69 @@ class YAMLExporter:
     # ==================== 构建方法 ====================
 
     @staticmethod
+    def _require_context_var(context: PresentationContext, key: str) -> str:
+        """读取导出所需的上下文变量，缺失则直接报错。"""
+        value = context.variables.get(key)
+        if value is None:
+            raise ValueError(f"Missing required context variable: {key}")
+        return str(value)
+
+    @staticmethod
     def _build_meta(template_meta, template_id: str) -> dict:
         """构建导入重建所需的最小元信息"""
-        layout_type = (
-            template_meta.layout_type.value
-            if hasattr(template_meta.layout_type, "value")
-            else template_meta.layout_type
-        )
         return {
             "template_id": template_id,
-            "layout_type": layout_type,
+            "layout_type": template_meta.layout_type.value,
             "style_id": template_meta.style_config_id,
             "theme_key": template_meta.theme_key,
-            "function_keys": template_meta.function_keys,
+            "function_keys": template_meta.function_key,
         }
 
     @staticmethod
     def _build_query_filters(context: PresentationContext) -> dict:
         """从 context 构建 query_filters"""
-        vars = context.variables
         return {
-            "city": vars.get("Geo_City_Name", "Unknown"),
-            "block": vars.get("Geo_Block_Name", "Unknown"),
-            "start_date": f"{vars.get('Temporal_Start_Year', '2020')}-01-01",
-            "end_date": f"{vars.get('Temporal_End_Year', '2022')}-12-31",
+            "city": YAMLExporter._require_context_var(context, "Geo_City_Name"),
+            "block": YAMLExporter._require_context_var(context, "Geo_Block_Name"),
+            "start_date": f"{YAMLExporter._require_context_var(context, 'Temporal_Start_Year')}-01-01",
+            "end_date": f"{YAMLExporter._require_context_var(context, 'Temporal_End_Year')}-12-31",
         }
 
     @staticmethod
     def _build_slide_filters(template_meta, context: PresentationContext) -> list[dict]:
         """构建 slide_filters（每个槽位对应一个过滤器）"""
         filters = []
-        function_keys = template_meta.function_keys
+        function_keys = template_meta.function_key
         data_keys = template_meta.data_keys
-        vars = context.variables
-
-        # 从 context 获取表名
-        table_name = vars.get("_table_name", "unknown_table")
+        table_name = YAMLExporter._require_context_var(context, "_table_name")
+        city = YAMLExporter._require_context_var(context, "Geo_City_Name")
+        block = YAMLExporter._require_context_var(context, "Geo_Block_Name")
+        start_year = YAMLExporter._require_context_var(context, "Temporal_Start_Year")
+        end_year = YAMLExporter._require_context_var(context, "Temporal_End_Year")
+        params = context.variables.get("_function_params", {})
 
         # 遍历每个槽位
         for i, (_slot_name, data_key) in enumerate(data_keys.items()):
-            # 获取对应的 function_key
-            func_key = function_keys[i] if i < len(function_keys) else function_keys[0]
+            if i >= len(function_keys):
+                raise ValueError(
+                    f"Missing function_key for slot index {i} in template {template_meta.uid}"
+                )
+            func_key = function_keys[i]
 
             # 从 context.configs 获取配置，提取需要查询的列
             config = context.get_config(data_key)
-            select_cols = []
-            if config:
-                # 从 dimensions 和 metrics 获取列名
-                for dim in config.dimensions:
-                    if dim.source_col not in select_cols:
-                        select_cols.append(dim.source_col)
-                for metric in config.metrics:
-                    if metric.source_col not in select_cols:
-                        select_cols.append(metric.source_col)
-            else:
-                # 如果没有配置，使用默认列
-                select_cols = ["dim_area"]
+            if not config:
+                raise ValueError(
+                    f"Missing analysis config for data_key '{data_key}' in template {template_meta.uid}"
+                )
 
-            # 获取实际参数值
-            params = vars.get("_function_params", {})
+            select_cols = []
+            for dim in config.dimensions:
+                if dim.source_col not in select_cols:
+                    select_cols.append(dim.source_col)
+            for metric in config.metrics:
+                if metric.source_col not in select_cols:
+                    select_cols.append(metric.source_col)
 
             # 根据 function_key 动态组装参数：
             # 以默认参数为底，再用 _function_params 中同名键覆盖
@@ -145,10 +149,10 @@ class YAMLExporter:
                 "connection": {"table": [table_name.lower()]},
                 "select_columns": select_cols,
                 "filters": {
-                    "city": vars.get("Geo_City_Name", "Unknown"),
-                    "block": vars.get("Geo_Block_Name", "Unknown"),
-                    "start_date": f"{vars.get('Temporal_Start_Year', '2020')}-01-01",
-                    "end_date": f"{vars.get('Temporal_End_Year', '2022')}-12-31",
+                    "city": city,
+                    "block": block,
+                    "start_date": f"{start_year}-01-01",
+                    "end_date": f"{end_year}-12-31",
                 },
                 "fun_tool": {
                     "fun": func_key,
@@ -156,10 +160,10 @@ class YAMLExporter:
                 },
                 "sql_query": [
                     f"SELECT {', '.join(select_cols)} FROM public.{table_name} "
-                    f"WHERE city = '{vars.get('Geo_City_Name', 'Unknown')}' "
-                    f"AND block = '{vars.get('Geo_Block_Name', 'Unknown')}' "
-                    f"AND date_code >= '{vars.get('Temporal_Start_Year', '2020')}-01-01' "
-                    f"AND date_code <= '{vars.get('Temporal_End_Year', '2022')}-12-31'"
+                    f"WHERE city = '{city}' "
+                    f"AND block = '{block}' "
+                    f"AND date_code >= '{start_year}-01-01' "
+                    f"AND date_code <= '{end_year}-12-31'"
                 ],
             }
             filters.append(filter_entry)
@@ -173,7 +177,7 @@ class YAMLExporter:
 
         summary_template = resource_manager.get_summary_template(
             template_meta.theme_key,
-            template_meta.primary_function_key,
+            template_meta.function_key[0],
             template_meta.summary_item,
         )
         template_keys = YAMLExporter._extract_template_variables(summary_template)
@@ -184,16 +188,13 @@ class YAMLExporter:
                 fixed_context[key] = vars[key]
 
         truth_slots = {}
-        raw_conclusion_vars = vars.get("_conclusion_vars", {})
-        if isinstance(raw_conclusion_vars, dict):
-            for key in template_keys:
-                if key in raw_conclusion_vars:
-                    truth_slots[key] = raw_conclusion_vars[key]
-        else:
-            # 降级：若没有显式记录结论变量，则根据模板字段反查 context
-            for key in template_keys:
-                if key in vars and key not in fixed_context:
-                    truth_slots[key] = vars[key]
+        raw_conclusion_vars = vars.get("_conclusion_vars")
+        if not isinstance(raw_conclusion_vars, dict):
+            raise ValueError("_conclusion_vars is required for summary_binding export")
+
+        for key in template_keys:
+            if key in raw_conclusion_vars:
+                truth_slots[key] = raw_conclusion_vars[key]
 
         return {
             "summary_template": summary_template,
@@ -219,8 +220,7 @@ class YAMLExporter:
     def _build_template_slide(slide_config: SlideRenderConfig) -> dict:
         """构建 template_slide"""
         # 获取 slide 尺寸
-        layout_type = slide_config.layout_type.value if hasattr(slide_config.layout_type, 'value') else slide_config.layout_type
-        slide_size = layout_manager.get_slide_size(layout_type)
+        slide_size = layout_manager.get_slide_size(slide_config.layout_type.value)
 
         template_slide = {
             "slide_size": {

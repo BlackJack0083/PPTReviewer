@@ -198,7 +198,7 @@ class LocalDataTools:
     def resolve_plan(self, template_id: str) -> dict[str, Any]:
         """根据 template_id 生成数据查询与文本渲染计划。"""
         template_meta = self.resolve_template_meta(template_id)
-        function_key = template_meta.primary_function_key
+        function_key = template_meta.function_key[0]
         return {
             "template_id": template_meta.uid,
             "theme_key": template_meta.theme_key,
@@ -217,7 +217,7 @@ class LocalDataTools:
 
     def resolve_function_key(self, template_id: str) -> str:
         template_meta = self.resolve_template_meta(template_id)
-        return template_meta.primary_function_key
+        return template_meta.function_key[0]
 
     def resolve_function_args(self, function_key: str) -> dict[str, Any]:
         return get_default_function_args(function_key)
@@ -257,7 +257,7 @@ class LocalDataTools:
         conclusion_vars: dict[str, str],
     ) -> str:
         template_meta = self.resolve_template_meta(template_id)
-        function_key = template_meta.primary_function_key
+        function_key = template_meta.function_key[0]
         render_context = {
             "Geo_City_Name": city,
             "Geo_Block_Name": block,
@@ -281,7 +281,7 @@ class LocalDataTools:
         template_meta = self.resolve_template_meta(template_id)
         summary_template = self.resource_manager.get_summary_template(
             template_meta.theme_key,
-            template_meta.primary_function_key,
+            template_meta.function_key[0],
             template_meta.summary_item,
         )
         summary_template_vars = set(_extract_template_vars(summary_template))

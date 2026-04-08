@@ -8,13 +8,14 @@ import yaml
 from loguru import logger
 
 from common.function_specs import filter_function_args
-from core import PPTOperations, PresentationContext, resource_manager
+from core import PPTOperations, PresentationContext, layout_manager, resource_manager
 from core.data_provider import RealEstateDataProvider
 from core.schemas import (
     BinningRule,
     ChartElement,
     LayoutModel,
     MetricRule,
+    SlideSize,
     SlideRenderConfig,
     TableAnalysisConfig,
     TableElement,
@@ -89,6 +90,30 @@ class YAMLImporter:
         )
 
     @staticmethod
+    def resolve_template_slide_size(
+        template_slide: dict,
+        layout_type: str,
+    ) -> SlideSize:
+        """从 YAML 中解析 slide_size，并与 layout_type 配置进行一致性校验。"""
+        slide_size_dict = template_slide.get("slide_size")
+        if not isinstance(slide_size_dict, dict):
+            raise ValueError("template_slide.slide_size is required for YAML rebuild")
+
+        slide_size = SlideSize.model_validate(slide_size_dict)
+        expected_size = layout_manager.get_slide_size(layout_type)
+        current_tuple = (slide_size.width, slide_size.height)
+        expected_tuple = (expected_size.width, expected_size.height)
+
+        if current_tuple != expected_tuple:
+            raise ValueError(
+                "template_slide.slide_size does not match layout_type config: "
+                f"yaml={current_tuple[0]}x{current_tuple[1]}cm, "
+                f"layout={expected_tuple[0]}x{expected_tuple[1]}cm for {layout_type}"
+            )
+
+        return slide_size
+
+    @staticmethod
     def rebuild_from_yaml(
         yaml_path: str | Path,
         output_ppt_path: str | Path,
@@ -104,9 +129,9 @@ class YAMLImporter:
         yaml_data = YAMLImporter.load_yaml(yaml_path)
 
         # 2. 解析基本信息
-        query_filters = yaml_data.get("query_filters", {})
-        slide_filters = yaml_data.get("slide_filters", [])
-        template_slide = yaml_data.get("template_slide", {})
+        query_filters = yaml_data["query_filters"]
+        slide_filters = yaml_data["slide_filters"]
+        template_slide = yaml_data["template_slide"]
 
         # 3. 解析 template_id（单一 schema：meta.template_id）
         template_id = YAMLImporter.resolve_template_id(yaml_data, yaml_path)
@@ -253,11 +278,19 @@ class YAMLImporter:
         # 9. 生成 PPT
         # 获取 layout_type
         layout_type = template_meta.layout_type
+        slide_size = YAMLImporter.resolve_template_slide_size(
+            template_slide,
+            layout_type.value,
+        )
 
         # 使用 PPTOperations 生成 PPT
         with PPTOperations(output_ppt_path) as ppt_ops:
             # 初始化一页
-            ppt_ops.init_slides(1, layout_type=layout_type)
+            ppt_ops.init_slides(
+                1,
+                slide_width_cm=slide_size.width,
+                slide_height_cm=slide_size.height,
+            )
 
             # 获取渲染器
             renderer = RendererFactory.get_renderer(layout_type, ppt_ops)

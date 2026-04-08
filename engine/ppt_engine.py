@@ -4,7 +4,7 @@ from typing import Any
 
 from loguru import logger
 
-from core import PPTOperations, PresentationContext, resource_manager
+from core import PPTOperations, PresentationContext, layout_manager, resource_manager
 
 from .builder import SlideConfigBuilder
 from .slide_renderers import RendererFactory
@@ -74,23 +74,24 @@ class PPTGenerationEngine:
         task = SlideTask(template_id=template_id, context=presentation_context)
         self.generate_multiple_slides([task])
 
-    def generate_multiple_slides(self, tasks: list[SlideTask | dict]) -> None:
+    def generate_multiple_slides(self, tasks: list[SlideTask]) -> None:
         """
         生成多页PPT
 
         Args:
-            ttasks: SlideTask 对象列表，或者包含 'template_id' 和 'context' 的字典列表
+            tasks: SlideTask 对象列表
 
         Raises:
             ValueError: 配置无效时抛出异常
         """
         if not tasks:
-            logger.warning("No slides tasks provided.")
-            return
+            raise ValueError("No slide tasks provided.")
 
         logger.info(f"Starting generation for {len(tasks)} slides")
 
         try:
+            self._validate_uniform_slide_size(tasks)
+
             # 统一使用 Context Manager 管理 PPT 生命周期
             with PPTOperations(
                 self.output_file_path, self.template_file_path
@@ -98,31 +99,12 @@ class PPTGenerationEngine:
 
                 # 获取第一个任务的 layout_type 用于初始化 PPT 尺寸
                 first_task = tasks[0]
-                if isinstance(first_task, dict):
-                    first_template_id = first_task.get("template_id")
-                else:
-                    first_template_id = first_task.template_id
-
-                # 解析并获取 layout_type
-                resolved_id = self._resolve_template_id(
-                    SlideTask(template_id=first_template_id, context=PresentationContext())
-                )
-                template_meta = resource_manager.get_template(resolved_id)
-                layout_type = template_meta.layout_type if template_meta else None
+                layout_type = self._get_template_meta(first_task).layout_type
 
                 # 初始化幻灯片，传入 layout_type 以获取正确的尺寸
                 ppt_ops.init_slides(len(tasks), layout_type=layout_type)
 
-                for index, task_data in enumerate(tasks, start=1):
-                    # 兼容字典输入，转换为 SlideTask 对象
-                    if isinstance(task_data, dict):
-                        task = SlideTask(
-                            template_id=task_data["template_id"],
-                            context=task_data["context"],
-                        )
-                    else:
-                        task = task_data
-
+                for index, task in enumerate(tasks, start=1):
                     self._process_slide(ppt_ops, index, task)
 
         except Exception as e:
@@ -182,6 +164,34 @@ class PPTGenerationEngine:
 
         # 如果都找不到，假定用户传入的就是 Key，让 Builder 去报错
         return task.template_id
+
+    def _get_template_meta(self, task: SlideTask):
+        """解析并返回模板元数据。"""
+        resolved_id = self._resolve_template_id(task)
+        template_meta = resource_manager.get_template(resolved_id)
+        if template_meta is None:
+            raise ValueError(f"Template not found: {task.template_id}")
+        return template_meta
+
+    def _validate_uniform_slide_size(self, tasks: list[SlideTask]) -> None:
+        """同一份 PPT 只允许一种文档级 slide size。"""
+        first_meta = self._get_template_meta(tasks[0])
+        first_size = layout_manager.get_slide_size(first_meta.layout_type)
+        expected_size = (first_size.width, first_size.height)
+        expected_template = first_meta.uid
+
+        for task in tasks[1:]:
+            template_meta = self._get_template_meta(task)
+            current_size = layout_manager.get_slide_size(template_meta.layout_type)
+            current_tuple = (current_size.width, current_size.height)
+
+            if current_tuple != expected_size:
+                raise ValueError(
+                    "All slides in a single PPT must share the same slide size. "
+                    f"Expected {expected_size[0]}x{expected_size[1]}cm from template "
+                    f"{expected_template}, but template {template_meta.uid} requires "
+                    f"{current_tuple[0]}x{current_tuple[1]}cm."
+                )
 
     def get_template_info(self) -> dict[str, Any]:
         templates = resource_manager.all_templates

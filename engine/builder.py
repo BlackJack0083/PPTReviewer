@@ -14,6 +14,7 @@ from core.schemas import (
     SlideRenderConfig,
     TableElement,
     TextElement,
+    TextSlotDefinition,
 )
 
 
@@ -110,33 +111,64 @@ class SlideConfigBuilder:
     def _build_static_elements(
         self, meta: TemplateMeta, ctx: PresentationContext
     ) -> list[RenderableElement]:
-        """构建标题、描述等静态文本"""
-        # 定义需要渲染的文本字段
-        text_fields = [
-            # (template_part, element_role, layout_key, summary_index)
-            ("slide_title", "slide-title", "slide_title", None),
-            ("caption", "caption", "caption", None),
-            ("summary", "body-text", "description", meta.summary_item),
-        ]
+        """按 layout_type 定义的 text_slots 构建静态文本。"""
+        text_slots = layout_manager.get_text_slots(meta.layout_type)
+        if not text_slots:
+            raise ValueError(f"No text slots defined for layout: {meta.layout_type}")
 
         elements = []
-        for func_role, element_role, common_key, item_key in text_fields:
-            # 使用 primary_function_key 来获取文本（多数据源时使用第一个）
-            text_content = resource_manager.render_text(
-                meta.theme_key,
-                meta.primary_function_key,
-                func_role,
-                ctx.variables,
-                item_key,
-            )
-            layout_model = layout_manager.get_common_layout(common_key)
-
+        for slot in text_slots:
+            text_content = self._render_text_for_slot(slot, meta, ctx)
+            layout_model = LayoutModel.model_validate(slot.model_dump(by_alias=True))
             elements.append(
                 SlideElementBuilder.build_text_element(
-                    text_content, element_role, layout_model
+                    text_content,
+                    slot.role,
+                    layout_model,
                 )
             )
         return elements
+
+    def _render_text_for_slot(
+        self,
+        slot: TextSlotDefinition,
+        meta: TemplateMeta,
+        ctx: PresentationContext,
+    ) -> str:
+        """根据文本槽位定义渲染具体文本。"""
+        if slot.part == "slide_title":
+            return resource_manager.render_text(
+                meta.theme_key,
+                meta.function_key[0],
+                "slide_title",
+                ctx.variables,
+            )
+
+        if slot.part == "summary":
+            return resource_manager.render_text(
+                meta.theme_key,
+                meta.function_key[0],
+                "summary",
+                ctx.variables,
+                meta.summary_item,
+            )
+
+        if slot.part == "caption":
+            assert slot.function_index is not None
+            function_keys = meta.function_key
+            if slot.function_index >= len(function_keys):
+                raise ValueError(
+                    f"caption text slot function_index={slot.function_index} "
+                    f"out of range for template {meta.uid} with function_keys={function_keys}"
+                )
+            return resource_manager.render_text(
+                meta.theme_key,
+                function_keys[slot.function_index],
+                "caption",
+                ctx.variables,
+            )
+
+        raise ValueError(f"Unsupported text slot part: {slot.part}")
 
     def _inject_data_elements(
         self,
@@ -150,10 +182,6 @@ class SlideConfigBuilder:
         """
         slots = layout_manager.get_layout_slots(meta.layout_type)
 
-        if not slots:
-            logger.warning(f"No layout strategy defined for: {meta.layout_type}")
-            return
-
         for slot in slots:
             # 从模板元数据的 data_keys 中查找实际的数据 Key
             # 例如: meta.data_keys["chart_main"] -> "Actual_Dataset_Key_001"
@@ -162,16 +190,16 @@ class SlideConfigBuilder:
                 slot.model_dump(by_alias=False, exclude={"name", "type", "role"})
             )
 
-            if actual_data_key:
-                element = SlideElementBuilder.build_data_element(
-                    element_type=slot.type,
-                    role=slot.role,
-                    layout=layout,
-                    data_key=actual_data_key,
-                    context=ctx,
-                )
-                elements.append(element)
-            else:
-                logger.warning(
+            if not actual_data_key:
+                raise ValueError(
                     f"Missing data mapping for slot '{slot.name}' in template {meta.uid}"
                 )
+
+            element = SlideElementBuilder.build_data_element(
+                element_type=slot.type,
+                role=slot.role,
+                layout=layout,
+                data_key=actual_data_key,
+                context=ctx,
+            )
+            elements.append(element)

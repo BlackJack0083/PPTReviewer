@@ -58,6 +58,7 @@ line_configs:
     line_width: 2.0
     smooth_line: false
     has_markers: true
+    has_data_labels: false
     y_axis_visible: true
 
   # 对比橘灰风格（折线图）
