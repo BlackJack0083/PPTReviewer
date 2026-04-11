@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """
-Summary 槽位错误注入工具（v3）
+Summary 槽位错误注入工具（v4）
 
 特性：
 1. 基于 summary_binding.summary_slots_truth 做结构化注入
 2. 按槽位和值自动匹配注入策略（数值/区间/趋势/文本）
 3. 支持一次注入随机数量槽位（min_slots ~ max_slots）
 4. 支持 benchmark 目录结构，自动产出 inject_meta.json + injections.jsonl
+5. 数值错误默认使用“小幅扰动”模式，避免过于夸张的随机改写
 """
 from __future__ import annotations
 
@@ -135,7 +136,68 @@ def format_like(value: float, sample: str) -> str:
     return f"{whole_fmt}{dot}{frac}" if dot else whole_fmt
 
 
-def mutate_numeric_token(token: str, rng: random.Random) -> str:
+def is_small_delta_target_value(value: str) -> bool:
+    """仅选择单一整数值做轻微扰动，避免区间/多值/小数扰动过强。"""
+    text = str(value)
+    if has_range(text):
+        return False
+    matches = list(NUMBER_RE.finditer(text))
+    if len(matches) != 1:
+        return False
+    token = matches[0].group(0)
+    return "." not in token
+
+
+def mutate_one_numeric_token(
+    token: str, rng: random.Random, deltas: list[float]
+) -> str:
+    value = parse_num(token)
+    if value is None:
+        return token
+
+    abs_value = abs(value)
+    allowed = [d for d in deltas if d > 0]
+    if not allowed:
+        allowed = [5.0]
+    if abs_value < 20:
+        allowed = [d for d in allowed if d <= 5] or [min(allowed)]
+
+    delta = float(rng.choice(allowed))
+    sign = rng.choice((-1.0, 1.0))
+    candidate = value + sign * delta
+
+    if value >= 0 and candidate < 0:
+        candidate = value + delta
+    if abs(candidate - value) < 1e-12:
+        candidate = value + delta
+
+    return format_like(candidate, token)
+
+
+def numeric_small_delta(text: str, rng: random.Random, deltas: list[float]) -> str:
+    if not is_small_delta_target_value(text):
+        return text
+
+    matches = list(NUMBER_RE.finditer(text))
+    if not matches:
+        return text
+
+    target_idx = rng.randrange(len(matches))
+    out_parts: list[str] = []
+    last = 0
+    for idx, match in enumerate(matches):
+        out_parts.append(text[last : match.start()])
+        token = match.group(0)
+        if idx == target_idx:
+            out_parts.append(mutate_one_numeric_token(token, rng, deltas))
+        else:
+            out_parts.append(token)
+        last = match.end()
+    out_parts.append(text[last:])
+    return "".join(out_parts)
+
+
+def mutate_numeric_token_large(token: str, rng: random.Random) -> str:
     original = parse_num(token)
     if original is None:
         return token
@@ -164,19 +226,24 @@ def mutate_numeric_token(token: str, rng: random.Random) -> str:
     return format_like(fallback, token)
 
 
-def numeric_random_value(text: str, rng: random.Random) -> str:
+def numeric_random_value_large(text: str, rng: random.Random) -> str:
     changed = False
 
     def repl(match: re.Match[str]) -> str:
         nonlocal changed
         token = match.group(0)
-        new_token = mutate_numeric_token(token, rng)
+        new_token = mutate_numeric_token_large(token, rng)
         if new_token != token:
             changed = True
         return new_token
 
     output = NUMBER_RE.sub(repl, text)
     return output if changed else text
+
+
+def numeric_random_value(text: str, rng: random.Random) -> str:
+    """兼容 ERROR_MUTATORS 注册；实际数值策略在 mutate_slot_value 中分发。"""
+    return numeric_random_value_large(text, rng)
 
 
 def range_shift(text: str, rng: random.Random) -> str:
@@ -295,6 +362,8 @@ def mutate_slot_value(
     truth_value: str,
     rng: random.Random,
     allowed_errors: list[str] | None,
+    numeric_mode: str,
+    numeric_deltas: list[float],
 ) -> MutationResult | None:
     candidates = applicable_errors(slot_name, truth_value)
     if allowed_errors:
@@ -310,8 +379,14 @@ def mutate_slot_value(
     while len(tried) < len(candidates):
         error_type = rng.choice([c for c in candidates if c not in tried])
         tried.add(error_type)
-        mutator = ERROR_MUTATORS[error_type]
-        injected = mutator(truth_value, rng)
+        if error_type == "numeric_random_value":
+            if numeric_mode == "large_random":
+                injected = numeric_random_value_large(truth_value, rng)
+            else:
+                injected = numeric_small_delta(truth_value, rng, numeric_deltas)
+        else:
+            mutator = ERROR_MUTATORS[error_type]
+            injected = mutator(truth_value, rng)
         if injected and injected != truth_value:
             return MutationResult(
                 slot_name=slot_name,
@@ -362,6 +437,8 @@ def inject_one_variant(
     allowed_errors: list[str] | None,
     min_slots: int,
     max_slots: int,
+    numeric_mode: str,
+    numeric_deltas: list[float],
     generate_ppt: bool,
 ) -> tuple[Path, Path | None, list[MutationResult]] | None:
     truth_slots = load_truth_slots(source_yaml)
@@ -381,6 +458,8 @@ def inject_one_variant(
             truth_value=truth_value,
             rng=rng,
             allowed_errors=allowed_errors,
+            numeric_mode=numeric_mode,
+            numeric_deltas=numeric_deltas,
         )
         if mutation is None:
             continue
@@ -502,6 +581,8 @@ def inject_for_yaml(
     min_slots: int,
     max_slots: int,
     allowed_errors: list[str] | None,
+    numeric_mode: str,
+    numeric_deltas: list[float],
     generate_ppt: bool,
     seed_gen: random.Random,
 ) -> int:
@@ -522,6 +603,8 @@ def inject_for_yaml(
             allowed_errors=allowed_errors,
             min_slots=min_slots,
             max_slots=max_slots,
+            numeric_mode=numeric_mode,
+            numeric_deltas=numeric_deltas,
             generate_ppt=generate_ppt,
         )
         if result is None:
@@ -545,8 +628,8 @@ def inject_for_yaml(
     return produced
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Summary 槽位错误注入工具（v3）")
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Summary 槽位错误注入工具（v4）")
     parser.add_argument(
         "--benchmark-root",
         default="output/benchmark/dataset_v1",
@@ -600,15 +683,28 @@ def parse_args() -> argparse.Namespace:
         help="随机种子（保证可复现）",
     )
     parser.add_argument(
+        "--numeric-mode",
+        choices=["small_delta", "large_random"],
+        default="small_delta",
+        help="数值错误注入模式：默认 small_delta，更接近真实但更有挑战",
+    )
+    parser.add_argument(
+        "--numeric-deltas",
+        nargs="+",
+        type=float,
+        default=[5, 20],
+        help="small_delta 模式下可选的数值扰动幅度集合",
+    )
+    parser.add_argument(
         "--generate-ppt",
         action="store_true",
         help="注入后是否重建 PPT",
     )
-    return parser.parse_args()
+    return parser.parse_args(argv)
 
 
-def main() -> None:
-    args = parse_args()
+def main(argv: list[str] | None = None) -> None:
+    args = parse_args(argv)
     seed_gen = random.Random(args.seed)  # noqa: S311 - benchmark 样本注入仅需可复现伪随机
 
     if args.min_slots <= 0 or args.max_slots <= 0:
@@ -617,6 +713,8 @@ def main() -> None:
         raise ValueError("min_slots 不能大于 max_slots")
     if args.variants_per_yaml <= 0:
         raise ValueError("variants_per_yaml 必须大于 0")
+    if not args.numeric_deltas or any(d <= 0 for d in args.numeric_deltas):
+        raise ValueError("numeric_deltas 必须为正数列表")
 
     if args.source:
         yaml_files = resolve_yaml_files(args.source)
@@ -644,6 +742,8 @@ def main() -> None:
             min_slots=args.min_slots,
             max_slots=args.max_slots,
             allowed_errors=args.errors,
+            numeric_mode=args.numeric_mode,
+            numeric_deltas=[float(x) for x in args.numeric_deltas],
             generate_ppt=args.generate_ppt,
             seed_gen=seed_gen,
         )
