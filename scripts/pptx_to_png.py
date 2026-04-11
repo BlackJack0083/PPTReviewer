@@ -70,11 +70,14 @@ def discover_benchmark_pptx(
         split_dirs = [p for p in split_root.iterdir() if p.is_dir()]
     else:
         split_dirs = [split_root / s.strip() for s in split.split(",") if s.strip()]
+        missing = [p.name for p in split_dirs if not p.exists()]
+        if missing:
+            raise ValueError(
+                f"Requested split(s) not found under {split_root}: {missing}"
+            )
 
     results: list[Path] = []
     for sample_root in split_dirs:
-        if not sample_root.exists():
-            continue
         if include_gt:
             results.extend(sample_root.glob("s_*/gt/slide.pptx"))
         if include_injected:
@@ -83,11 +86,26 @@ def discover_benchmark_pptx(
     return sorted({p.resolve() for p in results if p.exists()})
 
 
-def output_path_for(pptx_path: Path, output_root: Path | None, output_name: str) -> Path:
+def output_path_for(
+    pptx_path: Path,
+    output_root: Path | None,
+    output_name: str,
+    benchmark_root: Path | None,
+) -> Path:
     if output_root is None:
         return pptx_path.with_name(output_name)
-    output_root.mkdir(parents=True, exist_ok=True)
-    return output_root / f"{pptx_path.stem}.png"
+    if benchmark_root is not None:
+        try:
+            relative = pptx_path.relative_to(benchmark_root)
+            target = output_root / relative
+            return target.with_suffix(".png")
+        except ValueError:
+            pass
+
+    parent_tag = "_".join(pptx_path.parent.parts[-3:])
+    safe_tag = parent_tag.replace("/", "_").replace("\\", "_")
+    target_name = f"{safe_tag}_{pptx_path.stem}.png" if safe_tag else f"{pptx_path.stem}.png"
+    return output_root / target_name
 
 
 def parse_args() -> argparse.Namespace:
@@ -105,7 +123,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--split",
-        default="test_size_b",
+        default="test",
         help="Split for benchmark scan; supports comma list or 'all'",
     )
     parser.add_argument(
@@ -193,6 +211,7 @@ def main() -> None:
             pptx_path=pptx_path,
             output_root=output_root,
             output_name=args.output_name,
+            benchmark_root=benchmark_root,
         )
         if output_png.exists() and not args.overwrite:
             skipped += 1
@@ -217,6 +236,7 @@ def main() -> None:
         pptx_path, output_png = task
         print(f"START {pptx_path}", flush=True)
         try:
+            output_png.parent.mkdir(parents=True, exist_ok=True)
             convert_pptx_first_page_to_png(
                 pptx_path,
                 output_png,
