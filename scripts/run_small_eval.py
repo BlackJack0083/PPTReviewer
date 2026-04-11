@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
+import copy
 import json
 import os
 import random
 import re
+import shutil
 import sys
 import threading
 import time
@@ -168,6 +170,44 @@ def to_injected_case(dataset_root: Path, inj_row: dict[str, Any]) -> dict[str, A
     }
 
 
+def stage_cases_in_sandbox(
+    dataset_root: Path,
+    cases: list[dict[str, Any]],
+    sandbox_root: Path,
+    run_id: str,
+) -> list[dict[str, Any]]:
+    staged_root = sandbox_root / run_id
+    staged_root.mkdir(parents=True, exist_ok=True)
+    staged_cases: list[dict[str, Any]] = []
+
+    for idx, case in enumerate(cases, 1):
+        staged_case = copy.deepcopy(case)
+        case_dir = staged_root / f"{idx:03d}_{case['case_id']}"
+        case_dir.mkdir(parents=True, exist_ok=True)
+
+        source_yaml = dataset_root / case["target_yaml"]
+        source_ppt = dataset_root / case["target_ppt"]
+        staged_yaml = case_dir / "slide.yaml"
+        staged_ppt = case_dir / "slide.pptx"
+        shutil.copy2(source_yaml, staged_yaml)
+        shutil.copy2(source_ppt, staged_ppt)
+
+        source_image = Path(case["image_path"])
+        staged_image = case_dir / source_image.name
+        if source_image.exists():
+            shutil.copy2(source_image, staged_image)
+        else:
+            staged_image = case_dir / "slide.png"
+
+        staged_case["sandbox_dir"] = str(case_dir)
+        staged_case["image_path"] = str(staged_image)
+        staged_case["target_yaml_abs"] = str(staged_yaml)
+        staged_case["target_ppt_abs"] = str(staged_ppt)
+        staged_cases.append(staged_case)
+
+    return staged_cases
+
+
 def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
     valid = [r for r in rows if r.get("pred_has_issue") is not None]
     if not valid:
@@ -245,6 +285,7 @@ def run_mode_eval(
     def run_one_sync(idx: int, case: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         retries = max(0, case_retries)
         image_path = Path(case["image_path"])
+        yaml_path = Path(case.get("target_yaml_abs", dataset_root / case["target_yaml"]))
         last_row: dict[str, Any] | None = None
 
         for attempt in range(retries + 1):
@@ -256,7 +297,7 @@ def run_mode_eval(
                     image_path,
                     mode=mode,
                     run_id=f"{run_id}-{mode}-{row['case_id']}",
-                    yaml_path=dataset_root / row["target_yaml"],
+                    yaml_path=yaml_path,
                     auto_render_image=auto_render_images,
                     render_dpi=render_dpi,
                     render_backend=render_backend,
@@ -444,7 +485,7 @@ def parse_args() -> argparse.Namespace:
         default="output/benchmark/dataset_v1",
         help="Benchmark dataset root",
     )
-    parser.add_argument("--split", default="test_size_b", help="Split name")
+    parser.add_argument("--split", default="test", help="Split name")
     parser.add_argument(
         "--mode",
         choices=["no_tool", "with_tool", "with_tool_react", "both"],
@@ -500,6 +541,11 @@ def parse_args() -> argparse.Namespace:
         help="Optional output JSON path; default in output/eval/",
     )
     parser.add_argument(
+        "--output-detailed-json",
+        default=None,
+        help="Optional detailed output JSON path including per-case results.",
+    )
+    parser.add_argument(
         "--append-manifest",
         action="store_true",
         help="Append per-case eval records to manifest/eval_runs.jsonl",
@@ -530,6 +576,11 @@ def parse_args() -> argparse.Namespace:
         "--log-file",
         default=None,
         help="Optional log file path (default: output/log/<run_id>_<split>_<mode>.log)",
+    )
+    parser.add_argument(
+        "--sandbox-root",
+        default=None,
+        help="Optional sandbox directory. When set, sampled PPT/YAML/PNG files are copied there before evaluation to avoid touching the dataset.",
     )
     return parser.parse_args()
 
@@ -597,6 +648,16 @@ def main() -> None:
     )
     logger.info(f"Logging to file: {log_path}")
 
+    if args.sandbox_root:
+        sandbox_root = Path(args.sandbox_root).resolve()
+        cases = stage_cases_in_sandbox(
+            dataset_root=dataset_root,
+            cases=cases,
+            sandbox_root=sandbox_root,
+            run_id=run_id,
+        )
+        logger.info(f"Staged {len(cases)} cases into sandbox: {sandbox_root / run_id}")
+
     run_results: list[dict[str, Any]] = []
     sample_eval_filename = args.sample_eval_filename or f"{run_id}.jsonl"
 
@@ -660,10 +721,25 @@ def main() -> None:
         "injected_samples": len(inj_picks),
         "workers": max(1, args.workers),
         "sample_eval_filename": sample_eval_filename if not args.no_write_sample_eval else "",
+        "sandbox_root": str((Path(args.sandbox_root).resolve() / run_id)) if args.sandbox_root else "",
         "mode_metrics": mode_metrics,
     }
     output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     logger.info(f"Saved eval report: {output_json}")
+
+    if args.output_detailed_json:
+        detailed_path = Path(args.output_detailed_json).resolve()
+        detailed_path.parent.mkdir(parents=True, exist_ok=True)
+        detailed_payload = {
+            **payload,
+            "cases": cases,
+            "run_results": run_results,
+        }
+        detailed_path.write_text(
+            json.dumps(detailed_payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        logger.info(f"Saved detailed eval report: {detailed_path}")
 
     if args.append_manifest:
         case_records: list[dict[str, Any]] = []
