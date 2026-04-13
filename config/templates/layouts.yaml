@@ -13,25 +13,25 @@ layouts:
       - part: "summary"
         role: "body-text"
         x: 0.5
-        y: 1.9
+        y: 1.8
         width: 18.0
-        height: 1.5
+        height: 1.7
       - part: "caption"
         role: "caption"
         function_index: 0
         x: 3.9
-        y: 3.6
+        y: 3.7
         width: 12.0
-        height: 1.3
+        height: 0.9
         alignment: "居中"
     slots:
       - name: "chart_main"
         type: "chart"
         role: "chart-bar"
         x: 3.7
-        y: 4.54
+        y: 4.85
         width: 12.2
-        height: 7.48
+        height: 7.25
 
   single_column_line:
     slide_size:
@@ -47,25 +47,59 @@ layouts:
       - part: "summary"
         role: "body-text"
         x: 0.5
-        y: 1.9
+        y: 1.8
         width: 18.0
-        height: 1.5
+        height: 1.7
       - part: "caption"
         role: "caption"
         function_index: 0
         x: 3.9
-        y: 3.6
+        y: 3.7
         width: 12.0
-        height: 1.3
+        height: 0.9
         alignment: "居中"
     slots:
       - name: "chart_main"
         type: "chart"
         role: "chart-line"
         x: 3.7
-        y: 4.54
+        y: 4.85
         width: 12.2
-        height: 7.48
+        height: 7.25
+
+  single_column_pie:
+    slide_size:
+      width: 19.05
+      height: 14.29
+    text_slots:
+      - part: "slide_title"
+        role: "slide-title"
+        x: 0.5
+        y: 1.0
+        width: 18.0
+        height: 1.1
+      - part: "summary"
+        role: "body-text"
+        x: 0.5
+        y: 1.8
+        width: 18.0
+        height: 1.7
+      - part: "caption"
+        role: "caption"
+        function_index: 0
+        x: 3.9
+        y: 3.7
+        width: 12.0
+        height: 0.9
+        alignment: "居中"
+    slots:
+      - name: "chart_main"
+        type: "chart"
+        role: "chart-pie"
+        x: 3.7
+        y: 4.85
+        width: 12.2
+        height: 7.25
 
   single_column_table:
     slide_size:
@@ -76,30 +110,30 @@ layouts:
         role: "slide-title"
         x: 0.5
         y: 1.0
-        width: 18.0
+        width: 24.0
         height: 1.1
       - part: "summary"
         role: "body-text"
         x: 0.5
-        y: 2.0
+        y: 1.9
         width: 24.0
-        height: 1.3
+        height: 1.45
       - part: "caption"
         role: "caption"
         function_index: 0
         x: 5.2
-        y: 3.6
+        y: 3.65
         width: 15.0
-        height: 1.3
+        height: 0.9
         alignment: "居中"
     slots:
       - name: "table_main"
         type: "table"
         role: "table"
         x: 0.84
-        y: 4.5
+        y: 4.55
         width: 23.75
-        height: 8.96
+        height: 8.7
 
   double_column_bar:
     slide_size:
@@ -110,43 +144,43 @@ layouts:
         role: "slide-title"
         x: 0.5
         y: 1.0
-        width: 18.0
+        width: 24.0
         height: 1.1
       - part: "summary"
         role: "body-text"
         x: 0.5
-        y: 2.0
-        width: 18.0
-        height: 0.85
+        y: 1.9
+        width: 24.0
+        height: 1.05
       - part: "caption"
         role: "caption"
         function_index: 0
         x: 1.1
-        y: 3.5
-        width: 12.0
-        height: 1.3
+        y: 3.35
+        width: 11.8
+        height: 0.9
       - part: "caption"
         role: "caption"
         function_index: 1
         x: 13.0
-        y: 3.5
-        width: 12.0
-        height: 1.3
+        y: 3.35
+        width: 11.8
+        height: 0.9
     slots:
       - name: "chart_left"
         type: "chart"
         role: "chart-bar"
         x: 0.75
-        y: 4.94
+        y: 4.65
         width: 10.5
-        height: 6.5
+        height: 6.7
       - name: "chart_right"
         type: "chart"
         role: "chart-bar"
         x: 12.75
-        y: 4.94
+        y: 4.65
         width: 10.5
-        height: 6.5
+        height: 6.7
 
   double_column_line:
     slide_size:
@@ -157,40 +191,40 @@ layouts:
         role: "slide-title"
         x: 0.5
         y: 1.0
-        width: 18.0
+        width: 24.0
         height: 1.1
       - part: "summary"
         role: "body-text"
         x: 0.5
-        y: 2.0
-        width: 18.0
-        height: 0.85
+        y: 1.9
+        width: 24.0
+        height: 1.05
       - part: "caption"
         role: "caption"
         function_index: 0
         x: 1.1
-        y: 3.5
-        width: 12.0
-        height: 1.3
+        y: 3.35
+        width: 11.8
+        height: 0.9
       - part: "caption"
         role: "caption"
         function_index: 1
         x: 13.0
-        y: 3.5
-        width: 12.0
-        height: 1.3
+        y: 3.35
+        width: 11.8
+        height: 0.9
     slots:
       - name: "chart_left"
         type: "chart"
         role: "chart-line"
         x: 0.75
-        y: 4.94
+        y: 4.65
         width: 10.5
-        height: 6.5
+        height: 6.7
       - name: "chart_right"
         type: "chart"
         role: "chart-line"
         x: 12.75
-        y: 4.94
+        y: 4.65
         width: 10.5
-        height: 6.5
+        height: 6.7

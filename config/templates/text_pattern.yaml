@@ -1,177 +1,658 @@
 # ==============================================================================
+
 # Theme: Block Area Segment Distribution
-# ==============================================================================
-"Block Area Segment Distribution":
-  slide_title: "Block Area Segment Distribution"
-  "Supply-Transaction Unit Statistic":
-    chart_caption: >-
-      **{{ Temporal_Start_Year }}** - **{{ Temporal_End_Year }}**  Supply and Transaction Unit Statistics in  **{{ Geo_City_Name }}** 's  **{{ Geo_Block_Name }}**
-    summaries:
-      - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s core supply-demand area was **{{ Seg_SupplyDemand_Core_Area }}** , with the upgrade-oriented segment centered on **{{ Seg_SupplyDemand_Upgrade_Area }}**.
-      - >-
-        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market structure in **{{ Geo_Block_Name }}** was defined by a core demand range of **{{ Seg_SupplyDemand_Core_Area }}** and an upgrade tier of **{{ Seg_SupplyDemand_Upgrade_Area }}**.
-      - >-
-        The **{{ Geo_Block_Name }}** sector exhibited a dual-tier segmentation from **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**: a primary volume cluster at **{{ Seg_SupplyDemand_Core_Area }}** and a secondary upgrade cluster at **{{ Seg_SupplyDemand_Upgrade_Area }}**.
 
 # ==============================================================================
-# Theme: New-House Cross-Structure Analysis
-# ==============================================================================
-"New-House Cross-Structure Analysis":
-  slide_title: "New-House Cross-Structure Analysis"
-  "Area x Price Cross Pivot":
+
+"Block Area Segment Distribution":
+
+  slide_title: "Block Area Segment Distribution"
+
+  "Supply-Transaction Unit Statistic":
+
     chart_caption: >-
-      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Area and Total Price Cross Statistics
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Supply vs. Transactions by Area (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s core supply-demand area was **{{ Seg_SupplyDemand_Core_Area }}** , with the upgrade-oriented segment centered on **{{ Seg_SupplyDemand_Upgrade_Area }}**.
+
+      - >-
+
+        Market activity centered on **{{ Seg_SupplyDemand_Core_Area }}**, with **{{ Seg_SupplyDemand_Upgrade_Area }}** as the upgrade band.
+
+      - >-
+
+        The market split between a core band at **{{ Seg_SupplyDemand_Core_Area }}** and an upgrade band at **{{ Seg_SupplyDemand_Upgrade_Area }}**.
+
+
+
+# ==============================================================================
+
+# Theme: New-House Cross-Structure Analysis
+
+# ==============================================================================
+
+"New-House Cross-Structure Analysis":
+
+  slide_title: "New-House Cross-Structure Analysis"
+
+  "Area x Price Cross Pivot":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Area x Price Matrix (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
         From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** units were transacted, with the **{{ Seg_Price_Stratum_Modal }}** price segment and **{{ Seg_Area_Stratum_Modal }}** area segment having the highest transactions at **{{ Metric_Transaction_Velocity_Peak }}** units.
+
       - >-
+
         Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the market in **{{ Geo_Block_Name }}** was concentrated around **{{ Seg_Price_Stratum_Modal }}** in total price and **{{ Seg_Area_Stratum_Modal }}** in area, with a peak cluster of **{{ Metric_Transaction_Velocity_Peak }}** units.
+
       - >-
-        In **{{ Geo_Block_Name }}**, cross-structure analysis for **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** shows the dominant intersection at **{{ Seg_Price_Stratum_Modal }}** (price) and **{{ Seg_Area_Stratum_Modal }}** (area), totaling **{{ Metric_Transaction_Velocity_Peak }}** units.
+
+        The dominant cross was **{{ Seg_Price_Stratum_Modal }}** by **{{ Seg_Area_Stratum_Modal }}**, totaling **{{ Metric_Transaction_Velocity_Peak }}** units.
+
+
 
   "Area Segment Distribution":
+
     chart_caption: >-
-      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Area Segment Distribution Statistics
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Area Segment Distribution (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
         Mainstream types concentrate in **{{ Seg_Area_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         A volume of **{{ Metric_Volume_Dominant_Cluster }}** units indicates that the **{{ Seg_Area_Stratum_Dominant }}** range represents the dominant area concentration.
+
       - >-
+
         The **{{ Seg_Area_Stratum_Dominant }}** typology emerged as the mainstream segment, amassing a total of **{{ Metric_Volume_Dominant_Cluster }}** units.
 
+
+
   "Price Segment Distribution":
+
     chart_caption: >-
-      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Total Price Segment Distribution Statistics
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Price Segment Distribution (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
         Mainstream types concentrate in **{{ Seg_Price_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         The **{{ Seg_Price_Stratum_Dominant }}** price bracket captured the majority of interest, accumulating **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         With **{{ Metric_Volume_Dominant_Cluster }}** units, the **{{ Seg_Price_Stratum_Dominant }}** segment constitutes the primary price concentration for the sector.
 
+
+
 # ==============================================================================
+
 # Theme: Resale-House Cross-Structure Analysis
+
 # ==============================================================================
+
 "Resale-House Cross-Structure Analysis":
+
   slide_title: "Resale-House Cross-Structure Analysis"
 
-  "Area Segment Distribution":
+
+
+  "Area x Price Cross Pivot":
+
     chart_caption: >-
-      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Area Segment Distribution Statistics
+
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Area and Price Cross Statistics
+
     summaries:
+
       - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, a total of **{{ Metric_Transaction_Volume_Cumulative }}** resale units were transacted, with the **{{ Seg_Price_Stratum_Modal }}** price segment and **{{ Seg_Area_Stratum_Modal }}** area segment having the highest transactions at **{{ Metric_Transaction_Velocity_Peak }}** units.
+
+      - >-
+
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, the resale market in **{{ Geo_Block_Name }}** was concentrated around **{{ Seg_Price_Stratum_Modal }}** in total price and **{{ Seg_Area_Stratum_Modal }}** in area, with a peak cluster of **{{ Metric_Transaction_Velocity_Peak }}** units.
+
+      - >-
+
+        In **{{ Geo_Block_Name }}**, resale cross-structure analysis for **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** shows the dominant intersection at **{{ Seg_Price_Stratum_Modal }}** (price) and **{{ Seg_Area_Stratum_Modal }}** (area), totaling **{{ Metric_Transaction_Velocity_Peak }}** units.
+
+
+
+  "Area Segment Distribution":
+
+    chart_caption: >-
+
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Area Segment Distribution Statistics
+
+    summaries:
+
+      - >-
+
         Mainstream types concentrate in the **{{ Seg_Area_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         The resale inventory is heavily weighted in the **{{ Seg_Area_Stratum_Dominant }}** range, which accounts for **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         Accounting for **{{ Metric_Volume_Dominant_Cluster }}** units, the **{{ Seg_Area_Stratum_Dominant }}** category stands out as the primary resale typology.
 
+
+
   "Price Segment Distribution":
+
     chart_caption: >-
+
       **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House Total Price Segment Distribution Statistics
+
     summaries:
+
       - >-
+
         Mainstream types concentrate in the **{{ Seg_Price_Stratum_Dominant }}** segments, totaling **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         The **{{ Seg_Price_Stratum_Dominant }}** price tier represents the core resale market, comprising **{{ Metric_Volume_Dominant_Cluster }}** units.
+
       - >-
+
         A total of **{{ Metric_Volume_Dominant_Cluster }}** resale units clustered within the **{{ Seg_Price_Stratum_Dominant }}** price band.
 
+
+
 # ==============================================================================
+
 # Theme: New-House Market Capacity Analysis
+
 # ==============================================================================
+
 "New-House Market Capacity Analysis":
+
   slide_title: "New-House Market Capacity Analysis"
+
   "Historical Capacity Summary":
+
     chart_caption: >-
-      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Historical Capacity Summary Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Capacity Summary (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
         From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}**'s traded area **{{ Trend_Trajectory_Type }}** **{{ Metric_Var_Trans_Pct }}**% from **{{ Metric_Val_Area_Base }}** m² to **{{ Metric_Val_Area_Terminal }}** m², and the average valuation also **{{ Trend_Trajectory_Type }}** **{{ Metric_Var_Price_Delta }}** from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+
       - >-
-        Over the **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** period, the sector saw traded area **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Trans_Pct }}**% (moving from **{{ Metric_Val_Area_Base }}** to **{{ Metric_Val_Area_Terminal }}** m²), while valuations **{{ Trend_Trajectory_Type }}** by **{{ Metric_Var_Price_Delta }}** yuan/m².
+
+        Traded area changed **{{ Metric_Var_Trans_Pct }}**%, while average price changed **{{ Metric_Var_Price_Delta }}** yuan/m².
+
       - >-
-        Starting at **{{ Metric_Val_Area_Base }}** m² and **{{ Metric_Val_Price_Base }}** yuan/m², the market **{{ Trend_Trajectory_Type }}** to **{{ Metric_Val_Area_Terminal }}** m² and **{{ Metric_Val_Price_Terminal }}** yuan/m² respectively, marking a volume shift of **{{ Metric_Var_Trans_Pct }}**% and a price shift of **{{ Metric_Var_Price_Delta }}**.
+
+        The market ended at **{{ Metric_Val_Area_Terminal }}** m² and **{{ Metric_Val_Price_Terminal }}** yuan/m² after changes in volume and price.
+
+
 
   "Annual Supply-Demand Comparison":
+
     chart_caption: >-
-      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Annual Supply-Demand Comparison Analysis (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Supply vs. Demand (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
         From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in this sector **{{ Enum_Supply_Trend }}** from **{{ Metric_Vol_Supply_Base }}** units to **{{ Metric_Vol_Supply_Terminal }}** units (a **{{ Enum_Supply_Trend_Label }}** of **{{ Metric_Var_Supply_Pct }}**%), and transaction volume **{{ Enum_Deal_Trend }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units (a **{{ Enum_Deal_Trend_Label }}** of **{{ Metric_Var_Trans_Pct }}**%).
+
       - >-
-        While listings **{{ Enum_Supply_Trend }}** by **{{ Metric_Var_Supply_Pct }}**% (reaching **{{ Metric_Vol_Supply_Terminal }}** units), transactions simultaneously **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**% (ending at **{{ Metric_Vol_Trans_Terminal }}** units) between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+
+        Listings changed **{{ Metric_Var_Supply_Pct }}**%, while transactions changed **{{ Metric_Var_Trans_Pct }}**% over the period.
+
       - >-
-        Comparing **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, supply **{{ Enum_Supply_Trend }}** to **{{ Metric_Vol_Supply_Terminal }}** ({{ Metric_Var_Supply_Pct }}% **{{ Enum_Supply_Trend_Label }}**), and demand **{{ Enum_Deal_Trend }}** to **{{ Metric_Vol_Trans_Terminal }}** ({{ Metric_Var_Trans_Pct }}% **{{ Enum_Deal_Trend_Label }}**).
+
+        By **{{ Temporal_End_Year }}**, supply reached **{{ Metric_Vol_Supply_Terminal }}** units and demand reached **{{ Metric_Vol_Trans_Terminal }}** units.
+
+
 
   "Supply-Transaction Area":
+
     chart_caption: >-
-      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** : Historical Supply and Transaction Area Statistics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Supply vs. Transaction Area (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
     summaries:
+
       - >-
+
         From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, inventory in this region **{{ Enum_Supply_Trend }}** by **{{ Metric_Var_Supply_Pct }}**%, while the transaction area **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**%.
+
       - >-
-        Area-wise inventory **{{ Enum_Supply_Trend }}** at a **{{ Metric_Var_Supply_Pct }}**% rate, contrasting with the transaction area which **{{ Enum_Deal_Trend }}** by **{{ Metric_Var_Trans_Pct }}**% through **{{ Temporal_End_Year }}**.
+
+        Supply area changed **{{ Metric_Var_Supply_Pct }}**%, while transaction area changed **{{ Metric_Var_Trans_Pct }}**% through **{{ Temporal_End_Year }}**.
+
       - >-
-        The region experienced a **{{ Metric_Var_Supply_Pct }}%** **{{ Enum_Supply_Trend }}** in supply area and a **{{ Metric_Var_Trans_Pct }}%** **{{ Enum_Deal_Trend }}** in sold area between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+
+        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, supply area changed **{{ Metric_Var_Supply_Pct }}**% and sold area changed **{{ Metric_Var_Trans_Pct }}**%.
+
+
 
 # ==============================================================================
+
 # Theme: Resale-House Capacity & Structure
+
 # ==============================================================================
+
 "Resale-House Capacity & Structure":
+
   slide_title: "Resale-House Capacity & Structure"
+
   "Historical Delivery Metrics":
+
     chart_caption: >-
-      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: Overview of Historical Delivery Metrics (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Resale Market Summary (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+
 
     summaries:
+
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the number of resale transactions in this area **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, with a cumulative **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units, representing a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Pct }}**%.
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, resale transactions in **{{ Geo_Block_Name }}** **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, representing a net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units, or **{{ Metric_Var_Trans_Pct }}**% over the period.
+
       - >-
-        Resale volumes moved from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** units (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**), marking a **{{ Metric_Var_Trans_Delta }}**-unit **{{ Trend_Direction_Label }}** or a **{{ Metric_Var_Trans_Pct }}**% change.
+
+        Across the period, resale transaction volume moved from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, a net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units.
+
       - >-
-        The market observed a **{{ Trend_Trajectory_Type }}** in resales to **{{ Metric_Vol_Trans_Terminal }}** units, a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Direction_Label }}** relative to the **{{ Metric_Vol_Trans_Base }}**-unit baseline in **{{ Temporal_Start_Year }}**.
+
+        By **{{ Temporal_End_Year }}**, resale transactions reached **{{ Metric_Vol_Trans_Terminal }}** units versus **{{ Metric_Vol_Trans_Base }}** units in **{{ Temporal_Start_Year }}**, equivalent to a **{{ Metric_Var_Trans_Pct }}**% **{{ Trend_Direction_Label }}**.
+
+
 
   "Annual Delivery Unit Count":
+
     chart_caption: >-
-      Historical Delivery Unit Count Statistics for **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Resale Transactions (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+
 
     summaries:
+
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the number of resale house transactions in this area **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, with a cumulative **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units.
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, annual resale transaction volume in **{{ Geo_Block_Name }}** **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, delivering a net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units.
+
       - >-
-        A net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units was recorded as resale volume **{{ Trend_Trajectory_Type }}** from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**.
+
+        Across the period, annual resale transaction volume moved from **{{ Metric_Vol_Trans_Base }}** units to **{{ Metric_Vol_Trans_Terminal }}** units, a net **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** units.
+
       - >-
-        The trend **{{ Trend_Trajectory_Type }}** brought resale figures to **{{ Metric_Vol_Trans_Terminal }}** by **{{ Temporal_End_Year }}**, a **{{ Trend_Direction_Label }}** of **{{ Metric_Var_Trans_Delta }}** from the start of the period.
+
+        By **{{ Temporal_End_Year }}**, annual resale transaction volume reached **{{ Metric_Vol_Trans_Terminal }}** units, compared with **{{ Metric_Vol_Trans_Base }}** units in **{{ Temporal_Start_Year }}**.
+
+
 
   "Annual Average Price Trend":
+
     chart_caption: >-
-      **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Resale House: **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** Annual Average Price Trend Analysis
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Resale Avg. Price Trend (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+
 
     summaries:
+
       - >-
-        Resale average prices trended **{{ Trend_Secular_Direction }}** from **{{ Metric_Val_Price_Base }}** yuan/m² in **{{ Temporal_Start_Year }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² in **{{ Temporal_End_Year }}** (**{{ Trend_Market_Absorption_State }}**).
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the average resale price in **{{ Geo_Block_Name }}** followed a **{{ Trend_Secular_Direction }}** trend, moving from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m² in a **{{ Trend_Market_Absorption_State }}** market.
+
       - >-
-        The market valuation followed a **{{ Trend_Secular_Direction }}** path, adjusting from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² amid **{{ Trend_Market_Absorption_State }}** conditions.
+
+        Across the period, the average resale price moved from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m², consistent with a **{{ Trend_Secular_Direction }}** trend.
+
       - >-
-        Between **{{ Temporal_Start_Year }}** and **{{ Temporal_End_Year }}**, prices **{{ Trend_Secular_Direction }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m² from a base of **{{ Metric_Val_Price_Base }}**, characterizing a **{{ Trend_Market_Absorption_State }}** market.
+
+        By **{{ Temporal_End_Year }}**, the average resale price reached **{{ Metric_Val_Price_Terminal }}** yuan/m² versus **{{ Metric_Val_Price_Base }}** yuan/m² in **{{ Temporal_Start_Year }}**, indicating **{{ Trend_Market_Absorption_State }}** pricing conditions.
+
+
 
 # ==============================================================================
+
 # Theme: Neighborhood Price Trend
+
 # ==============================================================================
+
 "Neighborhood Price Trend":
+
   slide_title: "Neighborhood Price Trend"
+
   "Monthly Average Price Trend":
+
     chart_caption: >-
+
       **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** Monthly Average Price Trend Analysis, Jan-Jun **{{ Temporal_Start_Year }}**
 
+
+
     summaries:
+
       - >-
-        During **{{ Temporal_Month_Specific }}**, the average transaction price of apartments in this community went from **{{ Metric_Val_Price_Base }}** yuan/m² **{{ Trend_Secular_Direction }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m², with a cumulative **{{ Trend_Secular_Direction }}** of **{{ Metric_Var_Price_Delta }}** yuan/m².
+
+        During **{{ Temporal_Month_Specific }}**, the average transaction price in **{{ Geo_Block_Name }}** followed a **{{ Trend_Secular_Direction }}** trend, moving from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+
       - >-
-        For **{{ Temporal_Month_Specific }}**, prices **{{ Trend_Secular_Direction }}** by **{{ Metric_Var_Price_Delta }}** yuan/m², shifting the average from **{{ Metric_Val_Price_Base }}** to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+
+        Over **{{ Temporal_Month_Specific }}**, the average transaction price shifted by **{{ Metric_Var_Price_Delta }}** yuan/m², from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m².
+
       - >-
-        A net **{{ Trend_Secular_Direction }}** of **{{ Metric_Var_Price_Delta }}** yuan/m² was observed in **{{ Temporal_Month_Specific }}**, as prices moved to **{{ Metric_Val_Price_Terminal }}** yuan/m² from **{{ Metric_Val_Price_Base }}**.
+
+        By the end of **{{ Temporal_Month_Specific }}**, the average transaction price reached **{{ Metric_Val_Price_Terminal }}** yuan/m², compared with **{{ Metric_Val_Price_Base }}** yuan/m² at the start of the period.
+
+
+
+# ==============================================================================
+
+# Theme: New-House Price Share Analysis
+
+# ==============================================================================
+
+"New-House Price Share Analysis":
+
+  slide_title: "New-House Price Share Analysis"
+
+  "Price Share Distribution":
+
+    chart_caption: >-
+
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** New House Price Range Transaction Distribution
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the **{{ Seg_Price_Stratum_Dominant }}** price segment accounted for the largest share of transactions in **{{ Geo_Block_Name }}**, contributing **{{ Metric_Volume_Dominant_Cluster }}** units or **{{ Metric_Share_Dominant_Cluster }}**% of the total **{{ Metric_Volume_Total }}** units.
+
+      - >-
+
+        Across the period, market demand was concentrated in the **{{ Seg_Price_Stratum_Dominant }}** price segment, which contributed **{{ Metric_Volume_Dominant_Cluster }}** units and **{{ Metric_Share_Dominant_Cluster }}**% of total transactions.
+
+      - >-
+
+        The transaction structure remained centered on the **{{ Seg_Price_Stratum_Dominant }}** price segment, representing **{{ Metric_Share_Dominant_Cluster }}**% of the market and **{{ Metric_Volume_Dominant_Cluster }}** out of **{{ Metric_Volume_Total }}** total units.
+
+
+
+# ==============================================================================
+
+# Theme: New-House Area Share Analysis
+
+# ==============================================================================
+
+"New-House Area Share Analysis":
+
+  slide_title: "New-House Area Share Analysis"
+
+  "Area Share Distribution":
+
+    chart_caption: >-
+
+      **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}** **{{ Geo_City_Name }}** **{{ Geo_Block_Name }}** New House Area Segment Transaction Distribution
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the **{{ Seg_Area_Stratum_Dominant }}** area segment accounted for the largest share of transactions in **{{ Geo_Block_Name }}**, contributing **{{ Metric_Volume_Dominant_Cluster }}** units or **{{ Metric_Share_Dominant_Cluster }}**% of the total **{{ Metric_Volume_Total }}** units.
+
+      - >-
+
+        Across the period, market demand was concentrated in the **{{ Seg_Area_Stratum_Dominant }}** area segment, which contributed **{{ Metric_Volume_Dominant_Cluster }}** units and **{{ Metric_Share_Dominant_Cluster }}**% of total transactions.
+
+      - >-
+
+        The transaction structure remained centered on the **{{ Seg_Area_Stratum_Dominant }}** area segment, representing **{{ Metric_Share_Dominant_Cluster }}**% of the market and **{{ Metric_Volume_Dominant_Cluster }}** out of **{{ Metric_Volume_Total }}** total units.
+
+
+
+# ==============================================================================
+
+# Theme: Monthly Supply Analysis
+
+# ==============================================================================
+
+"Monthly Supply Analysis":
+
+  slide_title: "Monthly Supply & Transaction Volume Analysis"
+
+  "Monthly Supply Volume":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Monthly Supply & Transactions (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** recorded a peak monthly transaction volume of **{{ Metric_Volume_Trade_Peak }}** units in **{{ Temporal_Month_Peak }}**, with an average of **{{ Metric_Volume_Trade_Average }}** units per month and an overall supply-to-demand ratio of **{{ Metric_Supply_Demand_Ratio }}**%.
+
+      - >-
+
+        Across the period, the monthly market peaked in **{{ Temporal_Month_Peak }}** at **{{ Metric_Volume_Trade_Peak }}** transacted units, while cumulative supply reached **{{ Metric_Volume_Supply_Total }}** units.
+
+      - >-
+
+        Monthly supply and demand remained anchored by a transaction peak in **{{ Temporal_Month_Peak }}** at **{{ Metric_Volume_Trade_Peak }}** units, alongside **{{ Metric_Volume_Supply_Total }}** units of supply and **{{ Metric_Volume_Trade_Total }}** units of transactions over the full period.
+
+
+
+  "Monthly Supply Trend":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Monthly Supply & Transaction Trend (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** recorded a peak monthly transaction volume of **{{ Metric_Volume_Trade_Peak }}** units in **{{ Temporal_Month_Peak }}**, with an average of **{{ Metric_Volume_Trade_Average }}** units per month and an overall supply-to-demand ratio of **{{ Metric_Supply_Demand_Ratio }}**%.
+
+      - >-
+
+        Across the period, the monthly market peaked in **{{ Temporal_Month_Peak }}** at **{{ Metric_Volume_Trade_Peak }}** transacted units, while cumulative supply reached **{{ Metric_Volume_Supply_Total }}** units.
+
+      - >-
+
+        Monthly supply and demand remained anchored by a transaction peak in **{{ Temporal_Month_Peak }}** at **{{ Metric_Volume_Trade_Peak }}** units, alongside **{{ Metric_Volume_Supply_Total }}** units of supply and **{{ Metric_Volume_Trade_Total }}** units of transactions over the full period.
+
+
+
+# ==============================================================================
+
+# Theme: Annual Avg Price Growth
+
+# ==============================================================================
+
+"Annual Avg Price Growth":
+
+  slide_title: "Annual Average Transaction Price Analysis"
+
+  "Annual Avg Price":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Avg. Price (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the average transaction price in **{{ Geo_Block_Name }}** followed a **{{ Trend_Secular_Direction }}** trend, moving from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m², with cumulative growth of **{{ Metric_Var_Price_Pct }}**%.
+
+      - >-
+
+        By **{{ Temporal_End_Year }}**, the average transaction price reached **{{ Metric_Val_Price_Terminal }}** yuan/m², while the strongest annual YoY growth was recorded in **{{ Temporal_Year_YoY_Peak }}** at **{{ Metric_YoY_Peak }}**%.
+
+      - >-
+
+        The annual price series **{{ Trend_Trajectory_Type }}** from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m², with the most pronounced YoY growth occurring in **{{ Temporal_Year_YoY_Peak }}** at **{{ Metric_YoY_Peak }}**%.
+
+
+
+  "Annual Avg Price & YoY Growth":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Avg. Price & YoY Growth (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, the average transaction price in **{{ Geo_Block_Name }}** followed a **{{ Trend_Secular_Direction }}** trend, moving from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m², with cumulative growth of **{{ Metric_Var_Price_Pct }}**%.
+
+      - >-
+
+        By **{{ Temporal_End_Year }}**, the average transaction price reached **{{ Metric_Val_Price_Terminal }}** yuan/m², while the strongest annual YoY growth was recorded in **{{ Temporal_Year_YoY_Peak }}** at **{{ Metric_YoY_Peak }}**%.
+
+      - >-
+
+        The annual price series **{{ Trend_Trajectory_Type }}** from **{{ Metric_Val_Price_Base }}** yuan/m² to **{{ Metric_Val_Price_Terminal }}** yuan/m², with the most pronounced YoY growth occurring in **{{ Temporal_Year_YoY_Peak }}** at **{{ Metric_YoY_Peak }}**%.
+
+
+
+# ==============================================================================
+
+# Theme: Annual Supply Ratio Analysis
+
+# ==============================================================================
+
+"Annual Supply Ratio Analysis":
+
+  slide_title: "Annual Supply-to-Demand Ratio Analysis"
+
+  "Annual Supply Ratio":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Supply-Demand Ratio (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating an **{{ Trend_Market_Balance_State }}** market. **{{ Text_Market_Balance_Assessment }}**
+
+      - >-
+
+        Across the period, the supply-to-demand ratio moved from **{{ Metric_Supply_Ratio_Base }}**% to **{{ Metric_Supply_Ratio_Terminal }}**%, with a peak of **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**.
+
+      - >-
+
+        Supply-demand conditions in **{{ Geo_Block_Name }}** followed a **{{ Trend_Trajectory_Type }}** path, ranging between **{{ Metric_Supply_Ratio_Low }}**% and **{{ Metric_Supply_Ratio_Peak }}**% and ending at **{{ Metric_Supply_Ratio_Terminal }}**%.
+
+
+
+  "Annual Supply Ratio Trend":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Supply-Demand Ratio Trend (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating an **{{ Trend_Market_Balance_State }}** market. **{{ Text_Market_Balance_Assessment }}**
+
+      - >-
+
+        Across the period, the supply-to-demand ratio moved from **{{ Metric_Supply_Ratio_Base }}**% to **{{ Metric_Supply_Ratio_Terminal }}**%, with a peak of **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**.
+
+      - >-
+
+        Supply-demand conditions in **{{ Geo_Block_Name }}** followed a **{{ Trend_Trajectory_Type }}** path, ranging between **{{ Metric_Supply_Ratio_Low }}**% and **{{ Metric_Supply_Ratio_Peak }}**% and ending at **{{ Metric_Supply_Ratio_Terminal }}**%.
+
+
+
+# ==============================================================================
+
+# Theme: Area Segment Annual Trend Analysis
+
+# ==============================================================================
+
+"Area Segment Annual Trend Analysis":
+
+  slide_title: "Area Segment Annual Trend Analysis"
+
+  "Area Year Pivot":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Area Segment Annual Mix (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        Across **{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**, **{{ Seg_Area_Stratum_Dominant }}** remained the leading area segment in **{{ Geo_Block_Name }}**, contributing **{{ Metric_Share_Dominant_Cluster }}**% of the total **{{ Metric_Volume_Total }}** units while annual transaction volume **{{ Trend_Trajectory_Type }}** from **{{ Metric_Volume_Trade_Base }}** to **{{ Metric_Volume_Trade_Terminal }}** units.
+
+      - >-
+
+        The transaction structure remained centered on the **{{ Seg_Area_Stratum_Dominant }}** area segment, with annual transactions ending at **{{ Metric_Volume_Trade_Terminal }}** units.
+
+      - >-
+
+        Over the multi-year period, the area structure stayed centered on **{{ Seg_Area_Stratum_Dominant }}**, which captured **{{ Metric_Share_Dominant_Cluster }}**% of transactions as annual deal volume moved from **{{ Metric_Volume_Trade_Base }}** to **{{ Metric_Volume_Trade_Terminal }}** units.
+
+
+
+  "Annual Supply Trade":
+
+    chart_caption: >-
+
+      **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Supply & Transactions (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
+
+    summaries:
+
+      - >-
+
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in **{{ Geo_Block_Name }}** recorded an **{{ Enum_Supply_Trend_Label }}** from **{{ Metric_Vol_Supply_Base }}** to **{{ Metric_Vol_Supply_Terminal }}** units, while transactions recorded an **{{ Enum_Deal_Trend_Label }}** from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** units.
+
+      - >-
+
+        Over the analysis window, supply changed by **{{ Metric_Var_Supply_Pct }}**%, while transactions changed by **{{ Metric_Var_Trans_Pct }}**%.
+
+      - >-
+
+        By **{{ Temporal_End_Year }}**, annual market activity ended with **{{ Metric_Vol_Supply_Terminal }}** listed units and **{{ Metric_Vol_Trans_Terminal }}** transacted units after supply recorded an **{{ Enum_Supply_Trend_Label }}** and demand recorded an **{{ Enum_Deal_Trend_Label }}** across the period.
+
+
+

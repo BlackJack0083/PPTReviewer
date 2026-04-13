@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 import threading
 from typing import Any
@@ -23,10 +23,16 @@ class TemplateMeta:
     function_key: list[str]
     summary_item: int  # 对应 text_pattern.yaml 的 Summaries 索引
     data_keys: dict[str, str]  # 槽位名 -> 数据键名
+    function_params: dict[str, Any] = field(default_factory=dict)
+    summary_function_key: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.function_key, list) or not self.function_key:
             raise ValueError("function_key must be a non-empty list[str]")
+        if not isinstance(self.function_params, dict):
+            raise ValueError("function_params must be a dict[str, Any]")
+        if self.summary_function_key is not None and not isinstance(self.summary_function_key, str):
+            raise ValueError("summary_function_key must be a str | None")
 
 
 class ResourceManager:
@@ -95,6 +101,8 @@ class ResourceManager:
                     function_key=item["function_key"],
                     summary_item=item["summary_item"],
                     data_keys=item["data_keys"],
+                    function_params=item.get("function_params", {}),
+                    summary_function_key=item.get("summary_function_key"),
                 )
                 # 复用注册接口
                 self.register_template(meta)

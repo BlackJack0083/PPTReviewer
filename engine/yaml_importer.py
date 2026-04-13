@@ -69,6 +69,7 @@ class YAMLImporter:
                     format_str=dim.get("format_str"),
                     min=dim.get("min"),
                     max=dim.get("max"),
+                    time_granularity=dim.get("time_granularity"),
                 )
             )
 

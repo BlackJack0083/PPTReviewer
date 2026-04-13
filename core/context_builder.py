@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 from loguru import logger
 
-from common.function_specs import get_default_function_args
+from common.function_specs import filter_function_args, get_default_function_args
 
 from .data_provider import RealEstateDataProvider
 from .resources import TemplateMeta
@@ -112,6 +112,10 @@ class ContextBuilder:
         # 2. 获取所有的 function_key
         function_keys = template_meta.function_key
 
+        merged_function_params = dict(template_meta.function_params)
+        merged_function_params.update(function_params)
+        context.add_variable("_function_params", merged_function_params)
+
         # 3. 判断是单数据源还是多数据源
         if len(function_keys) == 1:
             # 单数据源模式
@@ -146,7 +150,9 @@ class ContextBuilder:
         """单数据源模式构建"""
         # 获取默认参数并合并用户提供的参数
         params = get_default_function_args(function_key)
+        params.update(template_meta.function_params)
         params.update(function_params)
+        params = filter_function_args(function_key, params)
 
         # 调用数据方法
         logger.info(f"调用数据方法: function_key='{function_key}', params={params}")
@@ -191,7 +197,9 @@ class ContextBuilder:
 
             # 获取默认参数并合并用户提供的参数
             params = get_default_function_args(function_key)
+            params.update(template_meta.function_params)
             params.update(function_params)
+            params = filter_function_args(function_key, params)
 
             # 调用数据方法
             logger.info(
@@ -214,14 +222,16 @@ class ContextBuilder:
                 context.add_config(data_key_name, config)
                 logger.info(f"  -> 配置已添加: slot='{slot_name}', key='{data_key_name}'")
 
-            # 只使用第一个 function_key 的结论（左图）
-            if i == 0:
-                for key, value in conclusion_vars.items():
-                    context.add_variable(key, value)
-                # 保存一份原始结论变量，用于 YAML summary 槽位真值导出
-                context.add_variable("_conclusion_vars", dict(conclusion_vars))
-                logger.info(
-                    f"  -> 结论变量已添加: {len(conclusion_vars)} 个（来自左图/上图）"
-                )
-            else:
-                logger.info("  -> 跳过结论变量（非左图/上图）")
+            merged_conclusion_vars = dict(context.variables.get("_conclusion_vars", {}))
+            new_var_count = 0
+            for key, value in conclusion_vars.items():
+                if key in merged_conclusion_vars:
+                    continue
+                context.add_variable(key, value)
+                merged_conclusion_vars[key] = value
+                new_var_count += 1
+
+            context.add_variable("_conclusion_vars", merged_conclusion_vars)
+            logger.info(
+                f"  -> merged conclusion vars: +{new_var_count}, total={len(merged_conclusion_vars)}"
+            )

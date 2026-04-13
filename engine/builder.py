@@ -145,9 +145,10 @@ class SlideConfigBuilder:
             )
 
         if slot.part == "summary":
+            summary_function_key = meta.summary_function_key or meta.function_key[0]
             return resource_manager.render_text(
                 meta.theme_key,
-                meta.function_key[0],
+                summary_function_key,
                 "summary",
                 ctx.variables,
                 meta.summary_item,
