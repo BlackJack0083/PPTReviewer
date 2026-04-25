@@ -89,6 +89,7 @@ class YAMLExporter:
             "style_id": template_meta.style_config_id,
             "theme_key": template_meta.theme_key,
             "function_keys": template_meta.function_key,
+            "summary_function_key": template_meta.summary_function_key,
         }
 
     @staticmethod
@@ -175,9 +176,12 @@ class YAMLExporter:
         """构建 summary 模板绑定信息，用于后续按槽位注入错误"""
         vars = context.variables
 
+        summary_function_key = (
+            template_meta.summary_function_key or template_meta.function_key[0]
+        )
         summary_template = resource_manager.get_summary_template(
             template_meta.theme_key,
-            template_meta.function_key[0],
+            summary_function_key,
             template_meta.summary_item,
         )
         template_keys = YAMLExporter._extract_template_variables(summary_template)

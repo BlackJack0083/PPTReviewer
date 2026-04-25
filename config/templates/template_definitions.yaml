@@ -1,176 +1,984 @@
 # ==============================================================================
+
 # PPT 模板定义配置
-# ==============================================================================
-# 每个模板定义包含：
-# - uid: 模板唯一标识符
-# - theme_key: 文案主题（对应 text_pattern.yaml）
-# - function_key: 功能名称列表（对应 text_pattern.yaml）
-# - layout_type: 版式类型（对应 layouts.yaml）
-# - summary_item: 使用的第几个 summary（从1开始，对应索引0,1,2...）
-# - style_config_id: 样式配置ID（对应 styles.yaml）
-# - data_keys: 数据键映射（对应 Context 中的 dataset key）
-# ==============================================================================
 
 # ==============================================================================
-# ReSlide_01: Block Area Segment Distribution
+
+# 每个模板定义包含：
+
+# - uid: 模板唯一标识符
+
+# - theme_key: 文案主题（对应 text_pattern.yaml）
+
+# - function_key: 功能名称列表（对应 text_pattern.yaml）
+
+# - layout_type: 版式类型（对应 layouts.yaml）
+
+# - summary_item: 使用的第几个 summary（从1开始，对应索引0,1,2...）
+
+# - style_config_id: 样式配置ID（对应 styles.yaml）
+
+# - data_keys: 数据键映射（对应 Context 中的 dataset key）
+
 # ==============================================================================
+
+
+
+# ==============================================================================
+
+# ReSlide_01: Block Area Segment Distribution
+
+# ==============================================================================
+
 # 版式限制：只有单栏柱状图和单栏折线图
+
 # summaries数量: 3个（索引0,1,2）
+
+
 
 - uid: "T01_Supply_Trans_Bar"
+
   theme_key: "Block Area Segment Distribution"
+
   function_key:
+
     - "Supply-Transaction Unit Statistic"
+
   layout_type: "single_column_bar"
+
   summary_item: 1
+
   style_config_id: "marketing_orange_green"
+
   data_keys:
+
     chart_main: "supply_trans_data"
+
+
 
 - uid: "T01_Supply_Trans_Line"
+
   theme_key: "Block Area Segment Distribution"
+
   function_key:
+
     - "Supply-Transaction Unit Statistic"
+
   layout_type: "single_column_line"
+
   summary_item: 2
+
   style_config_id: "marketing_orange_green"
+
   data_keys:
+
     chart_main: "supply_trans_data"
 
+
+
 # ==============================================================================
+
 # ReSlide_02: New-House Cross-Structure Analysis
+
 # ==============================================================================
+
 # 版式：所有版式都有
 
+
+
 # 1. Area x Price Cross Pivot
+
 # summaries数量: 3个（索引0,1,2）
+
 - uid: "T02_Cross_Pivot_Table"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Area x Price Cross Pivot"
+
   layout_type: "single_column_table"
+
   summary_item: 0
+
   style_config_id: "business_blue_solid"
+
   data_keys:
+
     table_main: "cross_analysis_data"
 
+
+
 # 2. Area Segment Distribution
+
 # summaries数量: 3个（索引0,1,2）
+
 - uid: "T02_Area_Dist_Bar"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Area Segment Distribution"
+
   layout_type: "single_column_bar"
+
   summary_item: 1
+
   style_config_id: "compare_tangerine_gray"
+
   data_keys:
+
     chart_main: "newhouse_area_dist_data"
+
+
 
 - uid: "T02_Area_Dist_Line"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Area Segment Distribution"
+
   layout_type: "single_column_line"
+
   summary_item: 2
+
   style_config_id: "compare_tangerine_gray"
+
   data_keys:
+
     chart_main: "newhouse_area_dist_data"
 
+
+
 # 3. Price Segment Distribution
+
 # summaries数量: 3个（索引0,1,2）
+
 - uid: "T02_Price_Dist_Bar"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Price Segment Distribution"
+
   layout_type: "single_column_bar"
+
   summary_item: 0
+
   style_config_id: "marketing_orange_green"
+
   data_keys:
+
     chart_main: "newhouse_price_dist_data"
+
+
 
 - uid: "T02_Price_Dist_Line"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Price Segment Distribution"
+
   layout_type: "single_column_line"
+
   summary_item: 2
+
   style_config_id: "business_blue_solid"
+
   data_keys:
+
     chart_main: "newhouse_price_dist_data"
 
+
+
 - uid: "T02_Double_Price_Dist_Line"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Area Segment Distribution"
+
     - "Price Segment Distribution"
+
   layout_type: "double_column_line"
+
   summary_item: 2
+
   style_config_id: "business_blue_solid"
+
   data_keys:
+
     chart_left: "newhouse_area_dist_data"
+
     chart_right: "newhouse_price_dist_data"
+
+
+
 
 
 - uid: "T02_Double_Price_Dist_Bar"
+
   theme_key: "New-House Cross-Structure Analysis"
+
   function_key:
+
     - "Area Segment Distribution"
+
     - "Price Segment Distribution"
+
   layout_type: "double_column_bar"
+
   summary_item: 1
+
   style_config_id: "business_blue_solid"
+
   data_keys:
+
     chart_left: "newhouse_area_dist_data"
+
     chart_right: "newhouse_price_dist_data"
 
+
+
 # ==============================================================================
+
+# ReSlide_03: Resale-House Cross-Structure Analysis
+
+# ==============================================================================
+
+# 二手房面积与价格结构模板
+
+
+
+# 1. Area x Price Cross Pivot
+
+# summaries 共 3 条，可通过 summary_item 选择 0、1、2
+
+- uid: "T03_Cross_Pivot_Table"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Area x Price Cross Pivot"
+
+  function_params:
+
+    price_range_size: 1
+
+  layout_type: "single_column_table"
+
+  summary_item: 0
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    table_main: "resale_cross_analysis_data"
+
+
+
+# 2. Area Segment Distribution
+
+# summaries 共 3 条，可通过 summary_item 选择 0、1、2
+
+- uid: "T03_Area_Dist_Bar"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Area Segment Distribution"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "compare_tangerine_gray"
+
+  data_keys:
+
+    chart_main: "resale_area_dist_data"
+
+
+
+- uid: "T03_Area_Dist_Line"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Area Segment Distribution"
+
+  layout_type: "single_column_line"
+
+  summary_item: 2
+
+  style_config_id: "compare_tangerine_gray"
+
+  data_keys:
+
+    chart_main: "resale_area_dist_data"
+
+
+
+# 3. Price Segment Distribution
+
+# summaries 共 3 条，可通过 summary_item 选择 0、1、2
+
+- uid: "T03_Price_Dist_Bar"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Price Segment Distribution"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "resale_price_dist_data"
+
+
+
+- uid: "T03_Price_Dist_Line"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Price Segment Distribution"
+
+  layout_type: "single_column_line"
+
+  summary_item: 2
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    chart_main: "resale_price_dist_data"
+
+
+
+- uid: "T03_Double_Price_Dist_Line"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Area Segment Distribution"
+
+    - "Price Segment Distribution"
+
+  layout_type: "double_column_line"
+
+  summary_item: 2
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    chart_left: "resale_area_dist_data"
+
+    chart_right: "resale_price_dist_data"
+
+
+
+
+
+- uid: "T03_Double_Price_Dist_Bar"
+
+  theme_key: "Resale-House Cross-Structure Analysis"
+
+  function_key:
+
+    - "Area Segment Distribution"
+
+    - "Price Segment Distribution"
+
+  layout_type: "double_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    chart_left: "resale_area_dist_data"
+
+    chart_right: "resale_price_dist_data"
+
+
+
+# ==============================================================================
+
 # ReSlide_04: New-House Market Capacity Analysis
+
 # ==============================================================================
+
 # 版式：双栏折线图
+
 # summaries数量: 3个（索引0,1,2）
 
+
+
 # 2. Annual Supply-Demand Comparison
+
 - uid: "T04_Annual_Supply_Demand_Bar"
+
   theme_key: "New-House Market Capacity Analysis"
+
   function_key: 
+
     - "Annual Supply-Demand Comparison"
+
     - "Supply-Transaction Area"
+
   layout_type: "double_column_bar"
-  summary_item: 1
+
+  summary_item: 2
+
   style_config_id: "compare_tangerine_gray"
+
   data_keys:
+
     chart_left: "annual_supply_data"
+
     chart_right: "annual_demand_data"
+
+
 
 - uid: "T04_Annual_Supply_Demand_Line"
+
   theme_key: "New-House Market Capacity Analysis"
+
   function_key: 
+
     - "Annual Supply-Demand Comparison"
+
     - "Supply-Transaction Area"
+
   layout_type: "double_column_line"
-  summary_item: 0
+
+  summary_item: 1
+
   style_config_id: "compare_tangerine_gray"
+
   data_keys:
+
     chart_left: "annual_supply_data"
+
     chart_right: "annual_demand_data"
 
+
+
 # 3. Supply-Transaction Area
+
 - uid: "T04_Supply_Transaction_Area_Bar"
+
   theme_key: "New-House Market Capacity Analysis"
+
   function_key:
+
     - "Supply-Transaction Area"
+
   layout_type: "single_column_bar"
+
   summary_item: 1
+
   style_config_id: "marketing_orange_green"
+
   data_keys:
+
     chart_main: "annual_supply_data"
 
+
+
 - uid: "T04_Supply_Transaction_Area_Line"
+
   theme_key: "New-House Market Capacity Analysis"
+
   function_key:
+
     - "Supply-Transaction Area"
+
   layout_type: "single_column_line"
-  summary_item: 2
+
+  summary_item: 1
+
   style_config_id: "marketing_orange_green"
+
   data_keys:
+
     chart_main: "annual_demand_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_05: Resale-House Capacity & Structure
+
+# ==============================================================================
+
+- uid: "T05_Resale_Summary_Table"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Historical Delivery Metrics"
+
+  layout_type: "single_column_table"
+
+  summary_item: 1
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    table_main: "resale_total_stats"
+
+
+
+- uid: "T05_Resale_Summary_Table_Alt"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Historical Delivery Metrics"
+
+  layout_type: "single_column_table"
+
+  summary_item: 1
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    table_main: "resale_total_stats"
+
+
+
+- uid: "T05_Resale_Double_Bar"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Delivery Unit Count"
+
+    - "Annual Average Price Trend"
+
+  summary_function_key: "Historical Delivery Metrics"
+
+  layout_type: "double_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "compare_tangerine_gray"
+
+  data_keys:
+
+    chart_left: "resale_counts_stats"
+
+    chart_right: "resale_price_stats"
+
+
+
+- uid: "T05_Resale_Double_Line"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Delivery Unit Count"
+
+    - "Annual Average Price Trend"
+
+  summary_function_key: "Historical Delivery Metrics"
+
+  layout_type: "double_column_line"
+
+  summary_item: 1
+
+  style_config_id: "compare_tangerine_gray"
+
+  data_keys:
+
+    chart_left: "resale_counts_stats"
+
+    chart_right: "resale_price_stats"
+
+
+
+- uid: "T05_Resale_Count_Bar"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Delivery Unit Count"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "resale_counts_stats"
+
+
+
+- uid: "T05_Resale_Price_Bar"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Average Price Trend"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "resale_price_stats"
+
+
+
+- uid: "T05_Resale_Count_Line"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Delivery Unit Count"
+
+  layout_type: "single_column_line"
+
+  summary_item: 1
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    chart_main: "resale_counts_stats"
+
+
+
+- uid: "T05_Resale_Price_Line"
+
+  theme_key: "Resale-House Capacity & Structure"
+
+  function_key:
+
+    - "Annual Average Price Trend"
+
+  layout_type: "single_column_line"
+
+  summary_item: 1
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    chart_main: "resale_price_stats"
+
+
+
+# ==============================================================================
+
+# ReSlide_07: Price Share Analysis
+
+# ==============================================================================
+
+- uid: "T07_Price_Share_Pie"
+
+  theme_key: "New-House Price Share Analysis"
+
+  function_key:
+
+    - "Price Share Distribution"
+
+  layout_type: "single_column_pie"
+
+  summary_item: 0
+
+  style_config_id: "soft_pastel_share"
+
+  data_keys:
+
+    chart_main: "price_share_data"
+
+
+
+- uid: "T07_Price_Share_Bar"
+
+  theme_key: "New-House Price Share Analysis"
+
+  function_key:
+
+    - "Price Share Distribution"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "soft_pastel_share"
+
+  data_keys:
+
+    chart_main: "price_share_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_08: Area Share Analysis
+
+# ==============================================================================
+
+- uid: "T08_Area_Share_Pie"
+
+  theme_key: "New-House Area Share Analysis"
+
+  function_key:
+
+    - "Area Share Distribution"
+
+  layout_type: "single_column_pie"
+
+  summary_item: 0
+
+  style_config_id: "soft_pastel_share"
+
+  data_keys:
+
+    chart_main: "area_share_data"
+
+
+
+- uid: "T08_Area_Share_Bar"
+
+  theme_key: "New-House Area Share Analysis"
+
+  function_key:
+
+    - "Area Share Distribution"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 1
+
+  style_config_id: "soft_pastel_share"
+
+  data_keys:
+
+    chart_main: "area_share_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_09: Monthly Supply Analysis
+
+# ==============================================================================
+
+- uid: "T09_Monthly_Supply_Bar"
+
+  theme_key: "Monthly Supply Analysis"
+
+  function_key:
+
+    - "Monthly Supply Volume"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "monthly_supply_data"
+
+
+
+- uid: "T09_Monthly_Supply_Line"
+
+  theme_key: "Monthly Supply Analysis"
+
+  function_key:
+
+    - "Monthly Supply Trend"
+
+  layout_type: "single_column_line"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "monthly_supply_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_10: Annual Avg Price Growth
+
+# ==============================================================================
+
+- uid: "T10_Price_Growth_Bar"
+
+  theme_key: "Annual Avg Price Growth"
+
+  function_key:
+
+    - "Annual Avg Price"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "price_growth_data"
+
+
+
+- uid: "T10_Price_Growth_Line"
+
+  theme_key: "Annual Avg Price Growth"
+
+  function_key:
+
+    - "Annual Avg Price & YoY Growth"
+
+  layout_type: "single_column_line"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "price_growth_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_11: Annual Supply Ratio Analysis
+
+# ==============================================================================
+
+- uid: "T11_Supply_Ratio_Bar"
+
+  theme_key: "Annual Supply Ratio Analysis"
+
+  function_key:
+
+    - "Annual Supply Ratio"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "supply_ratio_data"
+
+
+
+- uid: "T11_Supply_Ratio_Line"
+
+  theme_key: "Annual Supply Ratio Analysis"
+
+  function_key:
+
+    - "Annual Supply Ratio Trend"
+
+  layout_type: "single_column_line"
+
+  summary_item: 0
+
+  style_config_id: "marketing_orange_green"
+
+  data_keys:
+
+    chart_main: "supply_ratio_data"
+
+
+
+# ==============================================================================
+
+# ReSlide_12: Area Segment Annual Trend Analysis
+
+# ==============================================================================
+
+- uid: "T12_Area_Pivot_Table"
+
+  theme_key: "Area Segment Annual Trend Analysis"
+
+  function_key:
+
+    - "Area Year Pivot"
+
+  layout_type: "single_column_table"
+
+  summary_item: 0
+
+  style_config_id: "business_blue_solid"
+
+  data_keys:
+
+    table_main: "area_pivot_data"
+
+
+
+- uid: "T12_Area_Pivot_Stacked_Bar"
+
+  theme_key: "Area Segment Annual Trend Analysis"
+
+  function_key:
+
+    - "Annual Supply Trade"
+
+  layout_type: "single_column_bar"
+
+  summary_item: 0
+
+  style_config_id: "annual_supply_trade_stacked"
+
+  data_keys:
+
+    chart_main: "yearly_supply_trade_data"
+
+
+

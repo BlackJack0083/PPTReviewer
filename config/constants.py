@@ -19,4 +19,12 @@ CHART_THEMES = {
     "2_gray_lightblue": [RGBColor(182, 191, 197), RGBColor(0, 176, 240)],
     "2_green_gray": [RGBColor(0, 176, 80), RGBColor(182, 191, 197)],
     "2_olive_gray": [RGBColor(0, 176, 180), RGBColor(182, 191, 197)],
+    "soft_pastel_6": [
+        RGBColor(91, 155, 213),
+        RGBColor(237, 125, 49),
+        RGBColor(165, 165, 165),
+        RGBColor(255, 192, 0),
+        RGBColor(68, 114, 196),
+        RGBColor(112, 173, 71),
+    ],
 }

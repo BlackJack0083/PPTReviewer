@@ -90,6 +90,7 @@ class LayoutType(StrEnum):
 
     SINGLE_COLUMN_BAR = "single_column_bar"
     SINGLE_COLUMN_LINE = "single_column_line"
+    SINGLE_COLUMN_PIE = "single_column_pie"
     DOUBLE_COLUMN_BAR = "double_column_bar"
     DOUBLE_COLUMN_LINE = "double_column_line"
     SINGLE_COLUMN_TABLE = "single_column_table"
@@ -253,6 +254,9 @@ class PieChartConfig(BaseChartConfig):
     # 饼图特有属性示例
     first_slice_angle: int = Field(0, description="第一扇区起始角度 (0-360)")
     hole_size: int = Field(0, description="圆环图孔径大小 (0-90), 0为实心饼图")
+    show_category_name: bool = Field(True, description="是否显示分类名称")
+    show_percentage: bool = Field(True, description="是否显示百分比")
+    show_value: bool = Field(False, description="是否显示原始数值")
 
 
 class RectangleStyleModel(BaseModel):
@@ -297,6 +301,11 @@ class TableConfig(BaseModel):
     body_font_color: Color = Field(Color.BLACK, description="主体字体颜色")
     body_bg_color: Color = Field(Color.LIGHT_BLUE, description="主体背景色")
     body_font_bold: bool = Field(False, description="主体是否加粗")
+
+
+    min_header_font_size: int = Field(6, description="Minimum header font size")
+    min_body_font_size: int = Field(5, description="Minimum body font size")
+    cell_margin_cm: float = Field(0.05, description="Cell padding in cm")
 
 
 class ElementType(StrEnum):
@@ -362,7 +371,7 @@ class TableAnalysisConfig(BaseModel):
     总体的表格分析配置
     """
 
-    table_type: Literal["field-constraint", "constraint-filed", "cross-constraint"] = (
+    table_type: Literal["field-constraint", "constraint-filed", "constraint-field", "cross-constraint"] = (
         Field(..., description="表格类型")
     )
 

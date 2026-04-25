@@ -147,6 +147,11 @@ class BaseSlideRenderer:
             self.ppt_operations.add_line_chart(
                 page_number, chart_data, element.layout, config
             )
+        elif "pie" in chart_role.lower():
+            config = style_manager.get_pie_style(self.current_style_id)
+            self.ppt_operations.add_pie_chart(
+                page_number, chart_data, element.layout, config
+            )
         else:
             logger.warning(f"Unknown chart role: {chart_role}")
 
