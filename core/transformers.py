@@ -108,7 +108,7 @@ class StatTransformer:
         raise ValueError(f"Unsupported dimension method: {rule.method}")
 
     def _apply_range_binning(self, df: pd.DataFrame, rule: BinningRule) -> pd.DataFrame:
-        """应用区间分箱，优先兼容现有 area/price range 语义。"""
+        """应用区间分箱，保持 area/price range 的业务语义。"""
         if rule.source_col not in df.columns:
             raise KeyError(f"Missing source column for binning: {rule.source_col}")
 
@@ -207,7 +207,7 @@ class StatTransformer:
     def _process_crosstab_table(
         self, df: pd.DataFrame, execution_plan: _ExecutionPlan
     ) -> pd.DataFrame:
-        """处理交叉表，兼容单指标交叉和多指标透视两种输出。"""
+        """处理交叉表，支持单指标交叉和多指标透视两种输出。"""
         if not execution_plan.crosstab_row or not execution_plan.crosstab_col:
             raise ValueError("Crosstab requires row and col dimensions")
 
@@ -246,11 +246,10 @@ class StatTransformer:
         for partial in results[1:]:
             merged = pd.merge(merged, partial, on=group_cols, how="outer")
 
-        merged = merged.fillna(0)
         for metric in metrics:
             if metric.name in merged.columns:
                 merged[metric.name] = self._normalize_metric_series(
-                    merged[metric.name], metric.agg_func
+                    merged[metric.name].fillna(0), metric.agg_func
                 )
 
         return self._sort_result(merged, group_cols)
