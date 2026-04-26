@@ -2,8 +2,10 @@
 YAML 导入器
 根据 YAML 配置文件重建 PPT
 """
+
 from pathlib import Path
 
+import pandas as pd
 import yaml
 from loguru import logger
 
@@ -15,8 +17,8 @@ from core.schemas import (
     ChartElement,
     LayoutModel,
     MetricRule,
-    SlideSize,
     SlideRenderConfig,
+    SlideSize,
     TableAnalysisConfig,
     TableElement,
     TextElement,
@@ -115,6 +117,76 @@ class YAMLImporter:
         return slide_size
 
     @staticmethod
+    def dataframe_from_split_payload(payload: dict) -> pd.DataFrame:
+        """Load a DataFrame stored as a compact orient=split payload."""
+        if payload.get("orient") != "split":
+            raise ValueError("data_overrides payload must declare orient='split'")
+        return pd.DataFrame(
+            data=payload.get("data", []),
+            index=payload.get("index", []),
+            columns=payload.get("columns", []),
+        )
+
+    @staticmethod
+    def load_data_payloads(
+        yaml_data: dict,
+        template_meta,
+        use_overrides: bool = True,
+    ) -> tuple[list[pd.DataFrame], list[TableAnalysisConfig], str]:
+        """Fetch slide data and apply optional YAML data_overrides by data_key."""
+        query_filters = yaml_data["query_filters"]
+        slide_filters = yaml_data["slide_filters"]
+        if not slide_filters:
+            raise ValueError("No slide_filters found in YAML")
+
+        city = query_filters.get("city", "Beijing")
+        block = query_filters.get("block", "Unknown")
+        start_year = query_filters.get("start_date", "2020-01-01")[:4]
+        end_year = query_filters.get("end_date", "2022-12-31")[:4]
+        data_keys = list(template_meta.data_keys.values())
+        overrides = yaml_data.get("data_overrides", {}) if use_overrides else {}
+        if not isinstance(overrides, dict):
+            overrides = {}
+
+        logger.info(f"Fetching data: city={city}, block={block}")
+        provider = RealEstateDataProvider(
+            city=city,
+            block=block,
+            start_year=start_year,
+            end_year=end_year,
+            table_name="",
+        )
+
+        all_data: list[pd.DataFrame] = []
+        all_configs: list[TableAnalysisConfig] = []
+        table_name = ""
+        for idx, slide_filter in enumerate(slide_filters):
+            connection = slide_filter.get("connection", {})
+            table_name = connection.get("table", ["beijing_new_house"])[0]
+            provider.filter.table_name = table_name
+
+            fun_tool = slide_filter.get("fun_tool", {})
+            function_key = fun_tool.get("fun")
+            fun_args = fun_tool.get("args", {})
+            valid_args = filter_function_args(function_key, fun_args)
+            logger.info(
+                f"[{idx + 1}/{len(slide_filters)}] Calling {function_key} with args: {valid_args}"
+            )
+
+            df, _, config = provider.execute_by_function_key(function_key, **valid_args)
+            data_key = data_keys[idx] if idx < len(data_keys) else None
+            if data_key and data_key in overrides:
+                df = YAMLImporter.dataframe_from_split_payload(overrides[data_key])
+                logger.info(f"  -> Using data_overrides for {data_key}: {df.shape}")
+            else:
+                logger.info(f"  -> Fetched data shape: {df.shape}")
+
+            all_data.append(df)
+            all_configs.append(config)
+
+        return all_data, all_configs, table_name
+
+    @staticmethod
     def rebuild_from_yaml(
         yaml_path: str | Path,
         output_ppt_path: str | Path,
@@ -131,16 +203,11 @@ class YAMLImporter:
 
         # 2. 解析基本信息
         query_filters = yaml_data["query_filters"]
-        slide_filters = yaml_data["slide_filters"]
         template_slide = yaml_data["template_slide"]
 
         # 3. 解析 template_id（单一 schema：meta.template_id）
         template_id = YAMLImporter.resolve_template_id(yaml_data, yaml_path)
         logger.info(f"Resolved template_id: {template_id}")
-
-        # 4. 获取数据（支持多个 slide_filter，对应双栏图）
-        if not slide_filters:
-            raise ValueError("No slide_filters found in YAML")
 
         # 从 query_filters 获取城市、板块、时间范围
         city = query_filters.get("city", "Beijing")
@@ -153,44 +220,12 @@ class YAMLImporter:
         if not template_meta:
             raise ValueError(f"Template not found: {template_id}")
 
-        # 5. 创建 DataProvider 并获取所有数据
-        logger.info(f"Fetching data: city={city}, block={block}")
-        provider = RealEstateDataProvider(
-            city=city,
-            block=block,
-            start_year=start_year,
-            end_year=end_year,
-            table_name="",  # 临时设为空，稍后从 slide_filter 获取
+        # 5. 获取所有数据；若 YAML 中存在 data_overrides，则优先使用覆盖数据。
+        all_data, all_configs, table_name = YAMLImporter.load_data_payloads(
+            yaml_data,
+            template_meta,
+            use_overrides=True,
         )
-
-        # 存储所有获取的数据
-        all_data = []
-        all_configs = []
-
-        for idx, slide_filter in enumerate(slide_filters):
-            # 获取表名
-            connection = slide_filter.get("connection", {})
-            table_name = connection.get("table", ["beijing_new_house"])[0]
-
-            # 更新 provider 的表名
-            provider.filter.table_name = table_name
-
-            fun_tool = slide_filter.get("fun_tool", {})
-            function_key = fun_tool.get("fun")
-            fun_args = fun_tool.get("args", {})
-
-            # 过滤参数
-            valid_args = filter_function_args(function_key, fun_args)
-            logger.info(f"[{idx+1}/{len(slide_filters)}] Calling {function_key} with args: {valid_args}")
-
-            # 调用对应的数据方法
-            df, _, config = provider.execute_by_function_key(
-                function_key, **valid_args
-            )
-            logger.info(f"  -> Fetched data shape: {df.shape}")
-
-            all_data.append(df)
-            all_configs.append(config)
 
         # 6. 构建 PresentationContext（只需要基本变量，文字内容从 YAML 直接读取）
         context = PresentationContext()
@@ -243,7 +278,9 @@ class YAMLImporter:
                 if chart_idx < len(all_data) and chart_idx < len(data_keys):
                     chart_df = all_data[chart_idx]
                     chart_data_key = data_keys[chart_idx]
-                    chart_config = all_configs[chart_idx] if chart_idx < len(all_configs) else None
+                    chart_config = (
+                        all_configs[chart_idx] if chart_idx < len(all_configs) else None
+                    )
                 else:
                     # 降级处理：使用第一个数据
                     chart_df = all_data[0]
@@ -252,7 +289,11 @@ class YAMLImporter:
 
                 # 从 args 获取配置
                 args_config = elem_dict.get("args", {})
-                final_config = YAMLImporter.build_config_from_yaml(args_config) if args_config else chart_config
+                final_config = (
+                    YAMLImporter.build_config_from_yaml(args_config)
+                    if args_config
+                    else chart_config
+                )
 
                 elements.append(
                     ChartElement(

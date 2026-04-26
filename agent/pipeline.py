@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
 
@@ -11,11 +11,11 @@ from .react_agent import (
     build_react_input_messages,
     coerce_structured_response_dict,
     extract_called_tools,
+    extract_final_ai_message_text,
     extract_react_claim_and_evidence,
     extract_react_edit_action,
-    extract_react_protocol_info,
-    extract_final_ai_message_text,
     extract_react_output_json,
+    extract_react_protocol_info,
 )
 from .tools_local import LocalDataTools
 from .workflows.no_tool_flow import build_no_tool_graph
@@ -64,7 +64,9 @@ class PPTSummaryJudgeAgent:
         self.react_recursion_limit = max(1, int(react_recursion_limit))
         self.tools = LocalDataTools()
         self.template_candidates = (
-            template_candidates if template_candidates else self.tools.list_template_ids()
+            template_candidates
+            if template_candidates
+            else self.tools.list_template_ids()
         )
         self.table_candidates = (
             table_candidates if table_candidates else self.tools.list_table_names()
@@ -129,7 +131,9 @@ class PPTSummaryJudgeAgent:
                 parsed_json = parse_json_object(no_tool_raw) if no_tool_raw else None
             except Exception:  # noqa: BLE001 - fallback to boolean-only output
                 parsed_json = None
-            final_json = parsed_json or {"has_issue": bool(state.get("has_issue", False))}
+            final_json = parsed_json or {
+                "has_issue": bool(state.get("has_issue", False))
+            }
 
             final_data: dict[str, Any] = {"json": final_json}
             if include_debug or parsed_json is None:
@@ -164,7 +168,9 @@ class PPTSummaryJudgeAgent:
                 parsed_json = parse_json_object(judge_raw) if judge_raw else None
             except Exception:  # noqa: BLE001 - fallback to boolean-only output
                 parsed_json = None
-            final_json = parsed_json or {"has_issue": bool(state.get("has_issue", False))}
+            final_json = parsed_json or {
+                "has_issue": bool(state.get("has_issue", False))
+            }
 
             final_data: dict[str, Any] = {"json": final_json}
             if include_debug or parsed_json is None:
@@ -174,9 +180,14 @@ class PPTSummaryJudgeAgent:
             if include_debug:
                 routed_template_meta: dict[str, Any] | None = None
                 routed_template_meta_raw = state.get("routed_template_meta", "")
-                if isinstance(routed_template_meta_raw, str) and routed_template_meta_raw:
+                if (
+                    isinstance(routed_template_meta_raw, str)
+                    and routed_template_meta_raw
+                ):
                     try:
-                        routed_template_meta = parse_json_object(routed_template_meta_raw)
+                        routed_template_meta = parse_json_object(
+                            routed_template_meta_raw
+                        )
                     except Exception:  # noqa: BLE001 - debug best effort
                         routed_template_meta = None
                 debug_data = {
@@ -253,7 +264,8 @@ class PPTSummaryJudgeAgent:
                 mode="with_tool_react",
                 run_id=effective_run_id,
                 shape_id=str(react_edit.get("shape_id", "")).strip() or None,
-                updated_summary=str(react_edit.get("updated_summary", "")).strip() or None,
+                updated_summary=str(react_edit.get("updated_summary", "")).strip()
+                or None,
                 execution_success=(
                     False
                     if react_protocol["protocol_violation"]
@@ -275,7 +287,7 @@ class PPTSummaryJudgeAgent:
         raise ValueError(f"Unknown mode: {mode}")
 
     def _default_run_id(self, mode: Mode) -> str:
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         return f"{mode}-{timestamp}"
 
     def _resolve_yaml_path(

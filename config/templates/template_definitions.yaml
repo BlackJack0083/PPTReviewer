@@ -220,7 +220,7 @@
 # 2. Annual Supply-Demand Comparison
 - uid: "T04_Annual_Supply_Demand_Bar"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: 
+  function_key:
     - "Annual Supply-Demand Comparison"
     - "Supply-Transaction Area"
   layout_type: "double_column_bar"
@@ -232,7 +232,7 @@
 
 - uid: "T04_Annual_Supply_Demand_Line"
   theme_key: "New-House Market Capacity Analysis"
-  function_key: 
+  function_key:
     - "Annual Supply-Demand Comparison"
     - "Supply-Transaction Area"
   layout_type: "double_column_line"
@@ -489,4 +489,3 @@
   style_config_id: "annual_supply_trade_stacked"
   data_keys:
     chart_main: "yearly_supply_trade_data"
-

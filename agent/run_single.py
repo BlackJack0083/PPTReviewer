@@ -5,8 +5,8 @@ import argparse
 import json
 import os
 import sys
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime, timezone
 
 from dotenv import load_dotenv
 
@@ -38,7 +38,9 @@ def _apply_langsmith_env_aliases() -> bool:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run PPT summary judge on one image")
-    parser.add_argument("--image", required=True, help="Path to slide image (.png/.jpg)")
+    parser.add_argument(
+        "--image", required=True, help="Path to slide image (.png/.jpg)"
+    )
     parser.add_argument(
         "--yaml",
         default=None,
@@ -113,7 +115,7 @@ def main() -> None:
         "mode": args.mode,
         "image_path": str(image_path),
         "model": model,
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "timestamp_utc": datetime.now(UTC).isoformat(),
     }
     graph_config = (
         {

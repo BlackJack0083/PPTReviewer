@@ -298,9 +298,9 @@ class ConclusionGenerator:
             "Trend_Direction_Label": trend_label,
             "Trend_Trajectory_Type": trajectory_type,
             "Trend_Secular_Direction": secular_direction,
-            "Trend_Market_Absorption_State": "seller-favorable"
-            if price_delta >= 0
-            else "buyer-favorable",
+            "Trend_Market_Absorption_State": (
+                "seller-favorable" if price_delta >= 0 else "buyer-favorable"
+            ),
         }
 
     # ==================== 主题11：Annual Supply Ratio ====================

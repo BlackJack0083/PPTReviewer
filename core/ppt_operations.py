@@ -96,7 +96,9 @@ class PPTOperations:
         """Initialize the deck size and create missing blank slides."""
         if layout_type and not slide_width_cm and not slide_height_cm:
             layout_str = (
-                layout_type.value if isinstance(layout_type, LayoutType) else layout_type
+                layout_type.value
+                if isinstance(layout_type, LayoutType)
+                else layout_type
             )
             slide_size = layout_manager.get_slide_size(layout_str)
             width_cm = slide_size.width

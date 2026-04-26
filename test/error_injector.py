@@ -242,7 +242,7 @@ def numeric_random_value_large(text: str, rng: random.Random) -> str:
 
 
 def numeric_random_value(text: str, rng: random.Random) -> str:
-    """兼容 ERROR_MUTATORS 注册；实际数值策略在 mutate_slot_value 中分发。"""
+    """默认的大幅数值扰动策略，供 ERROR_MUTATORS 调用。"""
     return numeric_random_value_large(text, rng)
 
 
@@ -310,7 +310,9 @@ def unit_confusion(text: str, rng: random.Random) -> str:
     if candidates:
         old, new = rng.choice(candidates)
         return text.replace(old, new, 1)
-    trimmed = re.sub(r"(m²|㎡|yuan/m²|units?|%)", "", text, count=1, flags=re.IGNORECASE)
+    trimmed = re.sub(
+        r"(m²|㎡|yuan/m²|units?|%)", "", text, count=1, flags=re.IGNORECASE
+    )
     trimmed = re.sub(r"\s{2,}", " ", trimmed).strip()
     return trimmed if trimmed else text
 
@@ -411,7 +413,9 @@ def build_injection_dir_name(mutations: list[MutationResult], seed: int) -> str:
         item = mutations[0]
         return f"{sanitize_name(item.error_type)}-{seed}"
     unique_errors = {m.error_type for m in mutations}
-    error_tag = "mixed" if len(unique_errors) > 1 else sanitize_name(mutations[0].error_type)
+    error_tag = (
+        "mixed" if len(unique_errors) > 1 else sanitize_name(mutations[0].error_type)
+    )
     return f"{error_tag}-{seed}"
 
 
@@ -445,8 +449,12 @@ def inject_one_variant(
     if not truth_slots:
         return None
 
-    rng = random.Random(variant_seed)  # noqa: S311 - benchmark 样本注入仅需可复现伪随机
-    selected_slots = pick_k_slots(truth_slots, min_slots=min_slots, max_slots=max_slots, rng=rng)
+    rng = random.Random(  # noqa: S311
+        variant_seed
+    )  # nosec B311 - benchmark 样本注入仅需可复现伪随机
+    selected_slots = pick_k_slots(
+        truth_slots, min_slots=min_slots, max_slots=max_slots, rng=rng
+    )
     if not selected_slots:
         return None
 
@@ -705,7 +713,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-    seed_gen = random.Random(args.seed)  # noqa: S311 - benchmark 样本注入仅需可复现伪随机
+    seed_gen = random.Random(  # noqa: S311
+        args.seed
+    )  # nosec B311 - benchmark 样本注入仅需可复现伪随机
 
     if args.min_slots <= 0 or args.max_slots <= 0:
         raise ValueError("min_slots / max_slots 必须为正整数")

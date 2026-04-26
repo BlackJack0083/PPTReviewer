@@ -41,7 +41,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from utils.pptx_image_utils import convert_pptx_first_page_to_png
+from utils.pptx_image_utils import convert_pptx_first_page_to_png  # noqa: E402
 
 
 def discover_pptx_from_patterns(patterns: list[str]) -> list[Path]:
@@ -104,7 +104,9 @@ def output_path_for(
 
     parent_tag = "_".join(pptx_path.parent.parts[-3:])
     safe_tag = parent_tag.replace("/", "_").replace("\\", "_")
-    target_name = f"{safe_tag}_{pptx_path.stem}.png" if safe_tag else f"{pptx_path.stem}.png"
+    target_name = (
+        f"{safe_tag}_{pptx_path.stem}.png" if safe_tag else f"{pptx_path.stem}.png"
+    )
     return output_root / target_name
 
 
@@ -181,7 +183,9 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    benchmark_root = Path(args.benchmark_root).resolve() if args.benchmark_root else None
+    benchmark_root = (
+        Path(args.benchmark_root).resolve() if args.benchmark_root else None
+    )
     output_root = Path(args.output_root).resolve() if args.output_root else None
 
     pptx_files: list[Path] = []
@@ -230,7 +234,9 @@ def main() -> None:
         return
 
     if max(1, args.workers) > 1 and args.backend in {"auto", "libreoffice"}:
-        print("Warning: libreoffice with high concurrency may fail due to process lock/contention.")
+        print(
+            "Warning: libreoffice with high concurrency may fail due to process lock/contention."
+        )
 
     def run_one(task: tuple[Path, Path]) -> tuple[Path, Path, str]:
         pptx_path, output_png = task

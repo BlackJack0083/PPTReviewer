@@ -22,7 +22,9 @@ def parse_json_object(text: str) -> dict[str, Any]:
         pass
 
     # case 2: ```json ... ```
-    fenced = re.findall(r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", stripped, flags=re.IGNORECASE)
+    fenced = re.findall(
+        r"```(?:json)?\s*(\{[\s\S]*?\})\s*```", stripped, flags=re.IGNORECASE
+    )
     for candidate in fenced:
         try:
             value = json.loads(candidate)

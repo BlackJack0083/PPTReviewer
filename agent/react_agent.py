@@ -48,7 +48,9 @@ def build_react_agent_graph(
     table_candidates: list[str],
     enable_thinking: bool | None = False,
 ):
-    extra_body = {"enable_thinking": enable_thinking} if enable_thinking is not None else None
+    extra_body = (
+        {"enable_thinking": enable_thinking} if enable_thinking is not None else None
+    )
     model = ChatOpenAI(
         model=model_name,
         api_key=api_key,
@@ -62,7 +64,6 @@ def build_react_agent_graph(
         "Task: determine whether the slide summary has factual issues and, if needed, correct the PPT.\n"
         f"Allowed template_id candidates: {template_candidates}\n"
         f"Allowed table_name candidates: {table_candidates}\n\n"
-
         "Operating rules:\n"
         "- You MUST use tools before final judgment. Do not decide only by visual impression.\n"
         "- Decide for yourself which tool to use next.\n"
@@ -77,21 +78,17 @@ def build_react_agent_graph(
         "- After `apply_textbox_edit`, immediately use the `ReactJudgeOutput` tool with `has_issue=true`.\n"
         "- Do NOT call apply_textbox_edit more than once.\n"
         "- Do NOT call any more business tools after apply_textbox_edit.\n\n"
-
         "Required fields to identify from the slide:\n"
         "- template_id, table_name, city, block, start_year, end_year, summary_text.\n"
         "- `template_id` must match one item in the provided candidate list exactly.\n"
         "- `table_name` must match one item in the provided candidate list exactly.\n\n"
-
         "Normalization:\n"
-        "- `block` must be pure block name only (e.g., \"Baolong Technology Park\").\n"
-
+        '- `block` must be pure block name only (e.g., "Baolong Technology Park").\n'
         "Tool constraints:\n"
         "- Use tools to gather enough evidence before the final verdict.\n"
-        "- Never invent function_key such as \"get_stats\".\n\n"
+        '- Never invent function_key such as "get_stats".\n\n'
         "- If you use `query_conclusion_vars`, its `function_key` must exactly equal the one returned by `resolve_plan`.\n"
         "- If you use `query_conclusion_vars`, its `function_args` must come from `resolve_plan`.\n"
-
         "Decision rule:\n"
         "- Compare summary_text from image against tool-derived results.\n"
         "- If any key factual mismatch exists, the verdict is `has_issue=true` and you must correct the PPT before finishing.\n"
@@ -124,7 +121,10 @@ def build_react_input_messages(image_path: Path) -> dict[str, Any]:
             HumanMessage(
                 content=[
                     {"type": "text", "text": user_prompt},
-                    {"type": "image_url", "image_url": {"url": image_data_url(image_path)}},
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": image_data_url(image_path)},
+                    },
                 ]
             )
         ]
@@ -257,7 +257,9 @@ def extract_final_ai_message_text(state: dict[str, Any]) -> str:
         texts = [
             str(item.get("text"))
             for item in content
-            if isinstance(item, dict) and item.get("type") == "text" and item.get("text")
+            if isinstance(item, dict)
+            and item.get("type") == "text"
+            and item.get("text")
         ]
         if texts:
             return "\n".join(texts).strip()
@@ -289,7 +291,9 @@ def extract_react_output_json(state: dict[str, Any]) -> dict[str, Any]:
     tool_call_json = _extract_react_output_from_tool_calls(state.get("messages", []))
     if tool_call_json:
         return tool_call_json
-    raise ValueError("React agent returned no structured_response and empty final AI text.")
+    raise ValueError(
+        "React agent returned no structured_response and empty final AI text."
+    )
 
 
 def extract_called_tools(state: dict[str, Any]) -> list[str]:
@@ -349,14 +353,17 @@ def extract_react_claim_and_evidence(
     if plan_result or query_args or summary_result:
         evidence_data = {
             "template_id": template_id,
-            "function_key": plan_result.get("function_key") or query_args.get("function_key"),
+            "function_key": plan_result.get("function_key")
+            or query_args.get("function_key"),
             "city": query_args.get("city"),
             "block": query_args.get("block"),
             "start_year": query_args.get("start_year"),
             "end_year": query_args.get("end_year"),
             "table_name": query_args.get("table_name"),
             "function_args": function_args,
-            "expected_summary_slots": _to_dict(summary_result.get("expected_summary_slots")),
+            "expected_summary_slots": _to_dict(
+                summary_result.get("expected_summary_slots")
+            ),
             "expected_summary": summary_result.get("expected_summary", ""),
         }
         evidence = {k: v for k, v in evidence_data.items() if v is not None} or None
@@ -385,10 +392,14 @@ def extract_react_protocol_info(
 ) -> dict[str, Any]:
     trace = _build_tool_trace(state.get("messages", []))
     edit_indices = [
-        idx for idx, item in enumerate(trace) if item.get("name") == "apply_textbox_edit"
+        idx
+        for idx, item in enumerate(trace)
+        if item.get("name") == "apply_textbox_edit"
     ]
     editable_list_indices = [
-        idx for idx, item in enumerate(trace) if item.get("name") == "list_editable_textboxes"
+        idx
+        for idx, item in enumerate(trace)
+        if item.get("name") == "list_editable_textboxes"
     ]
     violations: list[str] = []
 

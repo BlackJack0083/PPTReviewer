@@ -16,8 +16,8 @@ from .schemas import (
     PieChartConfig,
     RectangleStyleModel,
     SlotDefinition,
-    TextSlotDefinition,
     TextContentModel,
+    TextSlotDefinition,
 )
 from .style_manager import style_manager
 

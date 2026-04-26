@@ -205,7 +205,7 @@ YAML 导出器 yaml_exporter.py 在导出 fun_tool.args 时，无论 function_ke
 ## 2026-03-06
 
 ### 问题描述
-阶段 1（GT 生成）到阶段 2（错误注入）衔接不稳定：  
+阶段 1（GT 生成）到阶段 2（错误注入）衔接不稳定：
 原流程只在 YAML 中保存了最终渲染后的 summary 文本，没有保存 summary 模板与槽位真值，导致注入时只能做正则替换，容易误改、难追踪。
 
 ### 解决方案
@@ -239,12 +239,12 @@ YAML 导出器 yaml_exporter.py 在导出 fun_tool.args 时，无论 function_ke
    - `inject_summary_and_rebuild_ppt(...)`：注入后直接复用 `yaml_importer` 重建 PPT
 
 ### 当前满足度评估（对最初阶段 1-2 需求）
-1. **阶段 1：GT PPT + YAML 生成**  
-   - 已满足  
+1. **阶段 1：GT PPT + YAML 生成**
+   - 已满足
    - 说明：重新生成的 YAML 已包含 `summary_binding`，可追溯 summary 模板和真值槽位
 
-2. **阶段 2：按槽位改错误结论并重建 PPT**  
-   - 已满足（针对 summary 槽位）  
+2. **阶段 2：按槽位改错误结论并重建 PPT**
+   - 已满足（针对 summary 槽位）
    - 说明：可精确改 `summary_slot_overrides` 并重渲染，不再依赖正则替换整句文本
 
 ### 当前已知边界（非阻塞）

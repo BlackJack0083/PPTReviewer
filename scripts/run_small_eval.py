@@ -10,20 +10,21 @@ import shutil
 import sys
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import asdict
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 try:
     import fcntl
 except ImportError:  # pragma: no cover - non-posix fallback
     fcntl = None
 
+import yaml
 from dotenv import load_dotenv
 from loguru import logger
 from tqdm.auto import tqdm
-import yaml
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
@@ -33,7 +34,7 @@ from agent.pipeline import AgentResult, PPTSummaryJudgeAgent  # noqa: E402
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(UTC).isoformat()
 
 
 def parse_bool_env(value: str | None, default: bool = False) -> bool:
@@ -127,7 +128,9 @@ def resolve_gold_text_edit(
 def to_gt_case(dataset_root: Path, sample_row: dict[str, Any]) -> dict[str, Any]:
     gt_yaml = dataset_root / sample_row["gt_yaml"]
     gt_yaml_rel = sample_row["gt_yaml"]
-    gt_ppt_rel = sample_row.get("gt_ppt", str(Path(gt_yaml_rel).with_name("slide.pptx")))
+    gt_ppt_rel = sample_row.get(
+        "gt_ppt", str(Path(gt_yaml_rel).with_name("slide.pptx"))
+    )
     target_image_rel = str(Path(gt_yaml_rel).with_name("slide.png"))
     return {
         "case_id": f"gt-{sample_row['sample_id']}",
@@ -147,7 +150,9 @@ def to_gt_case(dataset_root: Path, sample_row: dict[str, Any]) -> dict[str, Any]
 def to_injected_case(dataset_root: Path, inj_row: dict[str, Any]) -> dict[str, Any]:
     output_yaml = dataset_root / inj_row["output_yaml"]
     output_yaml_rel = inj_row["output_yaml"]
-    output_ppt_rel = inj_row.get("output_ppt", str(Path(output_yaml_rel).with_name("slide.pptx")))
+    output_ppt_rel = inj_row.get(
+        "output_ppt", str(Path(output_yaml_rel).with_name("slide.pptx"))
+    )
     target_image_rel = str(Path(output_yaml_rel).with_name("slide.png"))
     gold_shape_id, gold_updated_summary = resolve_gold_text_edit(
         dataset_root,
@@ -221,14 +226,18 @@ def compute_metrics(rows: list[dict[str, Any]]) -> dict[str, float]:
         }
 
     tp = sum(1 for r in valid if r["expected_has_issue"] and r["pred_has_issue"])
-    tn = sum(1 for r in valid if (not r["expected_has_issue"]) and (not r["pred_has_issue"]))
+    tn = sum(
+        1 for r in valid if (not r["expected_has_issue"]) and (not r["pred_has_issue"])
+    )
     fp = sum(1 for r in valid if (not r["expected_has_issue"]) and r["pred_has_issue"])
     fn = sum(1 for r in valid if r["expected_has_issue"] and (not r["pred_has_issue"]))
 
     accuracy = (tp + tn) / len(valid) if valid else 0.0
     precision = tp / (tp + fp) if (tp + fp) else 0.0
     recall = tp / (tp + fn) if (tp + fn) else 0.0
-    f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    f1 = (
+        (2 * precision * recall / (precision + recall)) if (precision + recall) else 0.0
+    )
 
     injected = [
         r
@@ -285,7 +294,9 @@ def run_mode_eval(
     def run_one_sync(idx: int, case: dict[str, Any]) -> tuple[int, dict[str, Any]]:
         retries = max(0, case_retries)
         image_path = Path(case["image_path"])
-        yaml_path = Path(case.get("target_yaml_abs", dataset_root / case["target_yaml"]))
+        yaml_path = Path(
+            case.get("target_yaml_abs", dataset_root / case["target_yaml"])
+        )
         last_row: dict[str, Any] | None = None
 
         for attempt in range(retries + 1):
@@ -340,13 +351,10 @@ def run_mode_eval(
                 row["error"] = str(exc)
                 last_row = row
                 err_text = row["error"]
-                can_retry = (
-                    attempt < retries
-                    and (
-                        "Model returned empty content." in err_text
-                        or "React agent returned no structured_response and empty final AI text."
-                        in err_text
-                    )
+                can_retry = attempt < retries and (
+                    "Model returned empty content." in err_text
+                    or "React agent returned no structured_response and empty final AI text."
+                    in err_text
                 )
                 if not can_retry:
                     return idx, row
@@ -357,7 +365,8 @@ def run_mode_eval(
                 )
                 time.sleep(sleep_sec)
 
-        assert last_row is not None
+        if last_row is None:
+            raise RuntimeError("No evaluation row was produced")
         return idx, last_row
 
     indexed_cases = list(enumerate(cases, 1))
@@ -366,11 +375,15 @@ def run_mode_eval(
     async def _run_async() -> None:
         semaphore = asyncio.Semaphore(max(1, workers))
 
-        async def run_one_async(idx: int, case: dict[str, Any]) -> tuple[int, dict[str, Any]]:
+        async def run_one_async(
+            idx: int, case: dict[str, Any]
+        ) -> tuple[int, dict[str, Any]]:
             async with semaphore:
                 return await asyncio.to_thread(run_one_sync, idx, case)
 
-        tasks = [asyncio.create_task(run_one_async(idx, case)) for idx, case in indexed_cases]
+        tasks = [
+            asyncio.create_task(run_one_async(idx, case)) for idx, case in indexed_cases
+        ]
         with tqdm(total=len(tasks), desc=mode, unit="case") as bar:
             for fut in asyncio.as_completed(tasks):
                 i, row = await fut
@@ -390,14 +403,19 @@ def run_mode_eval(
     asyncio.run(_run_async())
 
     finalized_results = [r for r in results if r is not None]
-    assert len(finalized_results) == len(cases)
+    if len(finalized_results) != len(cases):
+        raise RuntimeError("Some evaluation cases did not finish")
 
     metrics = compute_metrics(finalized_results)
     return {
         "mode": mode,
         "total_cases": len(cases),
-        "valid_cases": sum(1 for r in finalized_results if r.get("pred_has_issue") is not None),
-        "error_cases": sum(1 for r in finalized_results if r.get("pred_has_issue") is None),
+        "valid_cases": sum(
+            1 for r in finalized_results if r.get("pred_has_issue") is not None
+        ),
+        "error_cases": sum(
+            1 for r in finalized_results if r.get("pred_has_issue") is None
+        ),
         "metrics": metrics,
         "results": finalized_results,
     }
@@ -414,7 +432,9 @@ def write_sample_eval_records(
 ) -> None:
     for row in rows:
         sample_id = row["sample_id"]
-        eval_path = dataset_root / "split" / split / f"s_{sample_id}" / "eval" / filename
+        eval_path = (
+            dataset_root / "split" / split / f"s_{sample_id}" / "eval" / filename
+        )
         record = {
             "run_id": run_id,
             "mode": mode,
@@ -479,7 +499,9 @@ def build_case_manifest_records(
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Small-scale binary eval for PPT agent")
+    parser = argparse.ArgumentParser(
+        description="Small-scale binary eval for PPT agent"
+    )
     parser.add_argument(
         "--dataset-root",
         default="output/benchmark/dataset_v1",
@@ -594,7 +616,9 @@ def main() -> None:
     base_url = args.base_url or os.getenv(
         "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
-    enable_thinking = parse_bool_env(os.getenv("DASHSCOPE_ENABLE_THINKING"), default=False)
+    enable_thinking = parse_bool_env(
+        os.getenv("DASHSCOPE_ENABLE_THINKING"), default=False
+    )
 
     samples_rows = read_jsonl(manifest_root / "samples.jsonl")
     injections_rows = read_jsonl(manifest_root / "injections.jsonl")
@@ -610,9 +634,11 @@ def main() -> None:
     if not split_injections:
         raise ValueError(f"No injections found for split={args.split}")
 
-    rng = random.Random(args.seed)  # noqa: S311 - benchmark sampling only
+    rng = random.Random(args.seed)  # noqa: S311 - benchmark sampling only  # nosec B311
     gt_picks = rng.sample(split_samples, k=min(args.gt_samples, len(split_samples)))
-    inj_picks = rng.sample(split_injections, k=min(args.injected_samples, len(split_injections)))
+    inj_picks = rng.sample(
+        split_injections, k=min(args.injected_samples, len(split_injections))
+    )
 
     cases = [to_gt_case(dataset_root, row) for row in gt_picks] + [
         to_injected_case(dataset_root, row) for row in inj_picks
@@ -631,12 +657,18 @@ def main() -> None:
             enable_thinking=enable_thinking,
         )
 
-    modes = ["no_tool", "with_tool", "with_tool_react"] if args.mode == "both" else [args.mode]
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    modes = (
+        ["no_tool", "with_tool", "with_tool_react"]
+        if args.mode == "both"
+        else [args.mode]
+    )
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
     if args.log_file:
         log_path = Path(args.log_file).resolve()
     else:
-        log_path = (PROJECT_ROOT / "output" / "log" / f"{run_id}_{args.split}_{args.mode}.log").resolve()
+        log_path = (
+            PROJECT_ROOT / "output" / "log" / f"{run_id}_{args.split}_{args.mode}.log"
+        ).resolve()
     log_path.parent.mkdir(parents=True, exist_ok=True)
     logger.add(
         str(log_path),
@@ -720,11 +752,17 @@ def main() -> None:
         "gt_samples": len(gt_picks),
         "injected_samples": len(inj_picks),
         "workers": max(1, args.workers),
-        "sample_eval_filename": sample_eval_filename if not args.no_write_sample_eval else "",
-        "sandbox_root": str((Path(args.sandbox_root).resolve() / run_id)) if args.sandbox_root else "",
+        "sample_eval_filename": (
+            sample_eval_filename if not args.no_write_sample_eval else ""
+        ),
+        "sandbox_root": (
+            str(Path(args.sandbox_root).resolve() / run_id) if args.sandbox_root else ""
+        ),
         "mode_metrics": mode_metrics,
     }
-    output_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    output_json.write_text(
+        json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     logger.info(f"Saved eval report: {output_json}")
 
     if args.output_detailed_json:

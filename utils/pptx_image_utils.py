@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import tempfile
 from pathlib import Path
 
@@ -28,7 +28,7 @@ def require_binary(name: str) -> None:
 
 
 def run_cmd(command: list[str]) -> None:
-    subprocess.run(command, check=True)  # noqa: S603
+    subprocess.run(command, check=True)  # noqa: S603  # nosec B603
 
 
 def _convert_pdf_to_png_windows(
@@ -146,7 +146,9 @@ def convert_pptx_first_page_to_png(
 
         if backend_used == "windows":
             pdf_path = _convert_pptx_to_pdf_windows(pptx_path, tmp_dir_path)
-            _convert_pdf_to_png_windows(pdf_path, output_png, dpi=dpi, poppler_path=poppler_path)
+            _convert_pdf_to_png_windows(
+                pdf_path, output_png, dpi=dpi, poppler_path=poppler_path
+            )
         elif backend_used == "libreoffice":
             pdf_path = _convert_pptx_to_pdf_libreoffice(pptx_path, tmp_dir_path)
             _convert_pdf_to_png_libreoffice(pdf_path, output_png, dpi=dpi)

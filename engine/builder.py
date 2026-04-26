@@ -12,6 +12,7 @@ from core.schemas import (
     ElementType,
     RenderableElement,
     SlideRenderConfig,
+    SlotDefinition,
     TableElement,
     TextElement,
     TextSlotDefinition,
@@ -155,21 +156,62 @@ class SlideConfigBuilder:
             )
 
         if slot.part == "caption":
-            assert slot.function_index is not None
+            if slot.function_index is None:
+                raise ValueError(
+                    f"caption text slot missing function_index for template {meta.uid}"
+                )
             function_keys = meta.function_key
             if slot.function_index >= len(function_keys):
                 raise ValueError(
                     f"caption text slot function_index={slot.function_index} "
                     f"out of range for template {meta.uid} with function_keys={function_keys}"
                 )
-            return resource_manager.render_text(
+            caption = resource_manager.render_text(
                 meta.theme_key,
                 function_keys[slot.function_index],
                 "caption",
                 ctx.variables,
             )
+            return self._add_caption_view_label(caption, meta, slot)
 
         raise ValueError(f"Unsupported text slot part: {slot.part}")
+
+    def _add_caption_view_label(
+        self,
+        caption: str,
+        meta: TemplateMeta,
+        slot: TextSlotDefinition,
+    ) -> str:
+        """Make the ST rendering type visible in the generated PPT caption."""
+        if slot.function_index is None:
+            raise ValueError(
+                f"caption text slot missing function_index for template {meta.uid}"
+            )
+        data_slots = layout_manager.get_layout_slots(meta.layout_type)
+        if slot.function_index >= len(data_slots):
+            raise ValueError(
+                f"caption text slot function_index={slot.function_index} "
+                f"has no matching data slot for template {meta.uid}"
+            )
+
+        view_label = self._view_label_for_data_slot(data_slots[slot.function_index])
+        return f"{caption} ({view_label})"
+
+    @staticmethod
+    def _view_label_for_data_slot(slot: SlotDefinition) -> str:
+        if slot.type == ElementType.TABLE:
+            return "Table"
+        if slot.type != ElementType.CHART:
+            raise ValueError(f"Unsupported caption data slot type: {slot.type}")
+
+        role = slot.role.lower()
+        if "bar" in role:
+            return "Bar chart"
+        if "line" in role:
+            return "Line chart"
+        if "pie" in role:
+            return "Pie chart"
+        return "Chart"
 
     def _inject_data_elements(
         self,

@@ -326,4 +326,3 @@
         Over the analysis window, supply changed by **{{ Metric_Var_Supply_Pct }}**%, while transactions changed by **{{ Metric_Var_Trans_Pct }}**%.
       - >-
         By **{{ Temporal_End_Year }}**, annual market activity ended with **{{ Metric_Vol_Supply_Terminal }}** listed units and **{{ Metric_Vol_Trans_Terminal }}** transacted units after supply recorded an **{{ Enum_Supply_Trend_Label }}** and demand recorded an **{{ Enum_Deal_Trend_Label }}** across the period.
-

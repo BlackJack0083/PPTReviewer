@@ -6,6 +6,7 @@ Summary 槽位注入器
 2. 仅更新 summary_slot_overrides（可注入槽位）
 3. 重新渲染 summary，并覆盖 template_slide 对应文本元素
 """
+
 from pathlib import Path
 
 import yaml
@@ -81,7 +82,9 @@ class SummaryInjector:
             )
 
         if output_yaml_path is None:
-            output_yaml_path = yaml_path.with_name(f"{yaml_path.stem}-summary_injected.yaml")
+            output_yaml_path = yaml_path.with_name(
+                f"{yaml_path.stem}-summary_injected.yaml"
+            )
         output_yaml_path = Path(output_yaml_path)
         output_yaml_path.parent.mkdir(parents=True, exist_ok=True)
 

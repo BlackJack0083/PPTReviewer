@@ -23,7 +23,11 @@ def _extract_message_text(message: Any) -> str | None:
         return text or None
 
     if isinstance(content, list):
-        texts = [str(item.get("text", "")).strip() for item in content if isinstance(item, dict) and item.get("type") == "text"]
+        texts = [
+            str(item.get("text", "")).strip()
+            for item in content
+            if isinstance(item, dict) and item.get("type") == "text"
+        ]
         merged = "\n".join(t for t in texts if t).strip()
         return merged or None
     return None
@@ -66,7 +70,10 @@ class Client:
         else:
             user_content = [
                 {"type": "text", "text": user_prompt},
-                {"type": "image_url", "image_url": {"url": _image_data_url(image_path)}},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _image_data_url(image_path)},
+                },
             ]
 
         request_kwargs: dict[str, Any] = {
@@ -91,8 +98,17 @@ class Client:
             except (APITimeoutError, APIConnectionError, APIError) as exc:
                 last_error = exc
                 status_code = getattr(exc, "status_code", None)
-                retryable = isinstance(exc, (APITimeoutError, APIConnectionError)) or status_code in { 
-                    408, 409, 429, 500, 502, 503, 504,}
+                retryable = isinstance(
+                    exc, APITimeoutError | APIConnectionError
+                ) or status_code in {
+                    408,
+                    409,
+                    429,
+                    500,
+                    502,
+                    503,
+                    504,
+                }
 
                 if retryable and attempt < retries:
                     time.sleep(0.8 * (attempt + 1))
@@ -100,7 +116,9 @@ class Client:
 
                 if isinstance(exc, APIError):
                     body = exc.body if hasattr(exc, "body") else str(exc)
-                    raise RuntimeError(f"DashScope APIError {status_code}: {body}") from exc
+                    raise RuntimeError(
+                        f"DashScope APIError {status_code}: {body}"
+                    ) from exc
                 raise RuntimeError(f"DashScope request failed: {exc}") from exc
 
             if not response.choices:
@@ -120,5 +138,7 @@ class Client:
             time.sleep(0.8 * (attempt + 1))
 
         if last_error is not None:
-            raise RuntimeError(f"Request failed after retries: {last_error}") from last_error
+            raise RuntimeError(
+                f"Request failed after retries: {last_error}"
+            ) from last_error
         raise RuntimeError("Request failed after retries.")

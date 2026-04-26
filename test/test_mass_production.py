@@ -22,7 +22,7 @@ import csv
 import hashlib
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import traceback
 from datetime import UTC, datetime
@@ -39,21 +39,23 @@ from core import ContextBuilder, resource_manager  # noqa: E402
 from core.data_provider import RealEstateDataProvider  # noqa: E402
 from engine import PPTGenerationEngine  # noqa: E402
 
+GROUND_TRUTH_INPUT_DIR = PROJECT_ROOT / "config" / "benchmark" / "ground_truth_inputs"
+
 CITY_CONFIGS = {
     "beijing": {
         "city": "Beijing",
         "table": "Beijing_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "beijing.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "beijing.csv",
     },
     "guangzhou": {
         "city": "Guangzhou",
         "table": "Guangzhou_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "guangzhou.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "guangzhou.csv",
     },
     "shenzhen": {
         "city": "Shenzhen",
         "table": "Shenzhen_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "shenzhen.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "shenzhen.csv",
     },
 }
 
@@ -90,7 +92,9 @@ def append_jsonl(path: Path, record: dict[str, Any]) -> None:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def init_manifests(dataset_root: Path, append_samples_manifest: bool) -> dict[str, Path]:
+def init_manifests(
+    dataset_root: Path, append_samples_manifest: bool
+) -> dict[str, Path]:
     manifest_dir = dataset_root / "manifest"
     manifest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -242,7 +246,9 @@ def generate_one_sample(
         if template_meta is None:
             raise ValueError(f"模板不存在: {template_id}")
 
-        provider = RealEstateDataProvider(city_name, block, start_year, end_year, table_name)
+        provider = RealEstateDataProvider(
+            city_name, block, start_year, end_year, table_name
+        )
         context = ContextBuilder.build_context(
             template_meta=template_meta,
             provider=provider,
@@ -253,7 +259,9 @@ def generate_one_sample(
         )
 
         engine = PPTGenerationEngine(str(gt_ppt))
-        engine.generate_multiple_slides([{"template_id": template_id, "context": context}])
+        engine.generate_multiple_slides(
+            [{"template_id": template_id, "context": context}]
+        )
 
         exported_yaml = find_exported_yaml(gt_dir)
         if exported_yaml is None:
@@ -330,11 +338,13 @@ def run_injection_phase(
 
     logger.info("开始执行错误注入阶段...")
     logger.info("命令: {}", " ".join(command))
-    subprocess.run(command, check=True, cwd=PROJECT_ROOT)  # noqa: S603
+    subprocess.run(command, check=True, cwd=PROJECT_ROOT)  # noqa: S603  # nosec B603
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="生成 benchmark GT 样本（可选连跑错误注入）")
+    parser = argparse.ArgumentParser(
+        description="生成 benchmark GT 样本（可选连跑错误注入）"
+    )
     parser.add_argument(
         "--dataset-root",
         default="output/benchmark/dataset_v1",
@@ -443,7 +453,9 @@ def main() -> None:
 
     invalid_cities = [c for c in args.cities if c not in CITY_CONFIGS]
     if invalid_cities:
-        raise ValueError(f"无效城市: {invalid_cities}, 可选: {list(CITY_CONFIGS.keys())}")
+        raise ValueError(
+            f"无效城市: {invalid_cities}, 可选: {list(CITY_CONFIGS.keys())}"
+        )
 
     if args.clean_dataset and dataset_root.exists():
         shutil.rmtree(dataset_root)
@@ -483,7 +495,12 @@ def main() -> None:
         if args.max_blocks_per_city is not None:
             blocks = blocks[: args.max_blocks_per_city]
 
-        logger.info("处理城市 {}: blocks={} templates={}", city_name, len(blocks), len(templates))
+        logger.info(
+            "处理城市 {}: blocks={} templates={}",
+            city_name,
+            len(blocks),
+            len(templates),
+        )
         for block in blocks:
             for template_id in templates:
                 if args.max_samples is not None and stats["total"] >= args.max_samples:

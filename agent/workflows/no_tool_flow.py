@@ -27,9 +27,9 @@ def _node_no_tool_judge(client):
             "Check this slide image. Focus on the summary text (usually body text).\n"
             f"Editable textboxes:\n{editable_shapes}\n\n"
             "Output JSON with this schema:\n"
-            "- If the slide is already correct: {\"has_issue\": false}\n"
+            '- If the slide is already correct: {"has_issue": false}\n'
             "- If the slide needs correction: "
-            "{\"has_issue\": true, \"shape_id\": \"...\", \"updated_summary\": \"...\"}\n\n"
+            '{"has_issue": true, "shape_id": "...", "updated_summary": "..."}\n\n'
             "Rules:\n"
             "- shape_id must be chosen from the editable textboxes above.\n"
             "- Prefer correcting the summary/body-text textbox rather than title/caption unless the evidence clearly shows otherwise.\n"

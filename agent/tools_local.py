@@ -1,6 +1,6 @@
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -51,7 +51,7 @@ def _sanitize_run_id(run_id: str) -> str:
 
 
 def _fallback_run_id() -> str:
-    return datetime.now(timezone.utc).strftime("adhoc-%Y%m%dT%H%M%S%fZ")
+    return datetime.now(UTC).strftime("adhoc-%Y%m%dT%H%M%S%fZ")
 
 
 def _default_text_edit_yaml_path(yaml_path: Path, run_id: str | None = None) -> Path:
@@ -90,7 +90,9 @@ class LocalDataTools:
 
         resource_manager.load_all()
         self.resource_manager = resource_manager
-        self._canonical_template_ids = sorted(self.resource_manager.all_templates.keys())
+        self._canonical_template_ids = sorted(
+            self.resource_manager.all_templates.keys()
+        )
         self._canonical_to_exposed = self._build_canonical_to_exposed_map()  # 载入别名
         self._alias_to_canonical = self._build_alias_to_canonical_map()
         self._runtime_yaml_path: str | None = None
@@ -122,7 +124,7 @@ class LocalDataTools:
         """
         将别名映射回原本 template id
         """
-        
+
         alias_bucket: dict[str, set[str]] = {}
 
         def add_alias(alias_text: str, canonical: str) -> None:
@@ -157,11 +159,26 @@ class LocalDataTools:
             {"name": "resolve_plan", "args": ["template_id"]},
             {
                 "name": "query_conclusion_vars",
-                "args": ["city", "block", "start_year", "end_year", "table_name", "function_key", "function_args"],
+                "args": [
+                    "city",
+                    "block",
+                    "start_year",
+                    "end_year",
+                    "table_name",
+                    "function_key",
+                    "function_args",
+                ],
             },
             {
                 "name": "build_expected_summary",
-                "args": ["template_id", "city", "block", "start_year", "end_year", "conclusion_vars"],
+                "args": [
+                    "template_id",
+                    "city",
+                    "block",
+                    "start_year",
+                    "end_year",
+                    "conclusion_vars",
+                ],
             },
             {"name": "list_editable_textboxes", "args": []},
             {"name": "apply_textbox_edit", "args": ["shape_id", "new_text"]},
@@ -323,7 +340,7 @@ class LocalDataTools:
         end_year: str,
         table_name: str,
     ) -> ToolEvidence:
-        template_meta = self.resolve_template_meta(template_id)
+        self.resolve_template_meta(template_id)
         function_key = self.resolve_function_key(template_id)
         function_args = self.resolve_function_args(function_key)
         conclusion_vars = self.query_conclusion_vars(
@@ -343,7 +360,9 @@ class LocalDataTools:
             end_year=end_year,
             conclusion_vars=conclusion_vars,
         )
-        summary_slots = self.extract_expected_summary_slots(template_id, conclusion_vars)
+        summary_slots = self.extract_expected_summary_slots(
+            template_id, conclusion_vars
+        )
 
         return ToolEvidence(
             template_id=template_id,
@@ -414,7 +433,11 @@ class LocalDataTools:
             if output_yaml_path
             else _default_text_edit_yaml_path(yaml_path, resolved_run_id)
         )
-        output_ppt = Path(output_ppt_path) if output_ppt_path else output_yaml.with_suffix(".pptx")
+        output_ppt = (
+            Path(output_ppt_path)
+            if output_ppt_path
+            else output_yaml.with_suffix(".pptx")
+        )
 
         data = SummaryInjector.load_yaml(yaml_path)
         elements = data.get("template_slide", {}).get("elements", [])

@@ -156,7 +156,9 @@ class ContextBuilder:
 
         # 调用数据方法
         logger.info(f"调用数据方法: function_key='{function_key}', params={params}")
-        df, conclusion_vars, config = provider.execute_by_function_key(function_key, **params)
+        df, conclusion_vars, config = provider.execute_by_function_key(
+            function_key, **params
+        )
 
         # 根据模板的 data_keys 将数据添加到 context
         # 注意：单数据源模式下，data_keys 的所有 values 都指向同一个数据集
@@ -220,7 +222,9 @@ class ContextBuilder:
             # 添加配置
             if config:
                 context.add_config(data_key_name, config)
-                logger.info(f"  -> 配置已添加: slot='{slot_name}', key='{data_key_name}'")
+                logger.info(
+                    f"  -> 配置已添加: slot='{slot_name}', key='{data_key_name}'"
+                )
 
             merged_conclusion_vars = dict(context.variables.get("_conclusion_vars", {}))
             new_var_count = 0

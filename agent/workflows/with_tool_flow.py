@@ -88,7 +88,9 @@ def _with_carried_state(state: dict[str, Any], **updates: Any) -> dict[str, Any]
     return result
 
 
-def _node_extract_claim(client, template_candidates: list[str], table_candidates: list[str]):
+def _node_extract_claim(
+    client, template_candidates: list[str], table_candidates: list[str]
+):
     def _run(state: dict[str, Any]) -> dict[str, Any]:
         image_path = Path(state["image_path"])
         system_prompt = (
@@ -102,40 +104,36 @@ def _node_extract_claim(client, template_candidates: list[str], table_candidates
             "- template_id must be copied exactly from candidate list (prefer human-readable alias names when provided).\n"
             "- do not invent a new template_id or table_name outside candidates.\n"
             "- block must be pure block name only, never prepend city.\n"
-            
             "Return JSON with keys:\n"
             "{\n"
-            "  \"template_id\": \"...\",\n"
-            "  \"table_name\": \"...\",\n"
-            "  \"city\": \"...\",\n"
-            "  \"block\": \"...\",\n"
-            "  \"start_year\": \"YYYY\",\n"
-            "  \"end_year\": \"YYYY\",\n"
-            "  \"summary_text\": \"exact summary sentence from slide\"\n"
+            '  "template_id": "...",\n'
+            '  "table_name": "...",\n'
+            '  "city": "...",\n'
+            '  "block": "...",\n'
+            '  "start_year": "YYYY",\n'
+            '  "end_year": "YYYY",\n'
+            '  "summary_text": "exact summary sentence from slide"\n'
             "}\n"
-            
             "Example A:\n"
-            "Input text: \"**Shenzhen** **Baolong Technology Park** ...\"\n"
+            'Input text: "**Shenzhen** **Baolong Technology Park** ..."\n'
             "Output:\n"
-            "{\"template_id\":\"New-House Supply_Transaction Area Analysis Line Chart\","
-            "\"table_name\":\"Shenzhen_new_house\","
-            "\"city\":\"Shenzhen\","
-            "\"block\":\"Baolong Technology Park\","
-            "\"start_year\":\"2020\","
-            "\"end_year\":\"2024\","
-            "\"summary_text\":\"The region experienced ...\"}\n"
-            
+            '{"template_id":"New-House Supply_Transaction Area Analysis Line Chart",'
+            '"table_name":"Shenzhen_new_house",'
+            '"city":"Shenzhen",'
+            '"block":"Baolong Technology Park",'
+            '"start_year":"2020",'
+            '"end_year":"2024",'
+            '"summary_text":"The region experienced ..."}\n'
             "Example B:\n"
-            "Input text: \"**2020**-**2024** **Beijing** **Mapo** Area and Total Price Cross Statistics\"\n"
+            'Input text: "**2020**-**2024** **Beijing** **Mapo** Area and Total Price Cross Statistics"\n'
             "Output:\n"
-            "{\"template_id\":\"New-House Cross-Structure Analysis Table\","
-            "\"table_name\":\"Beijing_new_house\","
-            "\"city\":\"Beijing\","
-            "\"block\":\"Mapo\","
-            "\"start_year\":\"2020\","
-            "\"end_year\":\"2024\","
-            "\"summary_text\":\"From 2020 to 2024, ...\"}\n"
-            
+            '{"template_id":"New-House Cross-Structure Analysis Table",'
+            '"table_name":"Beijing_new_house",'
+            '"city":"Beijing",'
+            '"block":"Mapo",'
+            '"start_year":"2020",'
+            '"end_year":"2024",'
+            '"summary_text":"From 2020 to 2024, ..."}\n'
             "If uncertain, choose the nearest candidate from the lists and still output valid JSON only."
         )
         response = client.chat(
@@ -191,7 +189,9 @@ def _node_validate_claim(
             raise ValueError(f"Claim extraction invalid template_id: {template_id}")
         if table_name not in table_set:
             raise ValueError(f"Claim extraction invalid table_name: {table_name}")
-        if not year_pattern.fullmatch(start_year) or not year_pattern.fullmatch(end_year):
+        if not year_pattern.fullmatch(start_year) or not year_pattern.fullmatch(
+            end_year
+        ):
             raise ValueError(
                 f"Claim extraction invalid year format: start={start_year}, end={end_year}"
             )
@@ -218,7 +218,7 @@ def _node_run_tools(tools):
         plan = tools.resolve_plan(template_id)
         function_key = str(plan["function_key"])
         function_args = dict(plan["function_args"])
-        
+
         conclusion_vars = tools.query_conclusion_vars(
             city=city,
             block=block,
@@ -294,7 +294,7 @@ def _node_judge_with_tool(client):
                 f"expected_summary_from_tool:\n{evidence.expected_summary}\n\n"
                 f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
                 "Output JSON with this schema:\n"
-                "{\"has_issue\": true|false}\n\n"
+                '{"has_issue": true|false}\n\n'
                 "Rules:\n"
                 "- If any key factual mismatch exists, set has_issue=true.\n"
                 "- Otherwise set has_issue=false."
@@ -338,7 +338,7 @@ def _node_plan_text_edit(client):
                 f"expected_summary_slots:\n{json.dumps(evidence.expected_summary_slots, ensure_ascii=False)}\n\n"
                 f"editable_textboxes:\n{json.dumps(editable_shapes, ensure_ascii=False)}\n\n"
                 "Output JSON with this schema:\n"
-                "{\"shape_id\": \"...\", \"updated_summary\": \"...\"}\n\n"
+                '{"shape_id": "...", "updated_summary": "..."}\n\n'
                 "Rules:\n"
                 "- shape_id must be chosen from editable_textboxes.\n"
                 "- Prefer correcting the summary/body-text textbox rather than title/caption unless evidence clearly shows otherwise.\n"
@@ -397,7 +397,9 @@ def _node_apply_text_edit(tools):
             execution_success = tools.apply_textbox_edit(
                 **apply_kwargs,
             )
-        except Exception:  # noqa: BLE001 - execution failure should not erase model prediction
+        except (
+            Exception
+        ):  # noqa: BLE001 - execution failure should not erase model prediction
             execution_success = False
 
         tool_calls = list(state.get("tool_calls", []))

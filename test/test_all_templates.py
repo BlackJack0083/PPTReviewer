@@ -132,9 +132,11 @@ T11_T12_TEMPLATES = [
 
 def get_applicable_configs(template_id):
     """Return matching table configs for a given template."""
-    if template_id.startswith("T03_") or template_id.startswith("T05_"):
+    if template_id.startswith(("T03_", "T05_")):
         return [
-            config for config in TEST_CONFIGS if config["table"] == "Guangzhou_resale_house"
+            config
+            for config in TEST_CONFIGS
+            if config["table"] == "Guangzhou_resale_house"
         ]
     return [
         config for config in TEST_CONFIGS if config["table"] != "Guangzhou_resale_house"
@@ -176,9 +178,7 @@ def test_single_template(template_id, config, block, start_year, end_year):
             end_year=end_year,
         )
 
-        output_file = (
-            f"output/test_{template_id}_{config['table']}_{block.replace(' ', '_')}.pptx"
-        )
+        output_file = f"output/test_{template_id}_{config['table']}_{block.replace(' ', '_')}.pptx"
         engine = PPTGenerationEngine(output_file)
 
         Path("output").mkdir(parents=True, exist_ok=True)
@@ -367,9 +367,7 @@ def generate_test_report(results, report_name="test_report.txt"):
             for result in results:
                 if not result["success"]:
                     file.write(f"模板: {result['template_id']}\n")
-                    file.write(
-                        f"表: {result['table']}, 板块: {result['block']}\n"
-                    )
+                    file.write(f"表: {result['table']}, 板块: {result['block']}\n")
                     file.write(f"错误: {result['error']}\n\n")
 
         file.write("全部结果:\n")

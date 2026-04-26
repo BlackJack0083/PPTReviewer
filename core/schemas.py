@@ -143,23 +143,23 @@ class TextSlotDefinition(LayoutModel):
             return self
 
         if self.function_index is not None:
-            raise ValueError(
-                "Only caption text slots may declare function_index"
-            )
+            raise ValueError("Only caption text slots may declare function_index")
         return self
 
 
 class SlideSize(BaseModel):
     """Slide 尺寸配置"""
+
     width: float = Field(25.4, description="宽度 (cm)")
     height: float = Field(14.29, description="高度 (cm)")
 
 
 class LayoutConfig(BaseModel):
     """版式配置"""
+
     slide_size: SlideSize = Field(
         default_factory=lambda: SlideSize(width=25.4, height=14.29),
-        description="Slide 尺寸"
+        description="Slide 尺寸",
     )
     text_slots: list[TextSlotDefinition] = Field(
         default_factory=list,
@@ -178,7 +178,9 @@ class LayoutConfig(BaseModel):
             part_counts[slot.part] += 1
 
         if part_counts["slide_title"] != 1:
-            raise ValueError("Each layout must define exactly one slide_title text slot")
+            raise ValueError(
+                "Each layout must define exactly one slide_title text slot"
+            )
         if part_counts["summary"] != 1:
             raise ValueError("Each layout must define exactly one summary text slot")
         if part_counts["caption"] < 1:
@@ -302,7 +304,6 @@ class TableConfig(BaseModel):
     body_bg_color: Color = Field(Color.LIGHT_BLUE, description="主体背景色")
     body_font_bold: bool = Field(False, description="主体是否加粗")
 
-
     min_header_font_size: int = Field(6, description="Minimum header font size")
     min_body_font_size: int = Field(5, description="Minimum body font size")
     cell_margin_cm: float = Field(0.05, description="Cell padding in cm")
@@ -371,9 +372,9 @@ class TableAnalysisConfig(BaseModel):
     总体的表格分析配置
     """
 
-    table_type: Literal["field-constraint", "constraint-filed", "constraint-field", "cross-constraint"] = (
-        Field(..., description="表格类型")
-    )
+    table_type: Literal[
+        "field-constraint", "constraint-filed", "constraint-field", "cross-constraint"
+    ] = Field(..., description="表格类型")
 
     # 使用 default_factory=list 防止可变默认参数问题
     dimensions: list[BinningRule] = Field(
@@ -416,6 +417,7 @@ class ChartElement(DataElement):
     1. 数据渲染 (transformer 处理)
     2. YAML 导出 (保存配置信息)
     """
+
     type: Literal[ElementType.CHART] = ElementType.CHART
     # 可选的分析配置，用于 YAML 导出和配置复用
     config: TableAnalysisConfig | None = Field(default=None, description="数据分析配置")

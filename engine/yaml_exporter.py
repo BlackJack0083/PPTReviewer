@@ -3,6 +3,7 @@ YAML 导出器
 在生成 PPT 时同步生成配置 YAML 文件
 记录 query_filters, slide_filters, template_slide
 """
+
 import re
 from hashlib import md5
 from pathlib import Path
@@ -61,10 +62,11 @@ class YAMLExporter:
 
         # 7. 生成文件路径并写入
         yaml_path = YAMLExporter._write_yaml(
-            yaml_data, output_file_path,
+            yaml_data,
+            output_file_path,
             context.variables.get("Geo_City_Name", "Unknown"),
             context.variables.get("Geo_Block_Name", "Unknown"),
-            template_id
+            template_id,
         )
 
         logger.info(f"已导出配置文件: {yaml_path}")
@@ -160,7 +162,7 @@ class YAMLExporter:
                     "args": fun_args,
                 },
                 "sql_query": [
-                    f"SELECT {', '.join(select_cols)} FROM public.{table_name} "
+                    f"SELECT {', '.join(select_cols)} FROM public.{table_name} "  # nosec B608
                     f"WHERE city = '{city}' "
                     f"AND block = '{block}' "
                     f"AND date_code >= '{start_year}-01-01' "
@@ -247,30 +249,34 @@ class YAMLExporter:
         elem = {"id": str(element_id)}
 
         if isinstance(element, TextElement):
-            elem.update({
-                "type": "textBox",
-                "role": element.role,
-                "text": element.text,
-                "layout": {
-                    "x": element.layout.left,
-                    "y": element.layout.top,
-                    "width": element.layout.width,
-                    "height": element.layout.height,
+            elem.update(
+                {
+                    "type": "textBox",
+                    "role": element.role,
+                    "text": element.text,
+                    "layout": {
+                        "x": element.layout.left,
+                        "y": element.layout.top,
+                        "width": element.layout.width,
+                        "height": element.layout.height,
+                    },
                 }
-            })
+            )
 
-        elif isinstance(element, (ChartElement, TableElement)):
+        elif isinstance(element, ChartElement | TableElement):
             is_chart = isinstance(element, ChartElement)
-            elem.update({
-                "type": "chart" if is_chart else "table",
-                "role": element.role,
-                "layout": {
-                    "x": element.layout.left,
-                    "y": element.layout.top,
-                    "width": element.layout.width,
-                    "height": element.layout.height,
+            elem.update(
+                {
+                    "type": "chart" if is_chart else "table",
+                    "role": element.role,
+                    "layout": {
+                        "x": element.layout.left,
+                        "y": element.layout.top,
+                        "width": element.layout.width,
+                        "height": element.layout.height,
+                    },
                 }
-            })
+            )
             # 图表添加 args
             if is_chart:
                 elem["args"] = YAMLExporter._build_chart_args(element)
@@ -335,13 +341,17 @@ class YAMLExporter:
         return result
 
     @staticmethod
-    def _write_yaml(yaml_data: dict, ppt_path: str | Path, city: str, block: str, template_id: str) -> Path:
+    def _write_yaml(
+        yaml_data: dict, ppt_path: str | Path, city: str, block: str, template_id: str
+    ) -> Path:
         """生成 YAML 文件路径并写入"""
         ppt_path = Path(ppt_path)
 
-        # 生成唯一 ID
-        # noqa: S324 - 仅用于文件名去重，不用于安全场景
-        unique_id = md5(f"{city}{block}{template_id}".encode()).hexdigest()[:16]  # noqa: S324
+        # 生成唯一 ID；仅用于文件名去重，不用于安全场景。
+        unique_id = md5(  # noqa: S324  # nosec B324
+            f"{city}{block}{template_id}".encode(),
+            usedforsecurity=False,
+        ).hexdigest()[:16]
         safe_block = block.replace(" ", "").replace("/", "")
         yaml_filename = f"{city}{safe_block}-{template_id}-{unique_id}.yaml"
 
@@ -349,7 +359,13 @@ class YAMLExporter:
         yaml_path.parent.mkdir(parents=True, exist_ok=True)
 
         with open(yaml_path, "w", encoding="utf-8") as f:
-            yaml.dump(yaml_data, f, allow_unicode=True, sort_keys=False,
-                     default_flow_style=False, width=1000)
+            yaml.dump(
+                yaml_data,
+                f,
+                allow_unicode=True,
+                sort_keys=False,
+                default_flow_style=False,
+                width=1000,
+            )
 
         return yaml_path

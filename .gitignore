@@ -186,6 +186,13 @@ tool-debug-kit/
 .archive/
 
 *.csv
+!config/benchmark/
+!config/benchmark/ground_truth_inputs/
+!config/benchmark/ground_truth_inputs/*.csv
 graduation project/
 refine-logs/
 repro/
+.codex
+plan.md
+
+Benchmark 设计.md

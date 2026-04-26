@@ -24,7 +24,7 @@ import csv
 import hashlib
 import json
 import shutil
-import subprocess
+import subprocess  # nosec B404
 import sys
 import tempfile
 import traceback
@@ -44,22 +44,23 @@ from core.data_provider import RealEstateDataProvider  # noqa: E402
 from engine import PPTGenerationEngine  # noqa: E402
 from utils.pptx_image_utils import convert_pptx_first_page_to_png  # noqa: E402
 
+GROUND_TRUTH_INPUT_DIR = PROJECT_ROOT / "config" / "benchmark" / "ground_truth_inputs"
 
 CITY_CONFIGS = {
     "beijing": {
         "city": "Beijing",
         "table": "Beijing_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "beijing.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "beijing.csv",
     },
     "guangzhou": {
         "city": "Guangzhou",
         "table": "Guangzhou_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "guangzhou.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "guangzhou.csv",
     },
     "shenzhen": {
         "city": "Shenzhen",
         "table": "Shenzhen_new_house",
-        "csv_file": PROJECT_ROOT / "test" / "shenzhen.csv",
+        "csv_file": GROUND_TRUTH_INPUT_DIR / "shenzhen.csv",
     },
 }
 
@@ -430,7 +431,9 @@ def precheck_one_sample(
 
         with tempfile.TemporaryDirectory(prefix="gt_precheck_") as temp_dir:
             temp_ppt = Path(temp_dir) / "slide.pptx"
-            PPTGenerationEngine(str(temp_ppt)).generate_single_slide(template_id, context)
+            PPTGenerationEngine(str(temp_ppt)).generate_single_slide(
+                template_id, context
+            )
 
         return True, None
     except Exception as exc:  # noqa: BLE001
@@ -471,11 +474,13 @@ def run_injection_phase(
 
     logger.info("开始执行错误注入阶段...")
     logger.info("命令: {}", " ".join(command))
-    subprocess.run(command, check=True, cwd=PROJECT_ROOT)  # noqa: S603
+    subprocess.run(command, check=True, cwd=PROJECT_ROOT)  # noqa: S603  # nosec B603
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="生成 benchmark GT 样本（可选连跑错误注入）")
+    parser = argparse.ArgumentParser(
+        description="生成 benchmark GT 样本（可选连跑错误注入）"
+    )
     parser.add_argument(
         "--dataset-root",
         default="output/benchmark/dataset_v1",
@@ -606,7 +611,9 @@ def main() -> None:
 
     invalid_cities = [c for c in args.cities if c not in CITY_CONFIGS]
     if invalid_cities:
-        raise ValueError(f"无效城市: {invalid_cities}, 可选: {list(CITY_CONFIGS.keys())}")
+        raise ValueError(
+            f"无效城市: {invalid_cities}, 可选: {list(CITY_CONFIGS.keys())}"
+        )
 
     if args.precheck_only and args.inject_after_gt:
         raise ValueError("--precheck-only 与 --inject-after-gt 不能同时使用")
@@ -630,7 +637,10 @@ def main() -> None:
         manifests["eval_runs"].touch(exist_ok=True)
         samples_records = load_existing_sample_records(manifests["samples"])
 
-    logger.info("开始执行{}", "benchmark GT 预检查" if args.precheck_only else "benchmark GT 生成")
+    logger.info(
+        "开始执行{}",
+        "benchmark GT 预检查" if args.precheck_only else "benchmark GT 生成",
+    )
     if not args.precheck_only:
         logger.info("dataset_root: {}", dataset_root)
     logger.info("split: {}", args.split)
@@ -682,7 +692,9 @@ def main() -> None:
                     logger.info("[OK] {} | {} | {}", city_name, block, template_id)
                 else:
                     stats["failed"] += 1
-                    logger.error("[FAIL] {} | {} | {} | {}", city_name, block, template_id, error)
+                    logger.error(
+                        "[FAIL] {} | {} | {} | {}", city_name, block, template_id, error
+                    )
             else:
                 ok, status, record = generate_one_sample(
                     dataset_root=dataset_root,

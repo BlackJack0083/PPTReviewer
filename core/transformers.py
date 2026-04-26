@@ -1,7 +1,6 @@
 ﻿from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import pandas as pd
 from loguru import logger
@@ -99,7 +98,9 @@ class StatTransformer:
             result = self._apply_dimension_rule(result, rule)
         return result
 
-    def _apply_dimension_rule(self, df: pd.DataFrame, rule: BinningRule) -> pd.DataFrame:
+    def _apply_dimension_rule(
+        self, df: pd.DataFrame, rule: BinningRule
+    ) -> pd.DataFrame:
         """执行单个维度规则。"""
         if rule.method == "range":
             return self._apply_range_binning(df, rule)
@@ -115,7 +116,9 @@ class StatTransformer:
         result = df.copy()
         series = pd.to_numeric(result[rule.source_col], errors="coerce")
         if series.dropna().empty:
-            result[rule.target_col] = pd.Series(pd.NA, index=result.index, dtype="object")
+            result[rule.target_col] = pd.Series(
+                pd.NA, index=result.index, dtype="object"
+            )
             return result
 
         step = rule.step if rule.step not in (None, 0) else 1
@@ -140,10 +143,14 @@ class StatTransformer:
         )
         return result
 
-    def _apply_period_dimension(self, df: pd.DataFrame, rule: BinningRule) -> pd.DataFrame:
+    def _apply_period_dimension(
+        self, df: pd.DataFrame, rule: BinningRule
+    ) -> pd.DataFrame:
         """应用时间维度预处理。"""
         if rule.source_col not in df.columns:
-            raise KeyError(f"Missing source column for period dimension: {rule.source_col}")
+            raise KeyError(
+                f"Missing source column for period dimension: {rule.source_col}"
+            )
 
         result = df.copy()
         datetime_series = pd.to_datetime(result[rule.source_col], errors="coerce")
@@ -161,7 +168,7 @@ class StatTransformer:
         )
 
     @staticmethod
-    def _resolve_range_step(source_col: str, step: float | int) -> int:
+    def _resolve_range_step(source_col: str, step: float) -> int:
         """将 schema 中的 step 转为底层实际分箱步长。"""
         if source_col == "dim_price":
             resolved = int(float(step) * 100)
@@ -180,16 +187,16 @@ class StatTransformer:
             ]
 
         template = rule.format_str or "{}-{}m²"
-        return [
-            template.format(bins[i], bins[i + 1]) for i in range(len(bins) - 1)
-        ]
+        return [template.format(bins[i], bins[i + 1]) for i in range(len(bins) - 1)]
 
     def _process_standard_table(
         self, df: pd.DataFrame, execution_plan: _ExecutionPlan
     ) -> pd.DataFrame:
         """处理标准聚合表和转置聚合表。"""
         if not execution_plan.primary_dim or not execution_plan.metrics:
-            logger.warning("Standard table skipped because dimensions or metrics are empty.")
+            logger.warning(
+                "Standard table skipped because dimensions or metrics are empty."
+            )
             return pd.DataFrame()
 
         result = self._aggregate_metrics(
@@ -271,7 +278,9 @@ class StatTransformer:
             logger.error(f"Aggregation failed for {metric.name}: {exc}")
             raise
 
-    def _apply_metric_filter(self, df: pd.DataFrame, metric: MetricRule) -> pd.DataFrame:
+    def _apply_metric_filter(
+        self, df: pd.DataFrame, metric: MetricRule
+    ) -> pd.DataFrame:
         """按指标过滤条件裁剪输入数据。"""
         if not metric.filter_condition:
             return df
@@ -281,7 +290,7 @@ class StatTransformer:
             if column not in filtered.columns:
                 raise KeyError(f"Missing filter column: {column}")
 
-            if isinstance(expected, (list, tuple, set)):
+            if isinstance(expected, list | tuple | set):
                 filtered = filtered[filtered[column].isin(list(expected))]
             else:
                 filtered = filtered[filtered[column] == expected]
@@ -336,11 +345,15 @@ class StatTransformer:
         metric_names = [metric.name for metric in metrics]
         pivot = merged.pivot(index=row_dim, columns=col_dim, values=metric_names)
         pivot = pivot.fillna(0)
-        pivot.columns = [f"{metric_name}({dim_value})" for metric_name, dim_value in pivot.columns]
+        pivot.columns = [
+            f"{metric_name}({dim_value})" for metric_name, dim_value in pivot.columns
+        ]
 
         for metric in metrics:
             metric_prefix = f"{metric.name}("
-            target_columns = [col for col in pivot.columns if col.startswith(metric_prefix)]
+            target_columns = [
+                col for col in pivot.columns if col.startswith(metric_prefix)
+            ]
             for column in target_columns:
                 pivot[column] = self._normalize_metric_series(
                     pivot[column], metric.agg_func

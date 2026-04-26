@@ -1,6 +1,6 @@
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-import threading
 from typing import Any
 
 import yaml
@@ -31,7 +31,9 @@ class TemplateMeta:
             raise ValueError("function_key must be a non-empty list[str]")
         if not isinstance(self.function_params, dict):
             raise ValueError("function_params must be a dict[str, Any]")
-        if self.summary_function_key is not None and not isinstance(self.summary_function_key, str):
+        if self.summary_function_key is not None and not isinstance(
+            self.summary_function_key, str
+        ):
             raise ValueError("summary_function_key must be a str | None")
 
 

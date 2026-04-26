@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import concurrent.futures as cf
 import json
 import os
 import random
 import sys
-from datetime import datetime, timezone
+import tempfile
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -16,8 +18,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from agent.pipeline import PPTSummaryJudgeAgent  # noqa: E402
 from scripts.run_small_eval import (  # noqa: E402
-    compute_metrics,
     now_iso,
     parse_bool_env,
     read_jsonl,
@@ -26,7 +28,6 @@ from scripts.run_small_eval import (  # noqa: E402
     to_gt_case,
     to_injected_case,
 )
-from agent.pipeline import PPTSummaryJudgeAgent  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -59,6 +60,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--seed", type=int, default=20260411, help="Random seed.")
     parser.add_argument("--workers", type=int, default=6, help="Concurrency per run.")
+    parser.add_argument(
+        "--matrix-workers",
+        type=int,
+        default=1,
+        help="How many model x mode jobs to run in parallel.",
+    )
     parser.add_argument("--case-retries", type=int, default=2, help="Retries per case.")
     parser.add_argument(
         "--base-url",
@@ -72,7 +79,7 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--sandbox-root",
-        default="/tmp/agent_model_matrix_smoke",
+        default=str(Path(tempfile.gettempdir()) / "agent_model_matrix_smoke"),
         help="Sandbox directory for copied cases.",
     )
     parser.add_argument(
@@ -95,22 +102,28 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def pick_cases(dataset_root: Path, split: str, gt_samples: int, injected_samples: int, seed: int) -> list[dict[str, Any]]:
+def pick_cases(
+    dataset_root: Path, split: str, gt_samples: int, injected_samples: int, seed: int
+) -> list[dict[str, Any]]:
     samples_rows = read_jsonl(dataset_root / "manifest" / "samples.jsonl")
     injections_rows = read_jsonl(dataset_root / "manifest" / "injections.jsonl")
 
     split_samples = [r for r in samples_rows if r.get("split") == split]
     split_injections = [
-        r for r in injections_rows if str(r.get("source_yaml", "")).startswith(f"split/{split}/")
+        r
+        for r in injections_rows
+        if str(r.get("source_yaml", "")).startswith(f"split/{split}/")
     ]
     if not split_samples:
         raise ValueError(f"No samples found for split={split}")
     if not split_injections:
         raise ValueError(f"No injections found for split={split}")
 
-    rng = random.Random(seed)  # noqa: S311 - benchmark sampling only
+    rng = random.Random(seed)  # noqa: S311 - benchmark sampling only  # nosec B311
     gt_picks = rng.sample(split_samples, k=min(gt_samples, len(split_samples)))
-    inj_picks = rng.sample(split_injections, k=min(injected_samples, len(split_injections)))
+    inj_picks = rng.sample(
+        split_injections, k=min(injected_samples, len(split_injections))
+    )
     cases = [to_gt_case(dataset_root, row) for row in gt_picks] + [
         to_injected_case(dataset_root, row) for row in inj_picks
     ]
@@ -143,9 +156,11 @@ def main() -> None:
     base_url = args.base_url or os.getenv(
         "DASHSCOPE_BASE_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1"
     )
-    enable_thinking = parse_bool_env(os.getenv("DASHSCOPE_ENABLE_THINKING"), default=False)
+    enable_thinking = parse_bool_env(
+        os.getenv("DASHSCOPE_ENABLE_THINKING"), default=False
+    )
 
-    run_id = datetime.now(timezone.utc).strftime("matrix_%Y%m%dT%H%M%SZ")
+    run_id = datetime.now(UTC).strftime("matrix_%Y%m%dT%H%M%SZ")
     cases = pick_cases(
         dataset_root=dataset_root,
         split=args.split,
@@ -163,39 +178,51 @@ def main() -> None:
     matrix_rows: list[dict[str, Any]] = []
     detailed_runs: list[dict[str, Any]] = []
 
-    for model in args.models:
+    jobs = [(model, mode) for model in args.models for mode in args.modes]
+
+    def run_job(job: tuple[str, str]) -> dict[str, Any]:
+        model, mode = job
         agent_factory = make_agent_factory(model, api_key, base_url, enable_thinking)
-        for mode in args.modes:
-            result = run_mode_eval(
-                agent_factory=agent_factory,
-                dataset_root=dataset_root,
-                run_id=f"{run_id}-{model}",
-                mode=mode,
-                cases=staged_cases,
-                auto_render_images=args.auto_render_images,
-                render_dpi=args.render_dpi,
-                render_backend=args.render_backend,
-                poppler_path=None,
-                workers=max(1, args.workers),
-                case_retries=max(0, args.case_retries),
-            )
+        result = run_mode_eval(
+            agent_factory=agent_factory,
+            dataset_root=dataset_root,
+            run_id=f"{run_id}-{model}",
+            mode=mode,
+            cases=staged_cases,
+            auto_render_images=args.auto_render_images,
+            render_dpi=args.render_dpi,
+            render_backend=args.render_backend,
+            poppler_path=None,
+            workers=max(1, args.workers),
+            case_retries=max(0, args.case_retries),
+        )
+        return {
+            "model": model,
+            "mode": mode,
+            "result": result,
+        }
+
+    with cf.ThreadPoolExecutor(max_workers=max(1, args.matrix_workers)) as executor:
+        futures = [executor.submit(run_job, job) for job in jobs]
+        for future in cf.as_completed(futures):
+            item = future.result()
+            result = item["result"]
             metrics = result["metrics"]
-            row = {
-                "model": model,
-                "mode": mode,
-                "total_cases": result["total_cases"],
-                "valid_cases": result["valid_cases"],
-                "error_cases": result["error_cases"],
-                **metrics,
-            }
-            matrix_rows.append(row)
-            detailed_runs.append(
+            matrix_rows.append(
                 {
-                    "model": model,
-                    "mode": mode,
-                    "result": result,
+                    "model": item["model"],
+                    "mode": item["mode"],
+                    "total_cases": result["total_cases"],
+                    "valid_cases": result["valid_cases"],
+                    "error_cases": result["error_cases"],
+                    **metrics,
                 }
             )
+            detailed_runs.append(item)
+
+    order = {(model, mode): idx for idx, (model, mode) in enumerate(jobs)}
+    matrix_rows.sort(key=lambda row: order[(row["model"], row["mode"])])
+    detailed_runs.sort(key=lambda item: order[(item["model"], item["mode"])])
 
     summary = {
         "run_id": run_id,
@@ -205,6 +232,7 @@ def main() -> None:
         "gt_samples": args.gt_samples,
         "injected_samples": args.injected_samples,
         "workers": max(1, args.workers),
+        "matrix_workers": max(1, args.matrix_workers),
         "models": args.models,
         "modes": args.modes,
         "sandbox_root": str(sandbox_root / run_id),
@@ -214,7 +242,9 @@ def main() -> None:
     summary_path = output_root / f"{run_id}_summary.json"
     detail_path = output_root / f"{run_id}_detailed.json"
     csv_path = output_root / f"{run_id}_matrix.csv"
-    summary_path.write_text(json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8")
+    summary_path.write_text(
+        json.dumps(summary, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
     detail_path.write_text(
         json.dumps(
             {
