@@ -15,18 +15,7 @@ from .common import (
 )
 
 REQUIRED_RECORD_FIELDS = {
-    "schema_version",
-    "corruption_id",
-    "sample_id",
-    "error_family",
-    "error_type",
-    "targets",
-    "observability",
-    "repair_mode",
-    "requires_user_feedback",
-    "seed",
     "operations",
-    "expected_operations",
     "expected_repair_yaml",
     "source_yaml",
     "output_yaml",
@@ -34,10 +23,8 @@ REQUIRED_RECORD_FIELDS = {
 }
 REQUIRED_OPERATION_FIELDS = {
     "target",
-    "before",
-    "after",
+    "element_id",
     "mutation_type",
-    "truth_basis",
 }
 VALID_TARGETS = {"st.caption", "st.body", "summary", "title"}
 
@@ -58,9 +45,9 @@ def validate_benchmark(dataset_root: Path) -> tuple[dict[str, Any], dict[str, An
         errors.append({"code": "missing_manifest", "path": str(manifest_path)})
 
     for line_no, record in enumerate(records, start=1):
-        context = {"line": line_no, "corruption_id": record.get("corruption_id")}
+        context = {"line": line_no, "output_yaml": record.get("output_yaml")}
         _validate_record_schema(record, context, errors)
-        _validate_unique_id(record, seen_ids, context, errors)
+        _validate_unique_output(record, seen_ids, context, errors)
         _validate_record_paths(dataset_root, record, context, errors)
         _validate_operations(record, context, errors)
         _validate_sidecar_json(dataset_root, record, context, errors)
@@ -87,7 +74,7 @@ def build_coverage_report(
     samples: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """按 family、split、template、layout 和 city 汇总 corruption 覆盖情况。"""
-    by_family = Counter(str(record.get("error_family", "")) for record in records)
+    by_family = Counter(infer_error_family(record) for record in records)
     by_split = Counter(str(record.get("split", "")) for record in records)
     by_template = Counter(str(record.get("template_id", "")) for record in records)
     by_layout = Counter(str(record.get("layout_type", "")) for record in records)
@@ -97,7 +84,7 @@ def build_coverage_report(
     layout_family_counts: dict[str, dict[str, int]] = defaultdict(dict)
     split_family_counts: dict[str, dict[str, int]] = defaultdict(dict)
     for record in records:
-        family = str(record.get("error_family", ""))
+        family = infer_error_family(record)
         template_id = str(record.get("template_id", ""))
         layout_type = str(record.get("layout_type", ""))
         split = str(record.get("split", ""))
@@ -178,42 +165,24 @@ def _validate_record_schema(
     if missing:
         _add_error(errors, "missing_record_fields", context, fields=missing)
 
-    if record.get("schema_version") != SCHEMA_VERSION:
-        _add_error(
-            errors,
-            "invalid_schema_version",
-            context,
-            expected=SCHEMA_VERSION,
-            actual=record.get("schema_version"),
-        )
-    if record.get("error_family") not in DEFAULT_FAMILIES:
-        _add_error(
-            errors, "invalid_error_family", context, value=record.get("error_family")
-        )
-    if not isinstance(record.get("targets"), list) or not record.get("targets"):
-        _add_error(errors, "invalid_targets", context, value=record.get("targets"))
     if not isinstance(record.get("operations"), list) or not record.get("operations"):
         _add_error(errors, "invalid_operations", context)
-    if not isinstance(record.get("expected_operations"), list):
-        _add_error(errors, "invalid_expected_operations", context)
-    if not isinstance(record.get("requires_user_feedback"), bool):
-        _add_error(errors, "invalid_requires_user_feedback", context)
 
 
-def _validate_unique_id(
+def _validate_unique_output(
     record: dict[str, Any],
     seen_ids: set[str],
     context: dict[str, Any],
     errors: list[dict[str, Any]],
 ) -> None:
-    """确保每个 corruption_id 存在且唯一。"""
-    corruption_id = record.get("corruption_id")
-    if not isinstance(corruption_id, str) or not corruption_id:
-        _add_error(errors, "missing_corruption_id", context)
+    """确保每个 output_yaml 存在且唯一。"""
+    output_yaml = record.get("output_yaml")
+    if not isinstance(output_yaml, str) or not output_yaml:
+        _add_error(errors, "missing_output_yaml", context)
         return
-    if corruption_id in seen_ids:
-        _add_error(errors, "duplicate_corruption_id", context)
-    seen_ids.add(corruption_id)
+    if output_yaml in seen_ids:
+        _add_error(errors, "duplicate_output_yaml", context)
+    seen_ids.add(output_yaml)
 
 
 def _validate_record_paths(
@@ -265,20 +234,10 @@ def _validate_operations(
     context: dict[str, Any],
     errors: list[dict[str, Any]],
 ) -> None:
-    """校验 operation 对象及其反向 expected repair operation。"""
+    """校验 operation 对象结构。"""
     operations = record.get("operations")
-    expected_operations = record.get("expected_operations")
-    targets = set(record.get("targets") or [])
-    if not isinstance(operations, list) or not isinstance(expected_operations, list):
+    if not isinstance(operations, list):
         return
-    if len(operations) != len(expected_operations):
-        _add_error(
-            errors,
-            "operation_count_mismatch",
-            context,
-            operations=len(operations),
-            expected_operations=len(expected_operations),
-        )
 
     for idx, op in enumerate(operations):
         op_context = {**context, "operation_index": idx}
@@ -291,10 +250,6 @@ def _validate_operations(
         target = op.get("target")
         if target not in VALID_TARGETS:
             _add_error(errors, "invalid_operation_target", op_context, target=target)
-        if target not in targets:
-            _add_error(
-                errors, "operation_target_not_in_targets", op_context, target=target
-            )
         if target == "st.body":
             for field in ("data_key", "cell"):
                 if field not in op:
@@ -304,15 +259,6 @@ def _validate_operations(
                         op_context,
                         field=field,
                     )
-
-        if idx < len(expected_operations):
-            repair_op = expected_operations[idx]
-            if not isinstance(repair_op, dict):
-                _add_error(errors, "invalid_expected_operation_object", op_context)
-            elif repair_op.get("before") != op.get("after") or repair_op.get(
-                "after"
-            ) != op.get("before"):
-                _add_error(errors, "expected_operation_not_inverse", op_context)
 
 
 def _validate_sidecar_json(
@@ -338,7 +284,7 @@ def _validate_sidecar_json(
         )
         return
 
-    for key in ("corruption_id", "error_family", "output_yaml", "expected_repair_yaml"):
+    for key in ("operations", "expected_repair_yaml"):
         if sidecar.get(key) != record.get(key):
             _add_error(
                 errors,
@@ -356,7 +302,7 @@ def _validate_output_yaml(
     context: dict[str, Any],
     errors: list[dict[str, Any]],
 ) -> None:
-    """检查 injected slide.yaml 中的 corruption 元数据与 manifest 一致。"""
+    """检查 injected slide.yaml 可读取，且不内嵌 corruption 标注。"""
     output_yaml = record.get("output_yaml")
     if not output_yaml:
         return
@@ -372,19 +318,30 @@ def _validate_output_yaml(
         return
 
     corruption = yaml_data.get("corruption")
-    if not isinstance(corruption, dict):
-        _add_error(errors, "missing_yaml_corruption", context, path=str(path))
-        return
-    for key in ("corruption_id", "error_family", "expected_repair_yaml"):
-        if corruption.get(key) != record.get(key):
-            _add_error(
-                errors,
-                "yaml_manifest_mismatch",
-                context,
-                field=key,
-                manifest_value=record.get(key),
-                yaml_value=corruption.get(key),
-            )
+    if isinstance(corruption, dict):
+        _add_error(errors, "unexpected_yaml_corruption", context, path=str(path))
+
+
+def infer_error_family(record: dict[str, Any]) -> str:
+    """从 operation targets 推导错误 family，用于 coverage 统计。"""
+    targets = {
+        op.get("target") for op in record.get("operations", []) if isinstance(op, dict)
+    }
+    if targets == {"st.caption"}:
+        return "st_caption"
+    if targets == {"st.body"}:
+        return "st_body"
+    if targets == {"summary"}:
+        return "summary"
+    if targets == {"title"}:
+        return "title"
+    if targets == {"st.body", "summary"}:
+        return "st_summary"
+    if targets == {"summary", "title"}:
+        return "summary_title"
+    if targets == {"st.body", "summary", "title"}:
+        return "three_element"
+    return "unknown"
 
 
 def _add_error(

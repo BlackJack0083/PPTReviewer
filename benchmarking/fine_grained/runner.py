@@ -38,7 +38,9 @@ def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, An
         return rows
 
     for split in splits:
-        for gt_yaml in sorted((dataset_root / "split" / split).glob("s_*/gt/slide.yaml")):
+        for gt_yaml in sorted(
+            (dataset_root / "split" / split).glob("s_*/gt/slide.yaml")
+        ):
             sample_dir = gt_yaml.parents[1]
             rows.append(
                 {
@@ -47,13 +49,17 @@ def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, An
                     "sample_dir": rel(sample_dir, dataset_root),
                     "gt_yaml": rel(gt_yaml, dataset_root),
                     "gt_ppt": rel(gt_yaml.with_suffix(".pptx"), dataset_root),
-                    "template_id": load_yaml(gt_yaml).get("meta", {}).get("template_id", ""),
+                    "template_id": load_yaml(gt_yaml)
+                    .get("meta", {})
+                    .get("template_id", ""),
                 }
             )
     return rows
 
 
-def prioritized_rows(rows: list[dict[str, Any]], rng: random.Random) -> list[dict[str, Any]]:
+def prioritized_rows(
+    rows: list[dict[str, Any]], rng: random.Random
+) -> list[dict[str, Any]]:
     """对样本排序，先保证每个模板被尝试一次，再补充随机样本。"""
     by_template: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -72,12 +78,13 @@ def write_corruption_outputs(
     sample_row: dict[str, Any],
     yaml_data: dict[str, Any],
     corruption: dict[str, Any],
+    artifact_id: str,
     render_png: bool,
     skip_ppt: bool,
 ) -> dict[str, Any]:
     """写入 injected YAML/PPT/PNG 产物，并返回对应 manifest 记录。"""
     sample_dir = dataset_root / sample_row["sample_dir"]
-    out_dir = sample_dir / "injected" / corruption["corruption_id"]
+    out_dir = sample_dir / "injected" / artifact_id
     output_yaml = out_dir / "slide.yaml"
     output_ppt = out_dir / "slide.pptx"
     output_png = out_dir / "slide.png"
@@ -102,16 +109,20 @@ def write_corruption_outputs(
         "output_png": rel(output_png, dataset_root) if output_png.exists() else None,
         "corruption_json": rel(corruption_json, dataset_root),
     }
-    write_json(corruption_json, record)
+    write_json(corruption_json, corruption)
     return record
 
 
 def parse_args() -> argparse.Namespace:
     """解析细粒度错误注入 CLI 参数。"""
-    parser = argparse.ArgumentParser(description="Generate fine-grained PPT corruptions.")
+    parser = argparse.ArgumentParser(
+        description="Generate fine-grained PPT corruptions."
+    )
     parser.add_argument("--benchmark-root", default="output/benchmark/dataset_v1")
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"])
-    parser.add_argument("--families", nargs="+", choices=DEFAULT_FAMILIES, default=DEFAULT_FAMILIES)
+    parser.add_argument(
+        "--families", nargs="+", choices=DEFAULT_FAMILIES, default=DEFAULT_FAMILIES
+    )
     parser.add_argument("--samples-per-family-per-split", type=int, default=200)
     parser.add_argument("--seed", type=int, default=20260425)
     parser.add_argument("--render-png", action="store_true")
@@ -153,7 +164,9 @@ def main() -> None:
             produced = 0
             skips = Counter()
             template_hits = Counter()
-            order = prioritized_rows(split_rows, random.Random(seed_gen.randint(1, 10**9)))  # noqa: S311
+            order = prioritized_rows(
+                split_rows, random.Random(seed_gen.randint(1, 10**9))
+            )  # noqa: S311
 
             for row in order:
                 if produced >= args.samples_per_family_per_split:
@@ -164,12 +177,13 @@ def main() -> None:
                     if result is None:
                         skips["not_applicable"] += 1
                         continue
-                    yaml_data, corruption = result
+                    yaml_data, corruption, artifact_id = result
                     record = write_corruption_outputs(
                         dataset_root=dataset_root,
                         sample_row=row,
                         yaml_data=yaml_data,
                         corruption=corruption,
+                        artifact_id=artifact_id,
                         render_png=args.render_png,
                         skip_ppt=args.skip_ppt,
                     )

@@ -29,10 +29,6 @@ def minimal_slide_yaml() -> dict:
     return {
         "meta": {
             "template_id": "T01_Supply_Trans_Bar",
-            "layout_type": "single_column_bar",
-            "style_id": "marketing_orange_green",
-            "theme_key": "Block Area Segment Distribution",
-            "function_keys": ["Supply-Transaction Unit Statistic"],
         },
         "query_filters": {
             "city": "Beijing",
@@ -67,16 +63,6 @@ def minimal_slide_yaml() -> dict:
                 },
             ],
         },
-        "summary_binding": {
-            "summary_template": "Market activity {{ Enum_Trend }} by **{{ Metric_Pct }}**%.",
-            "summary_slots_truth": {
-                "Enum_Trend": "increased",
-                "Metric_Pct": "20",
-            },
-            "summary_context_fixed": {},
-            "summary_slot_overrides": {},
-            "target_text_role": "body-text",
-        },
     }
 
 
@@ -97,14 +83,16 @@ class FineGrainedInjectorTest(unittest.TestCase):
             "text": "Beijing Liangxiang analysis 2020-2024 (Bar chart)",
         }
 
-        op = mutate_caption_chart_type(elem, rng=random.Random(1))  # noqa: S311
+        op = mutate_caption_chart_type(
+            minimal_slide_yaml(), elem, rng=random.Random(1)
+        )  # noqa: S311
 
         self.assertIsNotNone(op)
         self.assertEqual(op["target"], "st.caption")
         self.assertEqual(op["mutation_type"], "caption_chart_type_mismatch")
-        self.assertEqual(op["truth_basis"], "visible_rendering")
-        self.assertFalse(op["after"].endswith("(Bar chart)"))
-        self.assertRegex(op["after"], r"\((Line chart|Pie chart|Table)\)$")
+        self.assertEqual(op["semantic_slot"], "Chart_View_Label")
+        self.assertFalse(op["_after"].endswith("(Bar chart)"))
+        self.assertRegex(op["_after"], r"\((Line chart|Pie chart|Table)\)$")
 
     def test_caption_scope_object_uses_real_block_donor(self) -> None:
         data = minimal_slide_yaml()
@@ -115,12 +103,9 @@ class FineGrainedInjectorTest(unittest.TestCase):
         self.assertIsNotNone(op)
         self.assertEqual(op["target"], "st.caption")
         self.assertEqual(op["mutation_type"], "caption_scope_object")
-        self.assertEqual(op["truth_basis"], "query_filters")
-        self.assertEqual(op["scope_field"], "block")
-        self.assertEqual(op["truth_value"], "Liangxiang")
-        self.assertNotEqual(op["wrong_value"], "Liangxiang")
-        self.assertIn(op["wrong_value"], op["after"])
-        self.assertNotIn("Liangxiang East", op["after"])
+        self.assertEqual(op["semantic_slot"], "Geo_Block_Name")
+        self.assertNotEqual(op["_after"], elem["text"])
+        self.assertNotIn("Liangxiang East", op["_after"])
 
     def test_summary_scope_can_mutate_time_city_and_real_block(self) -> None:
         data = minimal_slide_yaml()
@@ -133,25 +118,32 @@ class FineGrainedInjectorTest(unittest.TestCase):
         self.assertIn("summary_scope_year", mutation_types)
         self.assertIn("summary_scope_city", mutation_types)
         self.assertIn("summary_scope_object", mutation_types)
-        object_op = next(op for op in ops if op["mutation_type"] == "summary_scope_object")
-        self.assertEqual(object_op["truth_basis"], "query_filters")
-        self.assertEqual(object_op["scope_field"], "block")
-        self.assertEqual(object_op["truth_value"], "Liangxiang")
-        self.assertNotEqual(object_op["wrong_value"], "Liangxiang")
-        self.assertIn(object_op["wrong_value"], object_op["after"])
+        object_op = next(
+            op for op in ops if op["mutation_type"] == "summary_scope_object"
+        )
+        self.assertEqual(object_op["semantic_slot"], "block")
+        self.assertNotEqual(object_op["_after"], elem["text"])
 
     def test_summary_text_value_does_not_emit_placeholder_drift(self) -> None:
-        self.assertIsNone(mutate_text_value("core band", rng=random.Random(5)))  # noqa: S311
+        self.assertIsNone(
+            mutate_text_value("core band", rng=random.Random(5))
+        )  # noqa: S311
 
     def test_summary_numeric_delta_skips_years_and_temporal_slots(self) -> None:
         self.assertIsNone(
-            mutate_summary_numeric_value("2020", rng=random.Random(1), slot_name="Temporal_Start_Year")  # noqa: S311
+            mutate_summary_numeric_value(
+                "2020", rng=random.Random(1), slot_name="Temporal_Start_Year"
+            )  # noqa: S311
         )
         self.assertIsNone(
-            mutate_summary_numeric_value("From 2020 to 2024", rng=random.Random(1))  # noqa: S311
+            mutate_summary_numeric_value(
+                "From 2020 to 2024", rng=random.Random(1)
+            )  # noqa: S311
         )
 
-        mutation = mutate_summary_numeric_value("total volume reached 16716 units", rng=random.Random(1))  # noqa: S311
+        mutation = mutate_summary_numeric_value(
+            "total volume reached 16716 units", rng=random.Random(1)
+        )  # noqa: S311
 
         self.assertIsNotNone(mutation)
         if mutation is None:
@@ -161,7 +153,9 @@ class FineGrainedInjectorTest(unittest.TestCase):
         self.assertNotEqual(after, "total volume reached 16716 units")
         self.assertIn("units", after)
 
-        percent_mutation = mutate_summary_numeric_value("growth reached 20%", rng=random.Random(1))  # noqa: S311
+        percent_mutation = mutate_summary_numeric_value(
+            "growth reached 20%", rng=random.Random(1)
+        )  # noqa: S311
         self.assertIsNotNone(percent_mutation)
         if percent_mutation is None:
             self.fail("Expected percent numeric_delta mutation")
@@ -172,10 +166,14 @@ class FineGrainedInjectorTest(unittest.TestCase):
 
     def test_summary_numeric_range_delta_skips_year_ranges(self) -> None:
         self.assertIsNone(
-            mutate_summary_numeric_value("2020-2024", rng=random.Random(2))  # noqa: S311
+            mutate_summary_numeric_value(
+                "2020-2024", rng=random.Random(2)
+            )  # noqa: S311
         )
 
-        mutation = mutate_summary_numeric_value("80-100m²", rng=random.Random(2))  # noqa: S311
+        mutation = mutate_summary_numeric_value(
+            "80-100m²", rng=random.Random(2)
+        )  # noqa: S311
 
         self.assertIsNotNone(mutation)
         if mutation is None:
@@ -185,7 +183,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
         self.assertNotEqual(after, "80-100m²")
         self.assertTrue(after.endswith("m²"))
 
-    def test_summary_title_corruption_schema_and_outputs(self) -> None:
+    def test_title_corruption_schema_and_outputs(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             gt_dir = root / "split" / "test" / "s_sample1" / "gt"
@@ -203,27 +201,26 @@ class FineGrainedInjectorTest(unittest.TestCase):
                 "city_key": "beijing",
             }
 
-            result = build_corruption(root, sample_row, "summary_title", seed=7)
+            result = build_corruption(root, sample_row, "title", seed=7)
             self.assertIsNotNone(result)
-            yaml_data, corruption = result
+            yaml_data, corruption, artifact_id = result
 
-            self.assertEqual(corruption["schema_version"], "fine-grained-v1")
-            self.assertEqual(corruption["error_family"], "summary_title")
-            self.assertEqual(corruption["targets"], ["summary", "title"])
-            self.assertEqual(len(corruption["expected_operations"]), 2)
-            for op, repair_op in zip(
-                corruption["operations"],
-                corruption["expected_operations"],
-                strict=False,
-            ):
-                self.assertEqual(op["before"], repair_op["after"])
-                self.assertEqual(op["after"], repair_op["before"])
+            self.assertNotIn("corruption", yaml_data)
+            self.assertEqual(len(corruption["operations"]), 1)
+            op = corruption["operations"][0]
+            self.assertEqual(op["target"], "title")
+            self.assertEqual(op["mutation_type"], "title_theme_drift")
+            self.assertEqual(op["semantic_slot"], "title")
+            self.assertNotIn("before", op)
+            self.assertNotIn("after", op)
+            self.assertNotIn("truth_basis", op)
 
             record = write_corruption_outputs(
                 dataset_root=root,
                 sample_row=sample_row,
                 yaml_data=yaml_data,
                 corruption=corruption,
+                artifact_id=artifact_id,
                 render_png=False,
                 skip_ppt=True,
             )
@@ -250,14 +247,15 @@ class FineGrainedInjectorTest(unittest.TestCase):
             }
             append_jsonl(root / "manifest" / "samples.jsonl", sample_row)
 
-            yaml_data, corruption = build_corruption(
-                root, sample_row, "summary_title", seed=7
+            yaml_data, corruption, artifact_id = build_corruption(
+                root, sample_row, "title", seed=7
             )
             record = write_corruption_outputs(
                 dataset_root=root,
                 sample_row=sample_row,
                 yaml_data=yaml_data,
                 corruption=corruption,
+                artifact_id=artifact_id,
                 render_png=False,
                 skip_ppt=True,
             )
@@ -268,43 +266,20 @@ class FineGrainedInjectorTest(unittest.TestCase):
             self.assertTrue(validation["valid"])
             self.assertEqual(validation["error_count"], 0)
             self.assertEqual(coverage["summary"]["total_corruptions"], 1)
-            self.assertEqual(coverage["by_family"]["summary_title"], 1)
+            self.assertEqual(coverage["by_family"]["title"], 1)
             self.assertGreaterEqual(len(coverage["missing_template_family"]), 1)
 
     def test_validator_rejects_missing_output_yaml(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             record = {
-                "schema_version": "fine-grained-v1",
-                "corruption_id": "bad-1",
-                "sample_id": "sample1",
-                "error_family": "summary",
-                "error_type": "numeric_delta",
-                "targets": ["summary"],
-                "observability": "observable",
-                "repair_mode": "unique_repair",
-                "requires_user_feedback": False,
-                "seed": 1,
                 "operations": [
                     {
                         "target": "summary",
                         "element_id": "1",
                         "role": "body-text",
-                        "before": "a",
-                        "after": "b",
                         "mutation_type": "numeric_delta",
-                        "truth_basis": "gt_yaml",
-                    }
-                ],
-                "expected_operations": [
-                    {
-                        "target": "summary",
-                        "element_id": "1",
-                        "role": "body-text",
-                        "before": "b",
-                        "after": "a",
-                        "mutation_type": "repair_numeric_delta",
-                        "truth_basis": "gt_yaml",
+                        "semantic_slot": "Metric_Test",
                     }
                 ],
                 "expected_repair_yaml": "split/test/s_sample1/gt/slide.yaml",

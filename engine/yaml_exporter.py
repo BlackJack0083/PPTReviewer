@@ -4,7 +4,6 @@ YAML 导出器
 记录 query_filters, slide_filters, template_slide
 """
 
-import re
 from hashlib import md5
 from pathlib import Path
 
@@ -45,22 +44,18 @@ class YAMLExporter:
         # 3. 构建 template_slide（来自 slide_config）
         template_slide = YAMLExporter._build_template_slide(slide_config)
 
-        # 4. 构建 summary 绑定信息（模板 + 真值槽位）
-        summary_binding = YAMLExporter._build_summary_binding(template_meta, context)
-
-        # 5. 构建模板元信息（供 YAML 导入重建时使用）
+        # 4. 构建模板元信息（供 YAML 导入重建时使用）
         meta = YAMLExporter._build_meta(template_meta, template_id)
 
-        # 6. 组装 YAML 数据
+        # 5. 组装 YAML 数据
         yaml_data = {
             "meta": meta,
             "query_filters": query_filters,
             "slide_filters": slide_filters,
             "template_slide": template_slide,
-            "summary_binding": summary_binding,
         }
 
-        # 7. 生成文件路径并写入
+        # 6. 生成文件路径并写入
         yaml_path = YAMLExporter._write_yaml(
             yaml_data,
             output_file_path,
@@ -87,11 +82,6 @@ class YAMLExporter:
         """构建导入重建所需的最小元信息"""
         return {
             "template_id": template_id,
-            "layout_type": template_meta.layout_type.value,
-            "style_id": template_meta.style_config_id,
-            "theme_key": template_meta.theme_key,
-            "function_keys": template_meta.function_key,
-            "summary_function_key": template_meta.summary_function_key,
         }
 
     @staticmethod
@@ -172,55 +162,6 @@ class YAMLExporter:
             filters.append(filter_entry)
 
         return filters
-
-    @staticmethod
-    def _build_summary_binding(template_meta, context: PresentationContext) -> dict:
-        """构建 summary 模板绑定信息，用于后续按槽位注入错误"""
-        vars = context.variables
-
-        summary_function_key = (
-            template_meta.summary_function_key or template_meta.function_key[0]
-        )
-        summary_template = resource_manager.get_summary_template(
-            template_meta.theme_key,
-            summary_function_key,
-            template_meta.summary_item,
-        )
-        template_keys = YAMLExporter._extract_template_variables(summary_template)
-
-        fixed_context = {}
-        for key in template_keys:
-            if key.startswith(("Geo_", "Temporal_")) and key in vars:
-                fixed_context[key] = vars[key]
-
-        truth_slots = {}
-        raw_conclusion_vars = vars.get("_conclusion_vars")
-        if not isinstance(raw_conclusion_vars, dict):
-            raise ValueError("_conclusion_vars is required for summary_binding export")
-
-        for key in template_keys:
-            if key in raw_conclusion_vars:
-                truth_slots[key] = raw_conclusion_vars[key]
-
-        return {
-            "summary_template": summary_template,
-            "summary_slots_truth": truth_slots,
-            "summary_context_fixed": fixed_context,
-            "summary_slot_overrides": {},
-            "target_text_role": "body-text",
-        }
-
-    @staticmethod
-    def _extract_template_variables(template_text: str) -> list[str]:
-        """提取 Jinja 模板变量名，保持出现顺序并去重"""
-        pattern = r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}"
-        ordered = []
-        seen = set()
-        for match in re.findall(pattern, template_text):
-            if match not in seen:
-                seen.add(match)
-                ordered.append(match)
-        return ordered
 
     @staticmethod
     def _build_template_slide(slide_config: SlideRenderConfig) -> dict:

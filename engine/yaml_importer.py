@@ -120,7 +120,7 @@ class YAMLImporter:
     def dataframe_from_split_payload(payload: dict) -> pd.DataFrame:
         """Load a DataFrame stored as a compact orient=split payload."""
         if payload.get("orient") != "split":
-            raise ValueError("data_overrides payload must declare orient='split'")
+            raise ValueError("mutated_data payload must declare orient='split'")
         return pd.DataFrame(
             data=payload.get("data", []),
             index=payload.get("index", []),
@@ -133,7 +133,7 @@ class YAMLImporter:
         template_meta,
         use_overrides: bool = True,
     ) -> tuple[list[pd.DataFrame], list[TableAnalysisConfig], str]:
-        """Fetch slide data and apply optional YAML data_overrides by data_key."""
+        """Fetch slide data and apply optional YAML mutated_data by data_key."""
         query_filters = yaml_data["query_filters"]
         slide_filters = yaml_data["slide_filters"]
         if not slide_filters:
@@ -144,7 +144,7 @@ class YAMLImporter:
         start_year = query_filters.get("start_date", "2020-01-01")[:4]
         end_year = query_filters.get("end_date", "2022-12-31")[:4]
         data_keys = list(template_meta.data_keys.values())
-        overrides = yaml_data.get("data_overrides", {}) if use_overrides else {}
+        overrides = yaml_data.get("mutated_data", {}) if use_overrides else {}
         if not isinstance(overrides, dict):
             overrides = {}
 
@@ -177,7 +177,7 @@ class YAMLImporter:
             data_key = data_keys[idx] if idx < len(data_keys) else None
             if data_key and data_key in overrides:
                 df = YAMLImporter.dataframe_from_split_payload(overrides[data_key])
-                logger.info(f"  -> Using data_overrides for {data_key}: {df.shape}")
+                logger.info(f"  -> Using mutated_data for {data_key}: {df.shape}")
             else:
                 logger.info(f"  -> Fetched data shape: {df.shape}")
 
@@ -220,7 +220,7 @@ class YAMLImporter:
         if not template_meta:
             raise ValueError(f"Template not found: {template_id}")
 
-        # 5. 获取所有数据；若 YAML 中存在 data_overrides，则优先使用覆盖数据。
+        # 5. 获取所有数据；若 YAML 中存在 mutated_data，则优先使用覆盖数据。
         all_data, all_configs, table_name = YAMLImporter.load_data_payloads(
             yaml_data,
             template_meta,

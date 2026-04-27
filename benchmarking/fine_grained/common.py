@@ -131,7 +131,7 @@ def scalar_to_json(value: Any) -> Any:
 
 
 def dataframe_to_split_payload(df: pd.DataFrame) -> dict[str, Any]:
-    """将 DataFrame 序列化为 data_overrides 使用的 split-orient 结构。"""
+    """将 DataFrame 序列化为 mutated_data 使用的 split-orient 结构。"""
     return {
         "orient": "split",
         "index": [scalar_to_json(v) for v in df.index.tolist()],
@@ -173,7 +173,9 @@ def format_like_number(value: float, sample: Any) -> str | int | float:
     if isinstance(sample, Integral) and not isinstance(sample, bool):
         return int(round(value))
     if isinstance(sample, Real):
-        return round(value, 2) if abs(value - round(value)) > 1e-9 else int(round(value))
+        return (
+            round(value, 2) if abs(value - round(value)) > 1e-9 else int(round(value))
+        )
 
     text = str(sample)
     match = NUMBER_RE.search(text)

@@ -8,23 +8,22 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from jinja2 import Template
 
-from core import resource_manager
-from engine.summary_injector import SummaryInjector
+from common.function_specs import filter_function_args
+from core import layout_manager, resource_manager
+from core.data_provider import RealEstateDataProvider
 from engine.yaml_importer import YAMLImporter
 
 from .common import (
     NUMBER_RE,
-    SCHEMA_VERSION,
     TITLE_DONORS,
     TREND_FLIPS,
-    YEAR_RE,
     dataframe_to_split_payload,
     format_like_number,
     load_ground_truth_blocks,
     load_yaml,
     mutate_number,
-    now_iso,
     number_key,
     parse_number,
     scalar_to_json,
@@ -65,7 +64,9 @@ def mutate_summary_numeric_value(
     if range_mutation:
         return range_mutation, "range_delta"
 
-    matches = [match for match in NUMBER_RE.finditer(text) if not is_year_token(match.group(0))]
+    matches = [
+        match for match in NUMBER_RE.finditer(text) if not is_year_token(match.group(0))
+    ]
     if not matches:
         return None
 
@@ -162,26 +163,19 @@ def make_text_op(
     elem: dict[str, Any],
     after: str,
     mutation_type: str,
-    truth_basis: str = "gt_yaml",
+    semantic_slot: str | None = None,
 ) -> dict[str, Any]:
-    """创建文本替换操作，并记录 before/after 修复元数据。"""
-    return {
+    """创建文本替换操作；after 仅用于应用变更，不写入公开标注。"""
+    op = {
         "target": target,
         "element_id": str(elem.get("id", "")),
         "role": elem.get("role"),
-        "before": str(elem.get("text", "")),
-        "after": after,
         "mutation_type": mutation_type,
-        "truth_basis": truth_basis,
+        "_after": after,
     }
-
-
-def reverse_op(op: dict[str, Any]) -> dict[str, Any]:
-    """通过交换 before/after 构造期望修复操作。"""
-    reversed_op = copy.deepcopy(op)
-    reversed_op["before"], reversed_op["after"] = op.get("after"), op.get("before")
-    reversed_op["mutation_type"] = f"repair_{op.get('mutation_type', 'mutation')}"
-    return reversed_op
+    if semantic_slot:
+        op["semantic_slot"] = semantic_slot
+    return op
 
 
 def mutate_caption(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | None:
@@ -190,25 +184,54 @@ def mutate_caption(data: dict[str, Any], rng: random.Random) -> dict[str, Any] |
     if not captions:
         return None
     elem = rng.choice(captions)
-    text = str(elem.get("text", ""))
     candidates = []
 
-    chart_type_op = mutate_caption_chart_type(elem, rng)
+    chart_type_op = mutate_caption_chart_type(data, elem, rng)
     if chart_type_op:
         candidates.append(chart_type_op)
 
-    years = YEAR_RE.findall(text)
-    if years:
-        target_year = rng.choice(years)
-        mutated_year = str(int(target_year) + rng.choice([-1, 1]))
-        after = text.replace(target_year, mutated_year, 1)
-        candidates.append(make_text_op("st.caption", elem, after, "caption_scope_year"))
+    context = caption_context(data)
+    year_slots = [
+        slot
+        for slot in ("Temporal_Start_Year", "Temporal_End_Year")
+        if context.get(slot)
+    ]
+    if year_slots:
+        semantic_slot = rng.choice(year_slots)
+        truth_year = str(context[semantic_slot])
+        mutated_year = str(int(truth_year) + rng.choice([-1, 1]))
+        after = render_caption_text(
+            data,
+            elem,
+            context_overrides={semantic_slot: mutated_year},
+        )
+        candidates.append(
+            make_text_op(
+                "st.caption",
+                elem,
+                after,
+                "caption_scope_year",
+                semantic_slot=semantic_slot,
+            )
+        )
 
-    city = data.get("query_filters", {}).get("city")
+    city = context.get("Geo_City_Name")
     city_donors = [c for c in ["Beijing", "Guangzhou", "Shenzhen"] if c != city]
-    if city and city in text and city_donors:
-        after = text.replace(city, rng.choice(city_donors), 1)
-        candidates.append(make_text_op("st.caption", elem, after, "caption_scope_city"))
+    if city and city_donors:
+        after = render_caption_text(
+            data,
+            elem,
+            context_overrides={"Geo_City_Name": rng.choice(city_donors)},
+        )
+        candidates.append(
+            make_text_op(
+                "st.caption",
+                elem,
+                after,
+                "caption_scope_city",
+                semantic_slot="Geo_City_Name",
+            )
+        )
 
     object_op = mutate_caption_scope_object(data, elem, rng)
     if object_op:
@@ -220,53 +243,169 @@ def mutate_caption(data: dict[str, Any], rng: random.Random) -> dict[str, Any] |
 def mutate_caption_scope_object(
     data: dict[str, Any], elem: dict[str, Any], rng: random.Random
 ) -> dict[str, Any] | None:
-    """将 caption 中的 block 替换为同城市的另一个真实 block。"""
-    text = str(elem.get("text", ""))
-    city = str(data.get("query_filters", {}).get("city", "")).strip()
-    block = str(data.get("query_filters", {}).get("block", "")).strip()
-    if not city or not block or block not in text:
+    """将 caption 模板中的 block scope 替换为同城市的另一个真实 block。"""
+    context = caption_context(data)
+    city = str(context.get("Geo_City_Name", "")).strip()
+    block = str(context.get("Geo_Block_Name", "")).strip()
+    if not city or not block:
         return None
 
-    donor_blocks = [candidate for candidate in load_ground_truth_blocks(city) if candidate != block]
+    donor_blocks = [
+        candidate for candidate in load_ground_truth_blocks(city) if candidate != block
+    ]
     if not donor_blocks:
         return None
 
     wrong_block = rng.choice(donor_blocks)
-    after = text.replace(block, wrong_block, 1)
-    op = make_text_op(
+    after = render_caption_text(
+        data,
+        elem,
+        context_overrides={"Geo_Block_Name": wrong_block},
+    )
+    return make_text_op(
         "st.caption",
         elem,
         after,
         "caption_scope_object",
-        truth_basis="query_filters",
+        semantic_slot="Geo_Block_Name",
     )
-    op.update(
-        {
-            "scope_field": "block",
-            "truth_value": block,
-            "wrong_value": wrong_block,
-        }
-    )
-    return op
 
 
-def mutate_caption_chart_type(elem: dict[str, Any], rng: random.Random) -> dict[str, Any] | None:
-    """将 caption 中可见的图表/表格类型标签替换为另一个类型。"""
-    text = str(elem.get("text", ""))
+def mutate_caption_chart_type(
+    data: dict[str, Any], elem: dict[str, Any], rng: random.Random
+) -> dict[str, Any] | None:
+    """将 caption 绑定的可见图表/表格类型标签替换为另一个类型。"""
     labels = ["Bar chart", "Line chart", "Pie chart", "Table"]
-    for label in labels:
-        current_label = f"({label})"
-        if text.endswith(current_label):
-            wrong_label = rng.choice([candidate for candidate in labels if candidate != label])
-            after = text[: -len(current_label)] + f"({wrong_label})"
-            return make_text_op(
-                "st.caption",
-                elem,
-                after,
-                "caption_chart_type_mismatch",
-                truth_basis="visible_rendering",
-            )
-    return None
+    binding = caption_binding(data, elem)
+    current_label = binding["view_label"]
+    if current_label not in labels:
+        return None
+    wrong_label = rng.choice(
+        [candidate for candidate in labels if candidate != current_label]
+    )
+    after = render_caption_text(data, elem, view_label_override=wrong_label)
+    return make_text_op(
+        "st.caption",
+        elem,
+        after,
+        "caption_chart_type_mismatch",
+        semantic_slot="Chart_View_Label",
+    )
+
+
+def caption_context(data: dict[str, Any]) -> dict[str, str]:
+    """从 query_filters 构造 caption 模板所需的 scope context。"""
+    query_filters = data.get("query_filters", {})
+    if not isinstance(query_filters, dict):
+        return {}
+    return {
+        "Geo_City_Name": str(query_filters.get("city", "")),
+        "Geo_Block_Name": str(query_filters.get("block", "")),
+        "Temporal_Start_Year": str(query_filters.get("start_date", ""))[:4],
+        "Temporal_End_Year": str(query_filters.get("end_date", ""))[:4],
+    }
+
+
+def render_caption_text(
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    *,
+    context_overrides: dict[str, str] | None = None,
+    view_label_override: str | None = None,
+) -> str:
+    """从 template_id/layout 推导 caption 绑定，并重新渲染 caption 文本。"""
+    binding = caption_binding(data, elem)
+    context = caption_context(data)
+    if context_overrides:
+        context.update(context_overrides)
+    caption = resource_manager.render_text(
+        binding["theme_key"],
+        binding["function_key"],
+        "caption",
+        context,
+    )
+    view_label = view_label_override or binding["view_label"]
+    return f"{caption} ({view_label})"
+
+
+def caption_binding(data: dict[str, Any], elem: dict[str, Any]) -> dict[str, Any]:
+    """根据 caption 元素在 slide 中的位置，推导其模板函数和数据槽绑定。"""
+    template_id = YAMLImporter.resolve_template_id(data, "<memory>")
+    template_meta = resource_manager.get_template(template_id)
+    if template_meta is None:
+        resource_manager.load_all()
+        template_meta = resource_manager.get_template(template_id)
+    if template_meta is None:
+        raise ValueError(f"Template not found: {template_id}")
+
+    captions = find_text_elements(data, "caption")
+    elem_id = str(elem.get("id", ""))
+    caption_index = next(
+        (
+            idx
+            for idx, caption in enumerate(captions)
+            if str(caption.get("id", "")) == elem_id
+        ),
+        None,
+    )
+    if caption_index is None:
+        raise ValueError(f"Caption element not found in template_slide: {elem_id}")
+
+    caption_slots = [
+        slot
+        for slot in layout_manager.get_text_slots(template_meta.layout_type)
+        if slot.part == "caption"
+    ]
+    if caption_index >= len(caption_slots):
+        raise ValueError(
+            f"Caption element index {caption_index} exceeds caption slots for {template_id}"
+        )
+    caption_slot = caption_slots[caption_index]
+    function_index = caption_slot.function_index
+    if function_index is None:
+        raise ValueError(f"Caption slot missing function_index for {template_id}")
+    if function_index >= len(template_meta.function_key):
+        raise ValueError(
+            f"Caption function_index={function_index} out of range for {template_id}"
+        )
+
+    data_slots = layout_manager.get_layout_slots(template_meta.layout_type)
+    if function_index >= len(data_slots):
+        raise ValueError(
+            f"Caption function_index={function_index} has no matching data slot for {template_id}"
+        )
+    data_slot = data_slots[function_index]
+    data_key = template_meta.data_keys.get(data_slot.name)
+    if not data_key:
+        raise ValueError(
+            f"Missing data mapping for caption slot '{data_slot.name}' in {template_id}"
+        )
+
+    return {
+        "theme_key": template_meta.theme_key,
+        "function_index": function_index,
+        "function_key": template_meta.function_key[function_index],
+        "data_key": data_key,
+        "view_label": view_label_for_data_slot(data_slot),
+    }
+
+
+def view_label_for_data_slot(slot) -> str:
+    """根据 layout data slot 推导 caption 末尾可见的视图类型标签。"""
+    slot_type = getattr(slot.type, "value", slot.type)
+    if slot_type == "table":
+        return "Table"
+    if slot_type != "chart":
+        raise ValueError(f"Unsupported caption data slot type: {slot.type}")
+
+    role = slot.role.lower()
+    if "bar" in role:
+        return "Bar chart"
+    if "line" in role:
+        return "Line chart"
+    if "pie" in role:
+        return "Pie chart"
+    return "Chart"
 
 
 def mutate_title(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | None:
@@ -279,23 +418,157 @@ def mutate_title(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | N
     donors = [title for title in TITLE_DONORS if title != current]
     if not donors:
         return None
-    return make_text_op("title", elem, rng.choice(donors), "title_theme_drift")
+    return make_text_op(
+        "title",
+        elem,
+        rng.choice(donors),
+        "title_theme_drift",
+        semantic_slot="title",
+    )
 
 
 def apply_text_op(data: dict[str, Any], op: dict[str, Any]) -> None:
     """将文本操作应用到 YAML 中匹配的 textBox 元素。"""
     for elem in find_text_elements(data):
         if str(elem.get("id", "")) == str(op.get("element_id", "")):
-            elem["text"] = op["after"]
+            elem["text"] = op["_after"]
             return
     raise ValueError(f"Text element not found: {op.get('element_id')}")
 
 
 def find_summary_element(data: dict[str, Any]) -> dict[str, Any] | None:
-    """解析 summary_binding 指向的 summary 文本元素。"""
-    role = data.get("summary_binding", {}).get("target_text_role", "body-text")
-    elems = find_text_elements(data, role)
+    """返回当前 slide 中承载 Summary 的正文文本元素。"""
+    elems = find_text_elements(data, "body-text")
     return elems[0] if elems else None
+
+
+def derive_summary_truth(data: dict[str, Any]) -> dict[str, Any]:
+    """从模板、查询条件和数据库即时推导 Summary 模板与真值 slot。"""
+    template_id = YAMLImporter.resolve_template_id(data, "<memory>")
+    template_meta = resource_manager.get_template(template_id)
+    if template_meta is None:
+        resource_manager.load_all()
+        template_meta = resource_manager.get_template(template_id)
+    if template_meta is None:
+        raise ValueError(f"Template not found: {template_id}")
+
+    summary_function_key = (
+        template_meta.summary_function_key or template_meta.function_key[0]
+    )
+    summary_template = resource_manager.get_summary_template(
+        template_meta.theme_key,
+        summary_function_key,
+        template_meta.summary_item,
+    )
+    template_keys = extract_template_variables(summary_template)
+    conclusion_vars = fetch_summary_conclusion_vars(data, summary_function_key)
+    fixed_context = summary_fixed_context(data, template_keys)
+    truth_slots = {
+        key: conclusion_vars[key] for key in template_keys if key in conclusion_vars
+    }
+
+    return {
+        "summary_template": summary_template,
+        "truth_slots": truth_slots,
+        "fixed_context": fixed_context,
+    }
+
+
+def extract_template_variables(template_text: str) -> list[str]:
+    """提取 Jinja 模板变量名，保持模板中的首次出现顺序。"""
+    pattern = r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}"
+    ordered = []
+    seen = set()
+    for match in re.findall(pattern, template_text):
+        if match not in seen:
+            seen.add(match)
+            ordered.append(match)
+    return ordered
+
+
+def fetch_summary_conclusion_vars(
+    data: dict[str, Any],
+    summary_function_key: str,
+) -> dict[str, Any]:
+    """按 Summary 对应 function_key 重查数据库，得到当前 GT 的结论变量。"""
+    query_filters = data.get("query_filters", {})
+    slide_filter = find_slide_filter(data, summary_function_key)
+    if not isinstance(query_filters, dict) or not isinstance(slide_filter, dict):
+        raise ValueError("query_filters and slide_filters are required for summary")
+
+    city = str(query_filters.get("city", "Beijing"))
+    block = str(query_filters.get("block", "Unknown"))
+    start_year = str(query_filters.get("start_date", "2020-01-01"))[:4]
+    end_year = str(query_filters.get("end_date", "2024-12-31"))[:4]
+    table_name = str(slide_filter.get("connection", {}).get("table", [""])[0])
+
+    provider = RealEstateDataProvider(
+        city=city,
+        block=block,
+        start_year=start_year,
+        end_year=end_year,
+        table_name=table_name,
+    )
+    fun_tool = slide_filter.get("fun_tool", {})
+    fun_args = fun_tool.get("args", {})
+    if not isinstance(fun_args, dict):
+        fun_args = {}
+    valid_args = filter_function_args(summary_function_key, fun_args)
+    _, conclusion_vars, _ = provider.execute_by_function_key(
+        summary_function_key,
+        **valid_args,
+    )
+    return conclusion_vars
+
+
+def find_slide_filter(
+    data: dict[str, Any],
+    function_key: str,
+) -> dict[str, Any] | None:
+    """在 slide_filters 中查找 Summary 对应的数据查询配置。"""
+    slide_filters = data.get("slide_filters", [])
+    if not isinstance(slide_filters, list) or not slide_filters:
+        return None
+    for slide_filter in slide_filters:
+        if not isinstance(slide_filter, dict):
+            continue
+        fun_tool = slide_filter.get("fun_tool", {})
+        if isinstance(fun_tool, dict) and fun_tool.get("fun") == function_key:
+            return slide_filter
+    first = slide_filters[0]
+    return first if isinstance(first, dict) else None
+
+
+def summary_fixed_context(
+    data: dict[str, Any],
+    template_keys: list[str],
+) -> dict[str, str]:
+    """从 query_filters 生成 Summary 渲染需要的固定 scope 变量。"""
+    query_filters = data.get("query_filters", {})
+    if not isinstance(query_filters, dict):
+        return {}
+    values = {
+        "Geo_City_Name": str(query_filters.get("city", "")),
+        "Geo_Block_Name": str(query_filters.get("block", "")),
+        "Temporal_Start_Year": str(query_filters.get("start_date", ""))[:4],
+        "Temporal_End_Year": str(query_filters.get("end_date", ""))[:4],
+    }
+    return {key: values[key] for key in template_keys if key in values and values[key]}
+
+
+def render_summary_text(
+    summary_truth: dict[str, Any],
+    overrides: dict[str, Any] | None = None,
+) -> str:
+    """用真值 slot 和本次 override 渲染 Summary 文本，不写回 YAML。"""
+    render_context = {}
+    for section in ("truth_slots", "fixed_context"):
+        values = summary_truth.get(section, {})
+        if isinstance(values, dict):
+            render_context.update(values)
+    if overrides:
+        render_context.update(overrides)
+    return Template(str(summary_truth["summary_template"])).render(**render_context)
 
 
 def mutate_summary(
@@ -304,12 +577,12 @@ def mutate_summary(
     forced_slot: str | None = None,
     forced_value: Any | None = None,
 ) -> dict[str, Any] | None:
-    """通过 scope 文本替换或 summary slot override 构造 Summary 错误。"""
-    binding = data.get("summary_binding")
+    """通过 scope 文本替换或即时推导的 summary slot 构造 Summary 错误。"""
     elem = find_summary_element(data)
-    if not isinstance(binding, dict) or elem is None:
+    if elem is None:
         return None
-    truth_slots = binding.get("summary_slots_truth", {})
+    summary_truth = derive_summary_truth(data)
+    truth_slots = summary_truth.get("truth_slots", {})
     if not isinstance(truth_slots, dict) or not truth_slots:
         return None
 
@@ -336,18 +609,10 @@ def mutate_summary(
             return rng.choice(scope_ops)
         slot_name = selected_slot_name
 
-    overrides = binding.get("summary_slot_overrides", {})
-    if not isinstance(overrides, dict):
-        overrides = {}
-    overrides = dict(overrides)
-    overrides[slot_name] = str(after_value)
-    binding["summary_slot_overrides"] = overrides
-    after_text = SummaryInjector.render_summary(binding)
+    after_text = render_summary_text(summary_truth, {slot_name: str(after_value)})
 
     op = make_text_op("summary", elem, after_text, mutation_type)
-    op["slot_name"] = slot_name
-    op["slot_before"] = str(truth_slots[slot_name])
-    op["slot_after"] = str(after_value)
+    op["semantic_slot"] = slot_name
     return op
 
 
@@ -372,19 +637,16 @@ def mutate_summary_scope(
             elem,
             text.replace(truth_year, wrong_year, 1),
             "summary_scope_year",
-            truth_basis="query_filters",
-        )
-        op.update(
-            {
-                "scope_field": "year",
-                "truth_value": truth_year,
-                "wrong_value": wrong_year,
-            }
+            semantic_slot="year",
         )
         ops.append(op)
 
     city = str(query_filters.get("city", "")).strip()
-    city_donors = [candidate for candidate in ["Beijing", "Guangzhou", "Shenzhen"] if candidate != city]
+    city_donors = [
+        candidate
+        for candidate in ["Beijing", "Guangzhou", "Shenzhen"]
+        if candidate != city
+    ]
     if city and city in text and city_donors:
         wrong_city = rng.choice(city_donors)
         op = make_text_op(
@@ -392,20 +654,17 @@ def mutate_summary_scope(
             elem,
             text.replace(city, wrong_city, 1),
             "summary_scope_city",
-            truth_basis="query_filters",
-        )
-        op.update(
-            {
-                "scope_field": "city",
-                "truth_value": city,
-                "wrong_value": wrong_city,
-            }
+            semantic_slot="city",
         )
         ops.append(op)
 
     block = str(query_filters.get("block", "")).strip()
     if block and block in text and city:
-        donor_blocks = [candidate for candidate in load_ground_truth_blocks(city) if candidate != block]
+        donor_blocks = [
+            candidate
+            for candidate in load_ground_truth_blocks(city)
+            if candidate != block
+        ]
         if donor_blocks:
             wrong_block = rng.choice(donor_blocks)
             op = make_text_op(
@@ -413,14 +672,7 @@ def mutate_summary_scope(
                 elem,
                 text.replace(block, wrong_block, 1),
                 "summary_scope_object",
-                truth_basis="query_filters",
-            )
-            op.update(
-                {
-                    "scope_field": "block",
-                    "truth_value": block,
-                    "wrong_value": wrong_block,
-                }
+                semantic_slot="block",
             )
             ops.append(op)
 
@@ -439,7 +691,7 @@ def iter_numeric_cells(df: pd.DataFrame):
 
 def summary_numeric_slots(data: dict[str, Any]) -> dict[str, tuple[str, str]]:
     """索引 summary 真值中的数值 slot，用于构造 ST+Summary 联动错误。"""
-    slots = data.get("summary_binding", {}).get("summary_slots_truth", {})
+    slots = derive_summary_truth(data).get("truth_slots", {})
     result = {}
     if not isinstance(slots, dict):
         return result
@@ -451,7 +703,7 @@ def summary_numeric_slots(data: dict[str, Any]) -> dict[str, tuple[str, str]]:
 
 
 def load_truth_data(data: dict[str, Any]) -> tuple[list[pd.DataFrame], list[str]]:
-    """基于 YAML filters 重算 GT 数据，并忽略已有 data_overrides。"""
+    """基于 YAML filters 重算 GT 数据，并忽略已有 mutated_data。"""
     template_id = YAMLImporter.resolve_template_id(data, "<memory>")
     template_meta = resource_manager.get_template(template_id)
     if template_meta is None:
@@ -495,12 +747,12 @@ def mutate_st_body(
     after_value = mutate_number(value, rng)
     df.iat[row_pos, col_pos] = after_value
 
-    overrides = data.get("data_overrides", {})
+    overrides = data.get("mutated_data", {})
     if not isinstance(overrides, dict):
         overrides = {}
     overrides = dict(overrides)
     overrides[data_key] = dataframe_to_split_payload(df)
-    data["data_overrides"] = overrides
+    data["mutated_data"] = overrides
 
     elem = data_elems[data_idx] if data_idx < len(data_elems) else {}
     op = {
@@ -508,16 +760,14 @@ def mutate_st_body(
         "element_id": str(elem.get("id", "")),
         "role": elem.get("role"),
         "data_key": data_key,
+        "semantic_slot": "data_cell",
         "cell": {
             "row_index": row_pos,
             "row_label": scalar_to_json(df.index[row_pos]),
             "column_index": col_pos,
             "column": scalar_to_json(df.columns[col_pos]),
         },
-        "before": scalar_to_json(value),
-        "after": scalar_to_json(after_value),
         "mutation_type": "data_numeric_delta",
-        "truth_basis": "database_rebuild",
     }
     slot_name = linked_slot[0] if linked_slot else None
     slot_after = (
@@ -529,10 +779,19 @@ def mutate_st_body(
 
 
 def apply_ops(data: dict[str, Any], ops: list[dict[str, Any]]) -> None:
-    """在 data_overrides 准备完成后应用所有文本操作。"""
+    """在 mutated_data 准备完成后应用所有文本操作。"""
     for op in ops:
         if op["target"] in {"title", "summary", "st.caption"}:
             apply_text_op(data, op)
+
+
+def public_operation(op: dict[str, Any]) -> dict[str, Any]:
+    """移除内部执行字段，得到写入 corruption.json 的最小 operation。"""
+    return {
+        key: copy.deepcopy(value)
+        for key, value in op.items()
+        if not key.startswith("_")
+    }
 
 
 def build_corruption(
@@ -540,7 +799,7 @@ def build_corruption(
     sample_row: dict[str, Any],
     family: str,
     seed: int,
-) -> tuple[dict[str, Any], dict[str, Any]] | None:
+) -> tuple[dict[str, Any], dict[str, Any], str] | None:
     """为指定 error family 构造一个 injected YAML 及其 corruption 元数据。"""
     source_yaml = dataset_root / sample_row["gt_yaml"]
     if not source_yaml.exists():
@@ -608,26 +867,9 @@ def build_corruption(
     apply_ops(data, operations)
     sample_id = sample_row["sample_id"]
     raw_id = f"{sample_id}|{family}|{seed}"
-    corruption_id = (
-        f"{sample_id}-{family}-{hashlib.md5(raw_id.encode()).hexdigest()[:8]}"  # noqa: S324
-    )
-    expected_operations = [reverse_op(op) for op in operations]
-    targets = sorted({op["target"] for op in operations})
+    artifact_id = f"{sample_id}-{family}-{hashlib.md5(raw_id.encode()).hexdigest()[:8]}"  # noqa: S324
     corruption = {
-        "schema_version": SCHEMA_VERSION,
-        "corruption_id": corruption_id,
-        "sample_id": sample_id,
-        "error_family": family,
-        "error_type": "+".join(op["mutation_type"] for op in operations),
-        "targets": targets,
-        "observability": "observable",
-        "repair_mode": "unique_repair",
-        "requires_user_feedback": False,
-        "seed": seed,
-        "operations": operations,
-        "expected_operations": expected_operations,
+        "operations": [public_operation(op) for op in operations],
         "expected_repair_yaml": sample_row["gt_yaml"],
-        "created_at": now_iso(),
     }
-    data["corruption"] = corruption
-    return data, corruption
+    return data, corruption, artifact_id

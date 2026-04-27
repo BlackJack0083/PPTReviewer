@@ -392,8 +392,6 @@ class TableAnalysisConfig(BaseModel):
 
 
 # ==================== 幻灯片元素类 ====================
-
-
 class TextElement(BaseSlideElement):
     """文本元素模型"""
 

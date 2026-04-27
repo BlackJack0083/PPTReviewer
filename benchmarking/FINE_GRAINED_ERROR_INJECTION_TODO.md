@@ -33,10 +33,10 @@
 split/<split>/s_<sample_id>/gt/slide.yaml
 split/<split>/s_<sample_id>/gt/slide.pptx
 split/<split>/s_<sample_id>/gt/slide.png
-split/<split>/s_<sample_id>/injected/<corruption_id>/slide.yaml
-split/<split>/s_<sample_id>/injected/<corruption_id>/slide.pptx
-split/<split>/s_<sample_id>/injected/<corruption_id>/slide.png
-split/<split>/s_<sample_id>/injected/<corruption_id>/corruption.json
+split/<split>/s_<sample_id>/injected/<artifact_id>/slide.yaml
+split/<split>/s_<sample_id>/injected/<artifact_id>/slide.pptx
+split/<split>/s_<sample_id>/injected/<artifact_id>/slide.png
+split/<split>/s_<sample_id>/injected/<artifact_id>/corruption.json
 manifest/corruptions.jsonl
 manifest/corruption_coverage.json
 manifest/corruption_validation.json
@@ -45,24 +45,16 @@ manifest/corruption_coverage_detailed.json
 
 每个 corruption 记录：
 
-- `corruption_id`
-- `error_family`
-- `error_type`
-- `targets`
-- `observability`
-- `repair_mode`
-- `requires_user_feedback`
-- `operations`
-- `expected_operations`
+- `operations`：记录目标元素、mutation 类型、语义槽位，以及 ST body 的 cell 定位。
 - `expected_repair_yaml`
 - 输入/输出路径
 
-当前统一标注：
+当前标注边界：
 
-- `observability: observable`
-- `repair_mode: unique_repair`
-- `requires_user_feedback: false`
-- `expected_repair_yaml` 指回原 GT `slide.yaml`
+- injected `slide.yaml` 只保存 corrupted slide 本身，不内嵌 `corruption`。
+- `corruption.json` 只保存 `operations` 与 `expected_repair_yaml`。
+- `manifest/corruptions.jsonl` 额外保存路径索引；coverage 中的 family 由 `operations[].target` 推导。
+- `before` / `after` 不重复写入标注，可分别从 GT YAML 与 injected YAML 推导。
 
 ## 已实现错误注入
 
@@ -151,8 +143,8 @@ family：
 - 从 GT YAML 的 `slide_filters` 重新查库得到真实 DataFrame。
 - 在 chart/table 对应 DataFrame 中选择一个可解析的数值 cell。
 - 对该 cell 做数值扰动。
-- 将扰动后的 DataFrame 写入 injected YAML 的 `data_overrides`。
-- `YAMLImporter` 重建 PPT 时优先使用 `data_overrides[data_key]`，因此 PPT/PNG 中的图表或表格会真的使用 mutated data。
+- 将扰动后的 DataFrame 写入 injected YAML 的 `mutated_data`。
+- `YAMLImporter` 重建 PPT 时优先使用 `mutated_data[data_key]`，因此 PPT/PNG 中的图表或表格会真的使用 mutated data。
 
 当前 mutation types：
 
@@ -205,10 +197,10 @@ family：
 
 实现方式：
 
-- 基于 `summary_binding.summary_slots_truth` 选择一个 summary slot。
+- 注入时基于 GT YAML 的 `meta`、`query_filters`、`slide_filters` 重查数据库。
+- 从对应 Summary text pattern 中解析 Jinja slot，并用数据库结论变量得到 slot 真值。
 - 对 slot 真值做扰动。
-- 写入 `summary_binding.summary_slot_overrides`。
-- 用 `SummaryInjector.render_summary()` 重新渲染 summary。
+- 仅在内存中用扰动后的 slot 重新渲染 summary。
 - 只改 body-text/summary 文本，不改 ST 和 Title。
 
 当前 mutation types：
@@ -256,7 +248,8 @@ family：
 
 - 数值、趋势类错误依赖 summary slot 中存在可扰动值。
 - scope 类错误直接修改 Summary 可见文本，因此只有当 Summary 文本本身包含年份、城市或 block 时才可生成。
-- 非 scope 错误不是直接任意改 summary 自然语言，而是通过 slot override 重新渲染，优点是结构清楚，缺点是错误类型受 slot 限制。
+- 非 scope 错误不是直接任意改 summary 自然语言，而是通过即时推导的 slot 真值重新渲染，优点是结构清楚，缺点是错误类型受 slot 限制。
+- GT / injected `slide.yaml` 不再持久化 `summary_binding`；Summary 注入所需真值由注入器临时推导。
 - 暂未实现“推断性描述不被 ST 支撑”的复杂语义错误。
 - 已移除占位式 `text_drift`，不再生成 `core band -> core band Alt` 这类不可解释错误。
 
@@ -448,7 +441,7 @@ TODO：
 
 ## 已实现基础设施
 
-### 1. `data_overrides`
+### 1. `mutated_data`
 
 状态：已实现。
 
@@ -457,7 +450,7 @@ TODO：
 - injected YAML 可包含：
 
 ```yaml
-data_overrides:
+mutated_data:
   <data_key>:
     orient: split
     index: [...]
@@ -465,7 +458,7 @@ data_overrides:
     data: [...]
 ```
 
-- `YAMLImporter` 重建 PPT 时优先使用 `data_overrides[data_key]`。
+- `YAMLImporter` 重建 PPT 时优先使用 `mutated_data[data_key]`。
 - 如果不存在 override，则按原 `slide_filters` 查库。
 
 TODO：
@@ -658,7 +651,7 @@ TODO：
 
 - [x] GT YAML/PPT/PNG 可生成。
 - [x] injected YAML/PPT/PNG 可生成。
-- [x] `data_overrides` 可用于 PPT 重建。
+- [x] `mutated_data` 可用于 PPT 重建。
 - [x] `corruption.json` 和 `manifest/corruptions.jsonl` 可校验。
 - [x] coverage report 可统计 template/layout/family 覆盖。
 - [ ] 对完整 40 模板跑一次小规模 generation + injection + validation。
