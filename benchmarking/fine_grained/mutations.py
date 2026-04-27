@@ -469,6 +469,7 @@ def derive_summary_truth(data: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "summary_template": summary_template,
+        "template_keys": template_keys,
         "truth_slots": truth_slots,
         "fixed_context": fixed_context,
     }
@@ -593,7 +594,7 @@ def mutate_summary(
         after_value = str(forced_value)
         mutation_type = "linked_numeric_delta"
     else:
-        scope_ops = mutate_summary_scope(data, elem, rng)
+        scope_ops = mutate_summary_scope(data, elem, summary_truth, rng)
         candidates = list(truth_slots.items())
         rng.shuffle(candidates)
         selected_slot_name = None
@@ -617,49 +618,54 @@ def mutate_summary(
 
 
 def mutate_summary_scope(
-    data: dict[str, Any], elem: dict[str, Any], rng: random.Random
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    summary_truth: dict[str, Any],
+    rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """生成 Summary-only 的时间、城市和 block scope 文本错误候选。"""
-    text = str(elem.get("text", ""))
-    query_filters = data.get("query_filters", {})
-    if not isinstance(query_filters, dict):
-        return []
-
+    """仅对模板真实声明的 scope 变量，生成 Summary-only 即时重渲染错误候选。"""
     ops = []
-    start_year = str(query_filters.get("start_date", ""))[:4]
-    end_year = str(query_filters.get("end_date", ""))[:4]
-    years = [year for year in (start_year, end_year) if year and year in text]
-    if years:
-        truth_year = rng.choice(years)
-        wrong_year = str(int(truth_year) + rng.choice([-1, 1]))
-        op = make_text_op(
-            "summary",
-            elem,
-            text.replace(truth_year, wrong_year, 1),
-            "summary_scope_year",
-            semantic_slot="year",
-        )
-        ops.append(op)
+    fixed_context = summary_truth.get("fixed_context", {})
+    if not isinstance(fixed_context, dict):
+        return ops
 
-    city = str(query_filters.get("city", "")).strip()
-    city_donors = [
-        candidate
-        for candidate in ["Beijing", "Guangzhou", "Shenzhen"]
-        if candidate != city
+    year_slots = [
+        slot
+        for slot in ("Temporal_Start_Year", "Temporal_End_Year")
+        if fixed_context.get(slot)
     ]
-    if city and city in text and city_donors:
-        wrong_city = rng.choice(city_donors)
-        op = make_text_op(
-            "summary",
-            elem,
-            text.replace(city, wrong_city, 1),
-            "summary_scope_city",
-            semantic_slot="city",
+    if year_slots:
+        semantic_slot = rng.choice(year_slots)
+        truth_year = str(fixed_context[semantic_slot])
+        wrong_year = str(int(truth_year) + rng.choice([-1, 1]))
+        after = render_summary_text(summary_truth, {semantic_slot: wrong_year})
+        ops.append(
+            make_text_op(
+                "summary",
+                elem,
+                after,
+                "summary_scope_year",
+                semantic_slot=semantic_slot,
+            )
         )
-        ops.append(op)
 
-    block = str(query_filters.get("block", "")).strip()
-    if block and block in text and city:
+    city = str(fixed_context.get("Geo_City_Name", "")).strip()
+    city_donors = [candidate for candidate in ["Beijing", "Guangzhou", "Shenzhen"] if candidate != city]
+    if city and city_donors:
+        wrong_city = rng.choice(city_donors)
+        after = render_summary_text(summary_truth, {"Geo_City_Name": wrong_city})
+        ops.append(
+            make_text_op(
+                "summary",
+                elem,
+                after,
+                "summary_scope_city",
+                semantic_slot="Geo_City_Name",
+            )
+        )
+
+    block = str(fixed_context.get("Geo_Block_Name", "")).strip()
+    if block and city:
         donor_blocks = [
             candidate
             for candidate in load_ground_truth_blocks(city)
@@ -667,14 +673,16 @@ def mutate_summary_scope(
         ]
         if donor_blocks:
             wrong_block = rng.choice(donor_blocks)
-            op = make_text_op(
-                "summary",
-                elem,
-                text.replace(block, wrong_block, 1),
-                "summary_scope_object",
-                semantic_slot="block",
+            after = render_summary_text(summary_truth, {"Geo_Block_Name": wrong_block})
+            ops.append(
+                make_text_op(
+                    "summary",
+                    elem,
+                    after,
+                    "summary_scope_object",
+                    semantic_slot="Geo_Block_Name",
+                )
             )
-            ops.append(op)
 
     return ops
 
