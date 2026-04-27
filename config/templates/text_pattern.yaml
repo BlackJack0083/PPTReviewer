@@ -283,7 +283,7 @@
       **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Supply-Demand Ratio (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating an **{{ Trend_Market_Balance_State }}** market. **{{ Text_Market_Balance_Assessment }}**
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating **{{ Trend_Market_Balance_State }}** market conditions. **{{ Text_Market_Balance_Assessment }}**
       - >-
         Across the period, the supply-to-demand ratio moved from **{{ Metric_Supply_Ratio_Base }}**% to **{{ Metric_Supply_Ratio_Terminal }}**%, with a peak of **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**.
       - >-
@@ -294,7 +294,7 @@
       **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Supply-Demand Ratio Trend (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating an **{{ Trend_Market_Balance_State }}** market. **{{ Text_Market_Balance_Assessment }}**
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, **{{ Geo_Block_Name }}** maintained an average supply-to-demand ratio of **{{ Metric_Supply_Ratio_Average }}**%, peaking at **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**, indicating **{{ Trend_Market_Balance_State }}** market conditions. **{{ Text_Market_Balance_Assessment }}**
       - >-
         Across the period, the supply-to-demand ratio moved from **{{ Metric_Supply_Ratio_Base }}**% to **{{ Metric_Supply_Ratio_Terminal }}**%, with a peak of **{{ Metric_Supply_Ratio_Peak }}**% in **{{ Temporal_Year_Ratio_Peak }}**.
       - >-
@@ -321,8 +321,8 @@
       **{{ Geo_City_Name }} {{ Geo_Block_Name }}** Annual Supply & Transactions (**{{ Temporal_Start_Year }}**-**{{ Temporal_End_Year }}**)
     summaries:
       - >-
-        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in **{{ Geo_Block_Name }}** recorded an **{{ Enum_Supply_Trend_Label }}** from **{{ Metric_Vol_Supply_Base }}** to **{{ Metric_Vol_Supply_Terminal }}** units, while transactions recorded an **{{ Enum_Deal_Trend_Label }}** from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** units.
+        From **{{ Temporal_Start_Year }}** to **{{ Temporal_End_Year }}**, new listings in **{{ Geo_Block_Name }}** recorded **{{ Enum_Supply_Trend_Label }}** from **{{ Metric_Vol_Supply_Base }}** to **{{ Metric_Vol_Supply_Terminal }}** units, while transactions recorded **{{ Enum_Deal_Trend_Label }}** from **{{ Metric_Vol_Trans_Base }}** to **{{ Metric_Vol_Trans_Terminal }}** units.
       - >-
         Over the analysis window, supply changed by **{{ Metric_Var_Supply_Pct }}**%, while transactions changed by **{{ Metric_Var_Trans_Pct }}**%.
       - >-
-        By **{{ Temporal_End_Year }}**, annual market activity ended with **{{ Metric_Vol_Supply_Terminal }}** listed units and **{{ Metric_Vol_Trans_Terminal }}** transacted units after supply recorded an **{{ Enum_Supply_Trend_Label }}** and demand recorded an **{{ Enum_Deal_Trend_Label }}** across the period.
+        By **{{ Temporal_End_Year }}**, annual market activity ended with **{{ Metric_Vol_Supply_Terminal }}** listed units and **{{ Metric_Vol_Trans_Terminal }}** transacted units after supply recorded **{{ Enum_Supply_Trend_Label }}** and demand recorded **{{ Enum_Deal_Trend_Label }}** across the period.
