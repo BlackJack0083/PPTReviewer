@@ -187,6 +187,21 @@ class YAMLImporter:
         return all_data, all_configs, table_name
 
     @staticmethod
+    def align_chart_dataframe_with_config(
+        df: pd.DataFrame,
+        config: TableAnalysisConfig | None,
+    ) -> pd.DataFrame:
+        """按 chart config.metrics 的顺序与名称重命名 DataFrame 行标签。"""
+        if config is None or not config.metrics:
+            return df
+        if len(df.index) != len(config.metrics):
+            return df
+
+        aligned = df.copy()
+        aligned.index = [metric.name for metric in config.metrics]
+        return aligned
+
+    @staticmethod
     def rebuild_from_yaml(
         yaml_path: str | Path,
         output_ppt_path: str | Path,
@@ -293,6 +308,10 @@ class YAMLImporter:
                     YAMLImporter.build_config_from_yaml(args_config)
                     if args_config
                     else chart_config
+                )
+                chart_df = YAMLImporter.align_chart_dataframe_with_config(
+                    chart_df,
+                    final_config,
                 )
 
                 elements.append(

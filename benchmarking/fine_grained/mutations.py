@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import random
 import re
 from pathlib import Path
@@ -178,17 +179,69 @@ def make_text_op(
     return op
 
 
-def mutate_caption(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | None:
-    """从图表类型和 scope 候选中构造一个 ST caption 错误。"""
-    captions = find_text_elements(data, "caption")
-    if not captions:
-        return None
-    elem = rng.choice(captions)
-    candidates = []
+def make_text_candidate(
+    mutation_type: str,
+    semantic_slot: str,
+    *,
+    override_value: Any,
+    override_kind: str = "slot",
+) -> dict[str, Any]:
+    """构造文本类错误候选；最终文本在组合后统一渲染。"""
+    return {
+        "mutation_type": mutation_type,
+        "semantic_slot": semantic_slot,
+        "override_kind": override_kind,
+        "override_value": override_value,
+    }
 
-    chart_type_op = mutate_caption_chart_type(data, elem, rng)
-    if chart_type_op:
-        candidates.append(chart_type_op)
+
+def candidate_signature(candidates: list[dict[str, Any]]) -> tuple[str, ...]:
+    """将一组候选转换为稳定的 mutation_type 签名。"""
+    return tuple(sorted(str(candidate["mutation_type"]) for candidate in candidates))
+
+
+def choose_candidate_bundle(
+    candidates: list[dict[str, Any]],
+    max_slots_per_sample: int,
+    rng: random.Random,
+    disallow_signatures: set[tuple[str, ...]] | None = None,
+) -> list[dict[str, Any]] | None:
+    """从候选池中选择一组可同时应用的错误，优先选择更大的组合。"""
+    if not candidates:
+        return None
+
+    disallow = disallow_signatures or set()
+    grouped: dict[int, list[tuple[dict[str, Any], ...]]] = {}
+    upper = max(1, max_slots_per_sample)
+    for size in range(1, min(upper, len(candidates)) + 1):
+        combos = []
+        for combo in itertools.combinations(candidates, size):
+            semantic_slots = [str(candidate["semantic_slot"]) for candidate in combo]
+            if len(set(semantic_slots)) != len(semantic_slots):
+                continue
+            if candidate_signature(list(combo)) in disallow:
+                continue
+            combos.append(combo)
+        if combos:
+            grouped[size] = combos
+
+    if not grouped:
+        return None
+
+    best_size = max(grouped)
+    return list(rng.choice(grouped[best_size]))
+
+
+def caption_candidates(
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """为指定 caption 元素收集可组合的错误候选。"""
+    candidates = []
+    chart_type_candidate = mutate_caption_chart_type_candidate(data, elem, rng)
+    if chart_type_candidate:
+        candidates.append(chart_type_candidate)
 
     context = caption_context(data)
     year_slots = [
@@ -200,50 +253,94 @@ def mutate_caption(data: dict[str, Any], rng: random.Random) -> dict[str, Any] |
         semantic_slot = rng.choice(year_slots)
         truth_year = str(context[semantic_slot])
         mutated_year = str(int(truth_year) + rng.choice([-1, 1]))
-        after = render_caption_text(
-            data,
-            elem,
-            context_overrides={semantic_slot: mutated_year},
-        )
         candidates.append(
-            make_text_op(
-                "st.caption",
-                elem,
-                after,
+            make_text_candidate(
                 "caption_scope_year",
-                semantic_slot=semantic_slot,
+                semantic_slot,
+                override_value=mutated_year,
             )
         )
 
     city = context.get("Geo_City_Name")
     city_donors = [c for c in ["Beijing", "Guangzhou", "Shenzhen"] if c != city]
     if city and city_donors:
-        after = render_caption_text(
-            data,
-            elem,
-            context_overrides={"Geo_City_Name": rng.choice(city_donors)},
-        )
         candidates.append(
-            make_text_op(
-                "st.caption",
-                elem,
-                after,
+            make_text_candidate(
                 "caption_scope_city",
-                semantic_slot="Geo_City_Name",
+                "Geo_City_Name",
+                override_value=rng.choice(city_donors),
             )
         )
 
-    object_op = mutate_caption_scope_object(data, elem, rng)
-    if object_op:
-        candidates.append(object_op)
+    object_candidate = mutate_caption_scope_object_candidate(data, rng)
+    if object_candidate:
+        candidates.append(object_candidate)
 
-    return rng.choice(candidates) if candidates else None
+    return candidates
 
 
-def mutate_caption_scope_object(
-    data: dict[str, Any], elem: dict[str, Any], rng: random.Random
+def materialize_caption_ops(
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """将 caption 候选组合合成为最终文本操作。"""
+    context_overrides: dict[str, str] = {}
+    view_label_override = None
+    for candidate in candidates:
+        if candidate["override_kind"] == "view_label":
+            view_label_override = str(candidate["override_value"])
+        else:
+            context_overrides[str(candidate["semantic_slot"])] = str(
+                candidate["override_value"]
+            )
+
+    after = render_caption_text(
+        data,
+        elem,
+        context_overrides=context_overrides or None,
+        view_label_override=view_label_override,
+    )
+    return [
+        make_text_op(
+            "st.caption",
+            elem,
+            after,
+            str(candidate["mutation_type"]),
+            semantic_slot=str(candidate["semantic_slot"]),
+        )
+        for candidate in candidates
+    ]
+
+
+def mutate_caption(
+    data: dict[str, Any],
+    rng: random.Random,
+    *,
+    max_slots_per_sample: int = 1,
+    disallow_signatures: set[tuple[str, ...]] | None = None,
+) -> list[dict[str, Any]] | None:
+    """从图表类型和 scope 候选中构造一组 ST caption 错误。"""
+    captions = find_text_elements(data, "caption")
+    if not captions:
+        return None
+    elem = rng.choice(captions)
+    candidates = caption_candidates(data, elem, rng)
+    bundle = choose_candidate_bundle(
+        candidates,
+        max_slots_per_sample=max_slots_per_sample,
+        rng=rng,
+        disallow_signatures=disallow_signatures,
+    )
+    if not bundle:
+        return None
+    return materialize_caption_ops(data, elem, bundle)
+
+
+def mutate_caption_scope_object_candidate(
+    data: dict[str, Any], rng: random.Random
 ) -> dict[str, Any] | None:
-    """将 caption 模板中的 block scope 替换为同城市的另一个真实 block。"""
+    """为 caption 的 block scope 生成 donor block 候选。"""
     context = caption_context(data)
     city = str(context.get("Geo_City_Name", "")).strip()
     block = str(context.get("Geo_Block_Name", "")).strip()
@@ -256,18 +353,39 @@ def mutate_caption_scope_object(
     if not donor_blocks:
         return None
 
-    wrong_block = rng.choice(donor_blocks)
-    after = render_caption_text(
-        data,
-        elem,
-        context_overrides={"Geo_Block_Name": wrong_block},
-    )
-    return make_text_op(
-        "st.caption",
-        elem,
-        after,
+    return make_text_candidate(
         "caption_scope_object",
-        semantic_slot="Geo_Block_Name",
+        "Geo_Block_Name",
+        override_value=rng.choice(donor_blocks),
+    )
+
+
+def mutate_caption_scope_object(
+    data: dict[str, Any], elem: dict[str, Any], rng: random.Random
+) -> dict[str, Any] | None:
+    """将 caption 模板中的 block scope 替换为同城市的另一个真实 block。"""
+    candidate = mutate_caption_scope_object_candidate(data, rng)
+    if not candidate:
+        return None
+    return materialize_caption_ops(data, elem, [candidate])[0]
+
+
+def mutate_caption_chart_type_candidate(
+    data: dict[str, Any], elem: dict[str, Any], rng: random.Random
+) -> dict[str, Any] | None:
+    """为 caption 的可见图表类型标签生成 donor 候选。"""
+    labels = ["Bar chart", "Line chart", "Pie chart", "Table"]
+    binding = caption_binding(data, elem)
+    current_label = binding["view_label"]
+    if current_label not in labels:
+        return None
+    return make_text_candidate(
+        "caption_chart_type_mismatch",
+        "Chart_View_Label",
+        override_value=rng.choice(
+            [candidate for candidate in labels if candidate != current_label]
+        ),
+        override_kind="view_label",
     )
 
 
@@ -275,22 +393,10 @@ def mutate_caption_chart_type(
     data: dict[str, Any], elem: dict[str, Any], rng: random.Random
 ) -> dict[str, Any] | None:
     """将 caption 绑定的可见图表/表格类型标签替换为另一个类型。"""
-    labels = ["Bar chart", "Line chart", "Pie chart", "Table"]
-    binding = caption_binding(data, elem)
-    current_label = binding["view_label"]
-    if current_label not in labels:
+    candidate = mutate_caption_chart_type_candidate(data, elem, rng)
+    if not candidate:
         return None
-    wrong_label = rng.choice(
-        [candidate for candidate in labels if candidate != current_label]
-    )
-    after = render_caption_text(data, elem, view_label_override=wrong_label)
-    return make_text_op(
-        "st.caption",
-        elem,
-        after,
-        "caption_chart_type_mismatch",
-        semantic_slot="Chart_View_Label",
-    )
+    return materialize_caption_ops(data, elem, [candidate])[0]
 
 
 def caption_context(data: dict[str, Any]) -> dict[str, str]:
@@ -425,6 +531,112 @@ def mutate_title(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | N
         "title_theme_drift",
         semantic_slot="title",
     )
+
+
+def mutate_chart_metric_label(
+    data: dict[str, Any], rng: random.Random
+) -> dict[str, Any] | None:
+    """交换多 series 图表的 metric 名称，制造字段语义错配。"""
+    chart_elements = [
+        elem
+        for elem in data.get("template_slide", {}).get("elements", [])
+        if isinstance(elem, dict)
+        and elem.get("type") == "chart"
+        and any(token in str(elem.get("role", "")).lower() for token in ("bar", "line"))
+    ]
+    candidates = []
+    for elem in chart_elements:
+        args = elem.get("args", {})
+        if not isinstance(args, dict):
+            continue
+        metrics = args.get("metrics", [])
+        if not isinstance(metrics, list) or len(metrics) < 2:
+            continue
+        names = [str(metric.get("name", "")).strip() for metric in metrics]
+        if len(set(names)) < 2 or any(not name for name in names):
+            continue
+        candidates.append((elem, metrics))
+
+    if not candidates:
+        return None
+
+    elem, metrics = rng.choice(candidates)
+    left_idx, right_idx = sorted(rng.sample(range(len(metrics)), 2))
+    left_name = str(metrics[left_idx]["name"])
+    right_name = str(metrics[right_idx]["name"])
+    metrics[left_idx]["name"], metrics[right_idx]["name"] = right_name, left_name
+
+    op = {
+        "target": "metric_label",
+        "element_id": str(elem.get("id", "")),
+        "role": elem.get("role"),
+        "mutation_type": "series_metric_swap",
+        "semantic_slot": "series_label",
+        "series_indices": [left_idx, right_idx],
+    }
+    return op
+
+
+def mutate_table_metric_label(
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    df: pd.DataFrame,
+    data_key: str,
+    rng: random.Random,
+) -> dict[str, Any] | None:
+    """交换 T05 汇总表第一列中的指标标签，不修改对应数值。"""
+    if "metric" not in df.columns:
+        return None
+    labels = [str(value).strip() for value in df["metric"].tolist()]
+    if len(labels) < 2 or len(set(labels)) < 2 or any(not label for label in labels):
+        return None
+
+    swapped = df.copy()
+    left_idx, right_idx = sorted(rng.sample(range(len(swapped)), 2))
+    left_name = str(swapped.at[left_idx, "metric"])
+    right_name = str(swapped.at[right_idx, "metric"])
+    swapped.at[left_idx, "metric"] = right_name
+    swapped.at[right_idx, "metric"] = left_name
+
+    overrides = data.get("mutated_data", {})
+    if not isinstance(overrides, dict):
+        overrides = {}
+    overrides = dict(overrides)
+    overrides[data_key] = dataframe_to_split_payload(swapped)
+    data["mutated_data"] = overrides
+
+    return {
+        "target": "metric_label",
+        "element_id": str(elem.get("id", "")),
+        "role": elem.get("role"),
+        "mutation_type": "table_metric_swap",
+        "semantic_slot": "metric_label",
+        "row_indices": [left_idx, right_idx],
+    }
+
+
+def mutate_metric_label(data: dict[str, Any], rng: random.Random) -> dict[str, Any] | None:
+    """生成字段语义错配；优先图表 series swap，其次 T05 汇总表的指标标签 swap。"""
+    chart_op = mutate_chart_metric_label(data, rng)
+    if chart_op:
+        return chart_op
+
+    template_id = YAMLImporter.resolve_template_id(data, "<memory>")
+    if template_id not in {"T05_Resale_Summary_Table", "T05_Resale_Summary_Table_Alt"}:
+        return None
+
+    table_elements = [
+        elem
+        for elem in data.get("template_slide", {}).get("elements", [])
+        if isinstance(elem, dict) and elem.get("type") == "table"
+    ]
+    if not table_elements:
+        return None
+
+    all_data, data_keys = load_truth_data(data)
+    if not all_data or not data_keys:
+        return None
+    return mutate_table_metric_label(data, table_elements[0], all_data[0], data_keys[0], rng)
 
 
 def apply_text_op(data: dict[str, Any], op: dict[str, Any]) -> None:
@@ -572,62 +784,41 @@ def render_summary_text(
     return Template(str(summary_truth["summary_template"])).render(**render_context)
 
 
-def mutate_summary(
-    data: dict[str, Any],
-    rng: random.Random,
-    forced_slot: str | None = None,
-    forced_value: Any | None = None,
-) -> dict[str, Any] | None:
-    """通过 scope 文本替换或即时推导的 summary slot 构造 Summary 错误。"""
-    elem = find_summary_element(data)
-    if elem is None:
-        return None
-    summary_truth = derive_summary_truth(data)
-    truth_slots = summary_truth.get("truth_slots", {})
-    if not isinstance(truth_slots, dict) or not truth_slots:
-        return None
-
-    if forced_slot is not None:
-        if forced_slot not in truth_slots:
-            return None
-        slot_name = forced_slot
-        after_value = str(forced_value)
-        mutation_type = "linked_numeric_delta"
-    else:
-        scope_ops = mutate_summary_scope(data, elem, summary_truth, rng)
-        candidates = list(truth_slots.items())
-        rng.shuffle(candidates)
-        selected_slot_name = None
-        for candidate_slot_name, truth_value in candidates:
-            mutation = mutate_text_value(str(truth_value), rng, candidate_slot_name)
-            if mutation:
-                selected_slot_name = candidate_slot_name
-                after_value, mutation_type = mutation
-                break
-        else:
-            return rng.choice(scope_ops) if scope_ops else None
-        if scope_ops and rng.choice([True, False]):
-            return rng.choice(scope_ops)
-        slot_name = selected_slot_name
-
-    after_text = render_summary_text(summary_truth, {slot_name: str(after_value)})
-
-    op = make_text_op("summary", elem, after_text, mutation_type)
-    op["semantic_slot"] = slot_name
-    return op
-
-
-def mutate_summary_scope(
-    data: dict[str, Any],
-    elem: dict[str, Any],
+def summary_value_candidates(
     summary_truth: dict[str, Any],
     rng: random.Random,
 ) -> list[dict[str, Any]]:
-    """仅对模板真实声明的 scope 变量，生成 Summary-only 即时重渲染错误候选。"""
-    ops = []
+    """为 Summary 的 truth slots 收集数值/趋势类错误候选。"""
+    truth_slots = summary_truth.get("truth_slots", {})
+    if not isinstance(truth_slots, dict):
+        return []
+
+    candidates = []
+    for slot_name, truth_value in truth_slots.items():
+        mutation = mutate_text_value(str(truth_value), rng, slot_name)
+        if not mutation:
+            continue
+        after_value, mutation_type = mutation
+        candidates.append(
+            make_text_candidate(
+                mutation_type,
+                str(slot_name),
+                override_value=str(after_value),
+            )
+        )
+    return candidates
+
+
+def summary_scope_candidates(
+    data: dict[str, Any],
+    summary_truth: dict[str, Any],
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """为 Summary 显式暴露的 scope 变量收集错误候选。"""
+    candidates = []
     fixed_context = summary_truth.get("fixed_context", {})
     if not isinstance(fixed_context, dict):
-        return ops
+        return candidates
 
     year_slots = [
         slot
@@ -638,29 +829,26 @@ def mutate_summary_scope(
         semantic_slot = rng.choice(year_slots)
         truth_year = str(fixed_context[semantic_slot])
         wrong_year = str(int(truth_year) + rng.choice([-1, 1]))
-        after = render_summary_text(summary_truth, {semantic_slot: wrong_year})
-        ops.append(
-            make_text_op(
-                "summary",
-                elem,
-                after,
+        candidates.append(
+            make_text_candidate(
                 "summary_scope_year",
-                semantic_slot=semantic_slot,
+                semantic_slot,
+                override_value=wrong_year,
             )
         )
 
     city = str(fixed_context.get("Geo_City_Name", "")).strip()
-    city_donors = [candidate for candidate in ["Beijing", "Guangzhou", "Shenzhen"] if candidate != city]
+    city_donors = [
+        candidate
+        for candidate in ["Beijing", "Guangzhou", "Shenzhen"]
+        if candidate != city
+    ]
     if city and city_donors:
-        wrong_city = rng.choice(city_donors)
-        after = render_summary_text(summary_truth, {"Geo_City_Name": wrong_city})
-        ops.append(
-            make_text_op(
-                "summary",
-                elem,
-                after,
+        candidates.append(
+            make_text_candidate(
                 "summary_scope_city",
-                semantic_slot="Geo_City_Name",
+                "Geo_City_Name",
+                override_value=rng.choice(city_donors),
             )
         )
 
@@ -672,19 +860,91 @@ def mutate_summary_scope(
             if candidate != block
         ]
         if donor_blocks:
-            wrong_block = rng.choice(donor_blocks)
-            after = render_summary_text(summary_truth, {"Geo_Block_Name": wrong_block})
-            ops.append(
-                make_text_op(
-                    "summary",
-                    elem,
-                    after,
+            candidates.append(
+                make_text_candidate(
                     "summary_scope_object",
-                    semantic_slot="Geo_Block_Name",
+                    "Geo_Block_Name",
+                    override_value=rng.choice(donor_blocks),
                 )
             )
 
-    return ops
+    return candidates
+
+
+def materialize_summary_ops(
+    elem: dict[str, Any],
+    summary_truth: dict[str, Any],
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """将 Summary 候选组合合成为最终文本操作。"""
+    overrides = {
+        str(candidate["semantic_slot"]): candidate["override_value"]
+        for candidate in candidates
+    }
+    after_text = render_summary_text(summary_truth, overrides)
+    return [
+        make_text_op(
+            "summary",
+            elem,
+            after_text,
+            str(candidate["mutation_type"]),
+            semantic_slot=str(candidate["semantic_slot"]),
+        )
+        for candidate in candidates
+    ]
+
+
+def mutate_summary(
+    data: dict[str, Any],
+    rng: random.Random,
+    forced_slot: str | None = None,
+    forced_value: Any | None = None,
+    *,
+    max_slots_per_sample: int = 1,
+    disallow_signatures: set[tuple[str, ...]] | None = None,
+) -> list[dict[str, Any]] | None:
+    """通过统一的 Summary slot 候选池构造一组 Summary 错误。"""
+    elem = find_summary_element(data)
+    if elem is None:
+        return None
+    summary_truth = derive_summary_truth(data)
+    if forced_slot is not None:
+        truth_slots = summary_truth.get("truth_slots", {})
+        if not isinstance(truth_slots, dict) or forced_slot not in truth_slots:
+            return None
+        slot_name = forced_slot
+        after_value = str(forced_value)
+        candidate = make_text_candidate(
+            "linked_numeric_delta",
+            slot_name,
+            override_value=after_value,
+        )
+        return materialize_summary_ops(elem, summary_truth, [candidate])
+
+    candidates = summary_scope_candidates(data, summary_truth, rng)
+    candidates.extend(summary_value_candidates(summary_truth, rng))
+    bundle = choose_candidate_bundle(
+        candidates,
+        max_slots_per_sample=max_slots_per_sample,
+        rng=rng,
+        disallow_signatures=disallow_signatures,
+    )
+    if not bundle:
+        return None
+    return materialize_summary_ops(elem, summary_truth, bundle)
+
+
+def mutate_summary_scope(
+    data: dict[str, Any],
+    elem: dict[str, Any],
+    summary_truth: dict[str, Any],
+    rng: random.Random,
+) -> list[dict[str, Any]]:
+    """仅对模板真实声明的 scope 变量，生成 Summary-only 即时重渲染错误候选。"""
+    return [
+        materialize_summary_ops(elem, summary_truth, [candidate])[0]
+        for candidate in summary_scope_candidates(data, summary_truth, rng)
+    ]
 
 
 def iter_numeric_cells(df: pd.DataFrame):
@@ -802,82 +1062,120 @@ def public_operation(op: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def mutation_signature(operations: list[dict[str, Any]]) -> tuple[str, ...]:
+    """抽取一次 corruption 的稳定 mutation_type 签名。"""
+    return tuple(sorted(str(op["mutation_type"]) for op in operations))
+
+
 def build_corruption(
     dataset_root: Path,
     sample_row: dict[str, Any],
     family: str,
     seed: int,
+    *,
+    max_slots_per_sample: int = 1,
+    disallow_signatures: set[tuple[str, ...]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], str] | None:
     """为指定 error family 构造一个 injected YAML 及其 corruption 元数据。"""
     source_yaml = dataset_root / sample_row["gt_yaml"]
     if not source_yaml.exists():
         return None
 
-    data = load_yaml(source_yaml)
+    base_data = load_yaml(source_yaml)
     rng = random.Random(seed)  # noqa: S311
-    operations: list[dict[str, Any]] = []
+    blocked = disallow_signatures or set()
 
-    if family == "st_caption":
-        op = mutate_caption(data, rng)
-        if not op:
-            return None
-        operations.append(op)
+    for _ in range(24):
+        data = copy.deepcopy(base_data)
+        operations: list[dict[str, Any]] = []
 
-    elif family == "st_body":
-        result = mutate_st_body(data, rng)
-        if not result:
-            return None
-        operations.append(result[0])
+        if family == "st_caption":
+            caption_ops = mutate_caption(
+                data,
+                rng,
+                max_slots_per_sample=max_slots_per_sample,
+                disallow_signatures=blocked,
+            )
+            if not caption_ops:
+                continue
+            operations.extend(caption_ops)
 
-    elif family == "summary":
-        op = mutate_summary(data, rng)
-        if not op:
-            return None
-        operations.append(op)
+        elif family == "st_body":
+            result = mutate_st_body(data, rng)
+            if not result:
+                continue
+            operations.append(result[0])
 
-    elif family == "title":
-        op = mutate_title(data, rng)
-        if not op:
-            return None
-        operations.append(op)
+        elif family == "summary":
+            summary_ops = mutate_summary(
+                data,
+                rng,
+                max_slots_per_sample=max_slots_per_sample,
+                disallow_signatures=blocked,
+            )
+            if not summary_ops:
+                continue
+            operations.extend(summary_ops)
 
-    elif family == "st_summary":
-        result = mutate_st_body(data, rng, require_summary_link=True)
-        if not result:
-            return None
-        body_op, slot_name, slot_after = result
-        summary_op = mutate_summary(data, rng, slot_name, slot_after)
-        if not summary_op:
-            return None
-        operations.extend([body_op, summary_op])
+        elif family == "title":
+            op = mutate_title(data, rng)
+            if not op:
+                continue
+            operations.append(op)
 
-    elif family == "summary_title":
-        summary_op = mutate_summary(data, rng)
-        title_op = mutate_title(data, rng)
-        if not summary_op or not title_op:
-            return None
-        operations.extend([summary_op, title_op])
+        elif family == "metric_label":
+            op = mutate_metric_label(data, rng)
+            if not op:
+                continue
+            operations.append(op)
 
-    elif family == "three_element":
-        result = mutate_st_body(data, rng, require_summary_link=True)
-        if not result:
-            return None
-        body_op, slot_name, slot_after = result
-        summary_op = mutate_summary(data, rng, slot_name, slot_after)
-        title_op = mutate_title(data, rng)
-        if not summary_op or not title_op:
-            return None
-        operations.extend([body_op, summary_op, title_op])
+        elif family == "st_summary":
+            result = mutate_st_body(data, rng, require_summary_link=True)
+            if not result:
+                continue
+            body_op, slot_name, slot_after = result
+            summary_ops = mutate_summary(data, rng, slot_name, slot_after)
+            if not summary_ops:
+                continue
+            operations.extend([body_op, *summary_ops])
 
-    else:
-        raise ValueError(f"Unknown family: {family}")
+        elif family == "summary_title":
+            summary_ops = mutate_summary(
+                data,
+                rng,
+                max_slots_per_sample=max_slots_per_sample,
+                disallow_signatures=blocked,
+            )
+            title_op = mutate_title(data, rng)
+            if not summary_ops or not title_op:
+                continue
+            operations.extend([*summary_ops, title_op])
 
-    apply_ops(data, operations)
-    sample_id = sample_row["sample_id"]
-    raw_id = f"{sample_id}|{family}|{seed}"
-    artifact_id = f"{sample_id}-{family}-{hashlib.md5(raw_id.encode()).hexdigest()[:8]}"  # noqa: S324
-    corruption = {
-        "operations": [public_operation(op) for op in operations],
-        "expected_repair_yaml": sample_row["gt_yaml"],
-    }
-    return data, corruption, artifact_id
+        elif family == "three_element":
+            result = mutate_st_body(data, rng, require_summary_link=True)
+            if not result:
+                continue
+            body_op, slot_name, slot_after = result
+            summary_ops = mutate_summary(data, rng, slot_name, slot_after)
+            title_op = mutate_title(data, rng)
+            if not summary_ops or not title_op:
+                continue
+            operations.extend([body_op, *summary_ops, title_op])
+
+        else:
+            raise ValueError(f"Unknown family: {family}")
+
+        if mutation_signature(operations) in blocked:
+            continue
+
+        apply_ops(data, operations)
+        sample_id = sample_row["sample_id"]
+        raw_id = f"{sample_id}|{family}|{seed}|{mutation_signature(operations)}"
+        artifact_id = f"{sample_id}-{family}-{hashlib.md5(raw_id.encode()).hexdigest()[:8]}"  # noqa: S324
+        corruption = {
+            "operations": [public_operation(op) for op in operations],
+            "expected_repair_yaml": sample_row["gt_yaml"],
+        }
+        return data, corruption, artifact_id
+
+    return None

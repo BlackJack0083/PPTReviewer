@@ -26,7 +26,7 @@ REQUIRED_OPERATION_FIELDS = {
     "element_id",
     "mutation_type",
 }
-VALID_TARGETS = {"st.caption", "st.body", "summary", "title"}
+VALID_TARGETS = {"st.caption", "st.body", "summary", "title", "metric_label"}
 
 
 def validate_benchmark(dataset_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -335,6 +335,8 @@ def infer_error_family(record: dict[str, Any]) -> str:
         return "summary"
     if targets == {"title"}:
         return "title"
+    if targets == {"metric_label"}:
+        return "metric_label"
     if targets == {"st.body", "summary"}:
         return "st_summary"
     if targets == {"summary", "title"}:

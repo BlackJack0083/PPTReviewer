@@ -18,6 +18,7 @@ DEFAULT_FAMILIES = [
     "st_body",
     "summary",
     "title",
+    "metric_label",
     "st_summary",
     "summary_title",
     "three_element",

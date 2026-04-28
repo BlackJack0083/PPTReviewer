@@ -21,7 +21,7 @@ from .common import (
     save_yaml,
     write_json,
 )
-from .mutations import build_corruption
+from .mutations import build_corruption, mutation_signature
 
 
 def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, Any]]:
@@ -124,6 +124,9 @@ def parse_args() -> argparse.Namespace:
         "--families", nargs="+", choices=DEFAULT_FAMILIES, default=DEFAULT_FAMILIES
     )
     parser.add_argument("--samples-per-family-per-split", type=int, default=200)
+    parser.add_argument("--max-variants-per-gt-family", type=int, default=1)
+    parser.add_argument("--max-variants-per-gt-type", type=int, default=1)
+    parser.add_argument("--max-slots-per-sample", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260425)
     parser.add_argument("--render-png", action="store_true")
     parser.add_argument("--skip-ppt", action="store_true")
@@ -135,6 +138,12 @@ def main() -> None:
     args = parse_args()
     if args.samples_per_family_per_split <= 0:
         raise ValueError("--samples-per-family-per-split must be positive")
+    if args.max_variants_per_gt_family <= 0:
+        raise ValueError("--max-variants-per-gt-family must be positive")
+    if args.max_variants_per_gt_type <= 0:
+        raise ValueError("--max-variants-per-gt-type must be positive")
+    if args.max_slots_per_sample <= 0:
+        raise ValueError("--max-slots-per-sample must be positive")
 
     dataset_root = Path(args.benchmark_root).resolve()
     rows = load_sample_rows(dataset_root, args.splits)
@@ -151,6 +160,8 @@ def main() -> None:
     }
     produced_total = 0
     seed_gen = random.Random(args.seed)  # noqa: S311
+    variants_per_gt_family: Counter[tuple[str, str, str]] = Counter()
+    variants_per_gt_type: Counter[tuple[str, str, str, tuple[str, ...]]] = Counter()
 
     rows_by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -164,35 +175,83 @@ def main() -> None:
             produced = 0
             skips = Counter()
             template_hits = Counter()
+            order_rng = random.Random(seed_gen.randint(1, 10**9))  # noqa: S311
             order = prioritized_rows(
-                split_rows, random.Random(seed_gen.randint(1, 10**9))
-            )  # noqa: S311
+                split_rows, order_rng
+            )
 
             for row in order:
+                sample_key = (split, str(row["sample_id"]), family)
+                if (
+                    variants_per_gt_family[sample_key]
+                    >= args.max_variants_per_gt_family
+                ):
+                    continue
                 if produced >= args.samples_per_family_per_split:
                     break
-                variant_seed = seed_gen.randint(1, 10**9)
-                try:
-                    result = build_corruption(dataset_root, row, family, variant_seed)
-                    if result is None:
-                        skips["not_applicable"] += 1
-                        continue
-                    yaml_data, corruption, artifact_id = result
-                    record = write_corruption_outputs(
-                        dataset_root=dataset_root,
-                        sample_row=row,
-                        yaml_data=yaml_data,
-                        corruption=corruption,
-                        artifact_id=artifact_id,
-                        render_png=args.render_png,
-                        skip_ppt=args.skip_ppt,
-                    )
-                    append_jsonl(manifest_path, record)
-                    produced += 1
-                    produced_total += 1
-                    template_hits[str(row.get("template_id", ""))] += 1
-                except Exception as exc:  # noqa: BLE001
-                    skips[type(exc).__name__] += 1
+                attempt_limit = max(8, args.max_variants_per_gt_family * 8)
+                row_produced = False
+                for _ in range(attempt_limit):
+                    if produced >= args.samples_per_family_per_split:
+                        break
+                    if (
+                        variants_per_gt_family[sample_key]
+                        >= args.max_variants_per_gt_family
+                    ):
+                        break
+                    blocked_signatures = {
+                        signature
+                        for key_split, key_sample, key_family, signature in variants_per_gt_type
+                        if key_split == split
+                        and key_sample == str(row["sample_id"])
+                        and key_family == family
+                        and variants_per_gt_type[
+                            (key_split, key_sample, key_family, signature)
+                        ]
+                        >= args.max_variants_per_gt_type
+                    }
+                    variant_seed = seed_gen.randint(1, 10**9)
+                    try:
+                        result = build_corruption(
+                            dataset_root,
+                            row,
+                            family,
+                            variant_seed,
+                            max_slots_per_sample=args.max_slots_per_sample,
+                            disallow_signatures=blocked_signatures,
+                        )
+                        if result is None:
+                            if not row_produced:
+                                skips["not_applicable"] += 1
+                            break
+                        yaml_data, corruption, artifact_id = result
+                        signature = mutation_signature(corruption["operations"])
+                        signature_key = (*sample_key, signature)
+                        if (
+                            variants_per_gt_type[signature_key]
+                            >= args.max_variants_per_gt_type
+                        ):
+                            continue
+
+                        record = write_corruption_outputs(
+                            dataset_root=dataset_root,
+                            sample_row=row,
+                            yaml_data=yaml_data,
+                            corruption=corruption,
+                            artifact_id=artifact_id,
+                            render_png=args.render_png,
+                            skip_ppt=args.skip_ppt,
+                        )
+                        append_jsonl(manifest_path, record)
+                        produced += 1
+                        produced_total += 1
+                        row_produced = True
+                        template_hits[str(row.get("template_id", ""))] += 1
+                        variants_per_gt_family[sample_key] += 1
+                        variants_per_gt_type[signature_key] += 1
+                    except Exception as exc:  # noqa: BLE001
+                        skips[type(exc).__name__] += 1
+                        break
 
             coverage["families"][f"{split}:{family}"] = {
                 "produced": produced,
