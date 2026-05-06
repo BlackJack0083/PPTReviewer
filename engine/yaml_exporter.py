@@ -14,6 +14,7 @@ from common.function_specs import get_default_function_args
 from core import PresentationContext, resource_manager
 from core.layout_manager import layout_manager
 from core.schemas import ChartElement, SlideRenderConfig, TableElement, TextElement
+from engine.data_files import write_dataframe_csv
 
 
 class YAMLExporter:
@@ -42,7 +43,7 @@ class YAMLExporter:
         slide_filters = YAMLExporter._build_slide_filters(template_meta, context)
 
         # 3. 构建 template_slide（来自 slide_config）
-        template_slide = YAMLExporter._build_template_slide(slide_config)
+        template_slide, data_exports = YAMLExporter._build_template_slide(slide_config)
 
         # 4. 构建模板元信息（供 YAML 导入重建时使用）
         meta = YAMLExporter._build_meta(template_meta, template_id)
@@ -63,6 +64,7 @@ class YAMLExporter:
             context.variables.get("Geo_Block_Name", "Unknown"),
             template_id,
         )
+        YAMLExporter._write_data_exports(yaml_path.parent, data_exports)
 
         logger.info(f"已导出配置文件: {yaml_path}")
         return yaml_path
@@ -164,7 +166,9 @@ class YAMLExporter:
         return filters
 
     @staticmethod
-    def _build_template_slide(slide_config: SlideRenderConfig) -> dict:
+    def _build_template_slide(
+        slide_config: SlideRenderConfig,
+    ) -> tuple[dict, list[tuple[str, object]]]:
         """构建 template_slide"""
         # 获取 slide 尺寸
         slide_size = layout_manager.get_slide_size(slide_config.layout_type.value)
@@ -178,16 +182,20 @@ class YAMLExporter:
         }
 
         # 遍历所有元素
+        data_exports = []
         for i, element in enumerate(slide_config.elements, 1):
-            elem_dict = YAMLExporter._element_to_dict(element, i)
+            elem_dict, data_payload = YAMLExporter._element_to_dict(element, i)
             template_slide["elements"].append(elem_dict)
+            if data_payload is not None:
+                data_exports.append((elem_dict["data"], data_payload))
 
-        return template_slide
+        return template_slide, data_exports
 
     @staticmethod
-    def _element_to_dict(element, element_id: int) -> dict:
+    def _element_to_dict(element, element_id: int) -> tuple[dict, object | None]:
         """将元素对象转换为字典"""
         elem = {"id": str(element_id)}
+        data_payload = None
 
         if isinstance(element, TextElement):
             elem.update(
@@ -206,6 +214,7 @@ class YAMLExporter:
 
         elif isinstance(element, ChartElement | TableElement):
             is_chart = isinstance(element, ChartElement)
+            data_payload = element.data_payload
             elem.update(
                 {
                     "type": "chart" if is_chart else "table",
@@ -216,13 +225,14 @@ class YAMLExporter:
                         "width": element.layout.width,
                         "height": element.layout.height,
                     },
+                    "data": f"./data/element_{element_id}.csv",
                 }
             )
             # 图表添加 args
             if is_chart:
                 elem["args"] = YAMLExporter._build_chart_args(element)
 
-        return elem
+        return elem, data_payload
 
     @staticmethod
     def _build_chart_args(chart_element: ChartElement) -> dict:
@@ -310,3 +320,15 @@ class YAMLExporter:
             )
 
         return yaml_path
+
+    @staticmethod
+    def _write_data_exports(
+        yaml_dir: Path,
+        data_exports: list[tuple[str, object]],
+    ) -> None:
+        """Write chart/table display data files referenced by template_slide elements."""
+        for rel_path, df in data_exports:
+            path = Path(rel_path)
+            if path.is_absolute():
+                raise ValueError(f"Data path must be relative: {rel_path}")
+            write_dataframe_csv(df, yaml_dir / path)

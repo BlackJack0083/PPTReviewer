@@ -13,6 +13,11 @@ from .common import (
     read_jsonl,
     write_json,
 )
+from engine.data_files import (
+    data_elements,
+    read_dataframe_csv,
+    resolve_element_data_path,
+)
 
 REQUIRED_RECORD_FIELDS = {
     "operations",
@@ -26,7 +31,7 @@ REQUIRED_OPERATION_FIELDS = {
     "element_id",
     "mutation_type",
 }
-VALID_TARGETS = {"st.caption", "st.body", "summary", "title", "metric_label"}
+VALID_TARGETS = {"st.caption", "st.header", "st.body", "summary", "title"}
 
 
 def validate_benchmark(dataset_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -320,6 +325,48 @@ def _validate_output_yaml(
     corruption = yaml_data.get("corruption")
     if isinstance(corruption, dict):
         _add_error(errors, "unexpected_yaml_corruption", context, path=str(path))
+    if "mutated_data" in yaml_data:
+        _add_error(errors, "unexpected_yaml_mutated_data", context, path=str(path))
+    _validate_element_data_files(path, yaml_data, context, errors)
+
+
+def _validate_element_data_files(
+    yaml_path: Path,
+    yaml_data: dict[str, Any],
+    context: dict[str, Any],
+    errors: list[dict[str, Any]],
+) -> None:
+    """检查 chart/table 元素是否声明并可读取外置 CSV 数据。"""
+    for element in data_elements(yaml_data):
+        element_context = {**context, "element_id": element.get("id")}
+        try:
+            data_path = resolve_element_data_path(yaml_path, element)
+        except Exception as exc:  # noqa: BLE001
+            _add_error(
+                errors,
+                "invalid_element_data_path",
+                element_context,
+                error=str(exc),
+            )
+            continue
+        if not data_path.exists():
+            _add_error(
+                errors,
+                "element_data_not_found",
+                element_context,
+                path=str(data_path),
+            )
+            continue
+        try:
+            read_dataframe_csv(data_path)
+        except Exception as exc:  # noqa: BLE001
+            _add_error(
+                errors,
+                "invalid_element_data_csv",
+                element_context,
+                path=str(data_path),
+                error=str(exc),
+            )
 
 
 def infer_error_family(record: dict[str, Any]) -> str:
@@ -335,7 +382,15 @@ def infer_error_family(record: dict[str, Any]) -> str:
         return "summary"
     if targets == {"title"}:
         return "title"
-    if targets == {"metric_label"}:
+    mutation_types = {
+        op.get("mutation_type")
+        for op in record.get("operations", [])
+        if isinstance(op, dict)
+    }
+    if targets == {"st.header"} and mutation_types <= {
+        "series_metric_swap",
+        "table_metric_swap",
+    }:
         return "metric_label"
     if targets == {"st.body", "summary"}:
         return "st_summary"

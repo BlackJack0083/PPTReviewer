@@ -9,7 +9,6 @@ import pandas as pd
 
 from benchmarking.fine_grained import (
     build_corruption,
-    dataframe_to_split_payload,
     save_yaml,
     write_corruption_outputs,
 )
@@ -30,6 +29,7 @@ from benchmarking.fine_grained.mutations import (
     summary_value_candidates,
 )
 from benchmarking.fine_grained.validator import infer_error_family, validate_benchmark
+from engine.data_files import read_dataframe_csv, write_dataframe_csv
 from engine.yaml_importer import YAMLImporter
 
 
@@ -77,11 +77,13 @@ def minimal_slide_yaml() -> dict:
 class FineGrainedInjectorTest(unittest.TestCase):
     def test_dataframe_split_roundtrip(self) -> None:
         df = pd.DataFrame(
-            [[1, 2.5], [3, 4.0]], index=["A", "B"], columns=[2020, "value"]
+            [[1, 2.5], [3, 4.0]], index=["A", "B"], columns=["2020", "value"]
         )
-        payload = dataframe_to_split_payload(df)
-        rebuilt = YAMLImporter.dataframe_from_split_payload(payload)
-        pd.testing.assert_frame_equal(rebuilt, df)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "data.csv"
+            write_dataframe_csv(df, path)
+            rebuilt = read_dataframe_csv(path)
+            pd.testing.assert_frame_equal(rebuilt, df)
 
     def test_caption_chart_type_mismatch_uses_visible_text(self) -> None:
         rng = random.Random(1)  # noqa: S311
@@ -324,7 +326,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
         self.assertIsNotNone(op)
         if op is None:
             self.fail("Expected metric label mutation")
-        self.assertEqual(op["target"], "metric_label")
+        self.assertEqual(op["target"], "st.header")
         self.assertEqual(op["mutation_type"], "series_metric_swap")
         self.assertEqual(op["semantic_slot"], "series_label")
         metrics = data["template_slide"]["elements"][3]["args"]["metrics"]
@@ -413,14 +415,13 @@ class FineGrainedInjectorTest(unittest.TestCase):
         )
         rng = random.Random(51)  # noqa: S311
 
-        op = mutate_table_metric_label(data, data["template_slide"]["elements"][3], df, "resale_total_stats", rng)
+        op = mutate_table_metric_label(data, data["template_slide"]["elements"][3], df, rng)
 
         self.assertIsNotNone(op)
         if op is None:
             self.fail("Expected table metric label mutation")
         self.assertEqual(op["mutation_type"], "table_metric_swap")
-        payload = data["mutated_data"]["resale_total_stats"]
-        rebuilt = YAMLImporter.dataframe_from_split_payload(payload)
+        rebuilt = data["template_slide"]["elements"][3]["_dataframe_override"]
         self.assertNotEqual(
             rebuilt["metric"].tolist(),
             ["trade_counts", "avg_unit_price", "dim_area"],
@@ -488,6 +489,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
                     "type": "chart",
                     "role": "chart-bar",
                     "layout": {"x": 1.0, "y": 4.0, "width": 12.0, "height": 7.0},
+                    "data": "./data/element_4.csv",
                     "args": {
                         "table_type": "field-constraint",
                         "dimensions": [],
@@ -509,6 +511,14 @@ class FineGrainedInjectorTest(unittest.TestCase):
                 }
             )
             save_yaml(gt_dir / "slide.yaml", yaml_data)
+            write_dataframe_csv(
+                pd.DataFrame(
+                    [[10, 20], [30, 40]],
+                    index=["Supply Count", "Sales Count"],
+                    columns=["80-100m²", "100-120m²"],
+                ),
+                gt_dir / "data" / "element_4.csv",
+            )
 
             sample_row = {
                 "sample_id": "sample1",
@@ -525,7 +535,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
                 self.fail("Expected metric_label corruption")
             mutated_yaml, corruption, _artifact_id = result
             op = corruption["operations"][0]
-            self.assertEqual(op["target"], "metric_label")
+            self.assertEqual(op["target"], "st.header")
             self.assertEqual(op["mutation_type"], "series_metric_swap")
             metrics = mutated_yaml["template_slide"]["elements"][3]["args"]["metrics"]
             self.assertEqual(
@@ -565,41 +575,30 @@ class FineGrainedInjectorTest(unittest.TestCase):
                         },
                     ],
                 },
-                "mutated_data": {
-                    "resale_total_stats": {
-                        "orient": "split",
-                        "index": [0, 1, 2],
-                        "columns": ["metric", "2020", "2021"],
-                        "data": [
-                            ["trade_counts", 515, 611],
-                            ["avg_unit_price", 40917, 41144],
-                            ["dim_area", 52058, 56601],
-                        ],
-                    }
-                },
             }
             save_yaml(gt_dir / "slide.yaml", yaml_data)
 
             data = YAMLImporter.load_yaml(gt_dir / "slide.yaml")
-            rebuilt_df = YAMLImporter.dataframe_from_split_payload(
-                data["mutated_data"]["resale_total_stats"]
+            rebuilt_df = pd.DataFrame(
+                {
+                    "metric": ["trade_counts", "avg_unit_price", "dim_area"],
+                    "2020": [515, 40917, 52058],
+                    "2021": [611, 41144, 56601],
+                }
             )
             op = mutate_table_metric_label(
                 data,
                 data["template_slide"]["elements"][1],
                 rebuilt_df,
-                "resale_total_stats",
                 random.Random(61),  # noqa: S311
             )
 
             self.assertIsNotNone(op)
             if op is None:
                 self.fail("Expected table metric swap")
-            self.assertEqual(op["target"], "metric_label")
+            self.assertEqual(op["target"], "st.header")
             self.assertEqual(op["mutation_type"], "table_metric_swap")
-            swapped = YAMLImporter.dataframe_from_split_payload(
-                data["mutated_data"]["resale_total_stats"]
-            )
+            swapped = data["template_slide"]["elements"][1]["_dataframe_override"]
             self.assertNotEqual(
                 swapped["metric"].tolist(),
                 ["trade_counts", "avg_unit_price", "dim_area"],
@@ -614,7 +613,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
             {
                 "operations": [
                     {
-                        "target": "metric_label",
+                        "target": "st.header",
                         "element_id": "4",
                         "role": "chart-bar",
                         "mutation_type": "series_metric_swap",
@@ -750,6 +749,7 @@ class FineGrainedInjectorTest(unittest.TestCase):
                     "type": "chart",
                     "role": "chart-bar",
                     "layout": {"x": 1.0, "y": 4.0, "width": 12.0, "height": 7.0},
+                    "data": "./data/element_4.csv",
                     "args": {
                         "table_type": "field-constraint",
                         "dimensions": [],
@@ -771,6 +771,14 @@ class FineGrainedInjectorTest(unittest.TestCase):
                 }
             )
             save_yaml(gt_dir / "slide.yaml", yaml_data)
+            write_dataframe_csv(
+                pd.DataFrame(
+                    [[10, 20], [30, 40]],
+                    index=["Supply Count", "Sales Count"],
+                    columns=["80-100m²", "100-120m²"],
+                ),
+                gt_dir / "data" / "element_4.csv",
+            )
 
             sample_row = {
                 "sample_id": "sample1",

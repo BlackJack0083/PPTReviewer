@@ -9,9 +9,7 @@ import pandas as pd
 import yaml
 from loguru import logger
 
-from common.function_specs import filter_function_args
 from core import PPTOperations, PresentationContext, layout_manager, resource_manager
-from core.data_provider import RealEstateDataProvider
 from core.schemas import (
     BinningRule,
     ChartElement,
@@ -23,7 +21,11 @@ from core.schemas import (
     TableElement,
     TextElement,
 )
-from engine.builder import SlideConfigBuilder
+from engine.data_files import (
+    data_elements,
+    read_dataframe_csv,
+    resolve_element_data_path,
+)
 from engine.slide_renderers import RendererFactory
 
 
@@ -117,73 +119,42 @@ class YAMLImporter:
         return slide_size
 
     @staticmethod
-    def dataframe_from_split_payload(payload: dict) -> pd.DataFrame:
-        """Load a DataFrame stored as a compact orient=split payload."""
-        if payload.get("orient") != "split":
-            raise ValueError("mutated_data payload must declare orient='split'")
-        return pd.DataFrame(
-            data=payload.get("data", []),
-            index=payload.get("index", []),
-            columns=payload.get("columns", []),
-        )
-
-    @staticmethod
     def load_data_payloads(
         yaml_data: dict,
         template_meta,
-        use_overrides: bool = True,
+        yaml_path: str | Path,
     ) -> tuple[list[pd.DataFrame], list[TableAnalysisConfig], str]:
-        """Fetch slide data and apply optional YAML mutated_data by data_key."""
-        query_filters = yaml_data["query_filters"]
+        """Load chart/table display data from element-level CSV paths."""
         slide_filters = yaml_data["slide_filters"]
         if not slide_filters:
             raise ValueError("No slide_filters found in YAML")
 
-        city = query_filters.get("city", "Beijing")
-        block = query_filters.get("block", "Unknown")
-        start_year = query_filters.get("start_date", "2020-01-01")[:4]
-        end_year = query_filters.get("end_date", "2022-12-31")[:4]
-        data_keys = list(template_meta.data_keys.values())
-        overrides = yaml_data.get("mutated_data", {}) if use_overrides else {}
-        if not isinstance(overrides, dict):
-            overrides = {}
-
-        logger.info(f"Fetching data: city={city}, block={block}")
-        provider = RealEstateDataProvider(
-            city=city,
-            block=block,
-            start_year=start_year,
-            end_year=end_year,
-            table_name="",
-        )
-
         all_data: list[pd.DataFrame] = []
         all_configs: list[TableAnalysisConfig] = []
-        table_name = ""
-        for idx, slide_filter in enumerate(slide_filters):
-            connection = slide_filter.get("connection", {})
-            table_name = connection.get("table", ["beijing_new_house"])[0]
-            provider.filter.table_name = table_name
+        elements = data_elements(yaml_data)
+        if not elements:
+            raise ValueError("template_slide contains no chart/table data elements")
 
-            fun_tool = slide_filter.get("fun_tool", {})
-            function_key = fun_tool.get("fun")
-            fun_args = fun_tool.get("args", {})
-            valid_args = filter_function_args(function_key, fun_args)
-            logger.info(
-                f"[{idx + 1}/{len(slide_filters)}] Calling {function_key} with args: {valid_args}"
+        for idx, element in enumerate(elements):
+            df = read_dataframe_csv(resolve_element_data_path(yaml_path, element))
+            args_config = element.get("args", {})
+            config = (
+                YAMLImporter.build_config_from_yaml(args_config)
+                if isinstance(args_config, dict) and args_config
+                else None
             )
-
-            df, _, config = provider.execute_by_function_key(function_key, **valid_args)
-            data_key = data_keys[idx] if idx < len(data_keys) else None
-            if data_key and data_key in overrides:
-                df = YAMLImporter.dataframe_from_split_payload(overrides[data_key])
-                logger.info(f"  -> Using mutated_data for {data_key}: {df.shape}")
-            else:
-                logger.info(f"  -> Fetched data shape: {df.shape}")
-
+            logger.info(
+                f"[{idx + 1}/{len(elements)}] Loaded element data "
+                f"id={element.get('id')} shape={df.shape}"
+            )
             all_data.append(df)
             all_configs.append(config)
 
+        table_name = ""
+        first_connection = slide_filters[0].get("connection", {})
+        table_values = first_connection.get("table", [])
+        if table_values:
+            table_name = table_values[0]
         return all_data, all_configs, table_name
 
     @staticmethod
@@ -235,11 +206,11 @@ class YAMLImporter:
         if not template_meta:
             raise ValueError(f"Template not found: {template_id}")
 
-        # 5. 获取所有数据；若 YAML 中存在 mutated_data，则优先使用覆盖数据。
+        # 5. 获取所有 chart/table 当前展示数据。
         all_data, all_configs, table_name = YAMLImporter.load_data_payloads(
             yaml_data,
             template_meta,
-            use_overrides=True,
+            yaml_path,
         )
 
         # 6. 构建 PresentationContext（只需要基本变量，文字内容从 YAML 直接读取）
@@ -259,11 +230,7 @@ class YAMLImporter:
                 if config:
                     context.add_config(data_key, config)
 
-        # 7. 使用 Builder 构建 SlideConfig
-        builder = SlideConfigBuilder()
-        slide_config = builder.build(template_id, context)
-
-        # 8. 手动渲染 PPT（简化版本）
+        # 7. 手动渲染 PPT：文本和数据都来自 YAML/CSV 当前展示状态。
         # 注意：这里需要手动创建元素，因为我们要从 YAML 的 template_slide 获取布局信息
         elements = []
 
@@ -271,7 +238,7 @@ class YAMLImporter:
         chart_idx = 0
         data_keys = list(template_meta.data_keys.values())
 
-        # 8.1 从 template_slide 构建元素
+        # 7.1 从 template_slide 构建元素
         for elem_dict in template_slide.get("elements", []):
             elem_type = elem_dict.get("type")
             role = elem_dict.get("role")
@@ -297,10 +264,9 @@ class YAMLImporter:
                         all_configs[chart_idx] if chart_idx < len(all_configs) else None
                     )
                 else:
-                    # 降级处理：使用第一个数据
-                    chart_df = all_data[0]
-                    chart_data_key = data_keys[0] if data_keys else "data"
-                    chart_config = all_configs[0] if all_configs else None
+                    raise ValueError(
+                        f"Missing chart data for element id={elem_dict.get('id')}"
+                    )
 
                 # 从 args 获取配置
                 args_config = elem_dict.get("args", {})
@@ -326,17 +292,21 @@ class YAMLImporter:
                 chart_idx += 1
 
             elif elem_type == "table":
-                # 表格使用第一个数据
+                if chart_idx >= len(all_data) or chart_idx >= len(data_keys):
+                    raise ValueError(
+                        f"Missing table data for element id={elem_dict.get('id')}"
+                    )
                 elements.append(
                     TableElement(
                         role=role,
                         layout=layout,
-                        data_key=data_keys[0] if data_keys else "data",
-                        data_payload=all_data[0] if all_data else None,
+                        data_key=data_keys[chart_idx],
+                        data_payload=all_data[chart_idx],
                     )
                 )
+                chart_idx += 1
 
-        # 9. 生成 PPT
+        # 8. 生成 PPT
         # 获取 layout_type
         layout_type = template_meta.layout_type
         slide_size = YAMLImporter.resolve_template_slide_size(

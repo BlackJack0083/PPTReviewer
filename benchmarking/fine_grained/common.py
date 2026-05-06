@@ -131,19 +131,6 @@ def scalar_to_json(value: Any) -> Any:
     return value
 
 
-def dataframe_to_split_payload(df: pd.DataFrame) -> dict[str, Any]:
-    """将 DataFrame 序列化为 mutated_data 使用的 split-orient 结构。"""
-    return {
-        "orient": "split",
-        "index": [scalar_to_json(v) for v in df.index.tolist()],
-        "columns": [scalar_to_json(v) for v in df.columns.tolist()],
-        "data": [
-            [scalar_to_json(value) for value in row]
-            for row in df.to_numpy(dtype=object).tolist()
-        ],
-    }
-
-
 def parse_number(value: Any) -> float | None:
     """从标量或文本 token 中解析数值，用于错误扰动匹配。"""
     if isinstance(value, bool):

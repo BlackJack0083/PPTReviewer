@@ -1,12 +1,19 @@
 from __future__ import annotations
 
 import argparse
+import copy
+import shutil
 import random
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
 from core import resource_manager
+from engine.data_files import (
+    data_elements,
+    resolve_element_data_path,
+    write_dataframe_csv,
+)
 from engine.yaml_importer import rebuild_ppt_from_yaml
 from utils.pptx_image_utils import convert_pptx_first_page_to_png
 
@@ -90,7 +97,12 @@ def write_corruption_outputs(
     output_png = out_dir / "slide.png"
     corruption_json = out_dir / "corruption.json"
 
-    save_yaml(output_yaml, yaml_data)
+    output_data = prepare_output_yaml_data(
+        yaml_data=yaml_data,
+        source_yaml=dataset_root / sample_row["gt_yaml"],
+        output_yaml=output_yaml,
+    )
+    save_yaml(output_yaml, output_data)
     if not skip_ppt:
         rebuild_ppt_from_yaml(str(output_yaml), str(output_ppt))
         if render_png:
@@ -98,6 +110,8 @@ def write_corruption_outputs(
 
     record = {
         **corruption,
+        "sample_id": sample_row.get("sample_id"),
+        "injection_id": artifact_id,
         "split": sample_row.get("split"),
         "template_id": sample_row.get("template_id"),
         "layout_type": sample_row.get("layout_type"),
@@ -111,6 +125,31 @@ def write_corruption_outputs(
     }
     write_json(corruption_json, corruption)
     return record
+
+
+def prepare_output_yaml_data(
+    yaml_data: dict[str, Any],
+    source_yaml: Path,
+    output_yaml: Path,
+) -> dict[str, Any]:
+    """Copy or materialize element-level CSV data for an injected slide YAML."""
+    result = copy.deepcopy(yaml_data)
+    result.pop("_source_yaml_path", None)
+    source_yaml = source_yaml.resolve()
+
+    for element in data_elements(result):
+        override = element.pop("_dataframe_override", None)
+        source_data = resolve_element_data_path(source_yaml, element)
+        target_data = resolve_element_data_path(output_yaml, element)
+        if override is not None:
+            write_dataframe_csv(override, target_data)
+            continue
+        if not source_data.exists():
+            raise FileNotFoundError(f"Missing source data CSV: {source_data}")
+        target_data.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source_data, target_data)
+
+    return result
 
 
 def parse_args() -> argparse.Namespace:

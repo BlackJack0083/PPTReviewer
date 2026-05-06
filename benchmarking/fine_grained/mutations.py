@@ -15,12 +15,16 @@ from common.function_specs import filter_function_args
 from core import layout_manager, resource_manager
 from core.data_provider import RealEstateDataProvider
 from engine.yaml_importer import YAMLImporter
+from engine.data_files import (
+    data_elements as yaml_data_elements,
+    read_dataframe_csv,
+    resolve_element_data_path,
+)
 
 from .common import (
     NUMBER_RE,
     TITLE_DONORS,
     TREND_FLIPS,
-    dataframe_to_split_payload,
     format_like_number,
     load_ground_truth_blocks,
     load_yaml,
@@ -152,11 +156,7 @@ def find_text_elements(
 
 def data_elements(data: dict[str, Any]) -> list[dict[str, Any]]:
     """返回可承载 ST body 数据扰动的 chart/table 元素。"""
-    return [
-        elem
-        for elem in data.get("template_slide", {}).get("elements", [])
-        if isinstance(elem, dict) and elem.get("type") in {"chart", "table"}
-    ]
+    return yaml_data_elements(data)
 
 
 def make_text_op(
@@ -567,7 +567,7 @@ def mutate_chart_metric_label(
     metrics[left_idx]["name"], metrics[right_idx]["name"] = right_name, left_name
 
     op = {
-        "target": "metric_label",
+        "target": "st.header",
         "element_id": str(elem.get("id", "")),
         "role": elem.get("role"),
         "mutation_type": "series_metric_swap",
@@ -581,7 +581,6 @@ def mutate_table_metric_label(
     data: dict[str, Any],
     elem: dict[str, Any],
     df: pd.DataFrame,
-    data_key: str,
     rng: random.Random,
 ) -> dict[str, Any] | None:
     """交换 T05 汇总表第一列中的指标标签，不修改对应数值。"""
@@ -597,16 +596,10 @@ def mutate_table_metric_label(
     right_name = str(swapped.at[right_idx, "metric"])
     swapped.at[left_idx, "metric"] = right_name
     swapped.at[right_idx, "metric"] = left_name
-
-    overrides = data.get("mutated_data", {})
-    if not isinstance(overrides, dict):
-        overrides = {}
-    overrides = dict(overrides)
-    overrides[data_key] = dataframe_to_split_payload(swapped)
-    data["mutated_data"] = overrides
+    elem["_dataframe_override"] = swapped
 
     return {
-        "target": "metric_label",
+        "target": "st.header",
         "element_id": str(elem.get("id", "")),
         "role": elem.get("role"),
         "mutation_type": "table_metric_swap",
@@ -636,7 +629,7 @@ def mutate_metric_label(data: dict[str, Any], rng: random.Random) -> dict[str, A
     all_data, data_keys = load_truth_data(data)
     if not all_data or not data_keys:
         return None
-    return mutate_table_metric_label(data, table_elements[0], all_data[0], data_keys[0], rng)
+    return mutate_table_metric_label(data, table_elements[0], all_data[0], rng)
 
 
 def apply_text_op(data: dict[str, Any], op: dict[str, Any]) -> None:
@@ -971,16 +964,18 @@ def summary_numeric_slots(data: dict[str, Any]) -> dict[str, tuple[str, str]]:
 
 
 def load_truth_data(data: dict[str, Any]) -> tuple[list[pd.DataFrame], list[str]]:
-    """基于 YAML filters 重算 GT 数据，并忽略已有 mutated_data。"""
+    """读取 YAML 中 chart/table 元素声明的当前展示数据 CSV。"""
     template_id = YAMLImporter.resolve_template_id(data, "<memory>")
     template_meta = resource_manager.get_template(template_id)
     if template_meta is None:
         raise ValueError(f"Template not found: {template_id}")
-    all_data, _, _ = YAMLImporter.load_data_payloads(
-        data,
-        template_meta,
-        use_overrides=False,
-    )
+    yaml_path = data.get("_source_yaml_path")
+    if not yaml_path:
+        raise ValueError("Missing internal _source_yaml_path for data mutation")
+    all_data = [
+        read_dataframe_csv(resolve_element_data_path(yaml_path, elem))
+        for elem in data_elements(data)
+    ]
     return all_data, list(template_meta.data_keys.values())
 
 
@@ -1015,14 +1010,8 @@ def mutate_st_body(
     after_value = mutate_number(value, rng)
     df.iat[row_pos, col_pos] = after_value
 
-    overrides = data.get("mutated_data", {})
-    if not isinstance(overrides, dict):
-        overrides = {}
-    overrides = dict(overrides)
-    overrides[data_key] = dataframe_to_split_payload(df)
-    data["mutated_data"] = overrides
-
     elem = data_elems[data_idx] if data_idx < len(data_elems) else {}
+    elem["_dataframe_override"] = df
     op = {
         "target": "st.body",
         "element_id": str(elem.get("id", "")),
@@ -1047,7 +1036,7 @@ def mutate_st_body(
 
 
 def apply_ops(data: dict[str, Any], ops: list[dict[str, Any]]) -> None:
-    """在 mutated_data 准备完成后应用所有文本操作。"""
+    """在数据扰动准备完成后应用所有文本操作。"""
     for op in ops:
         if op["target"] in {"title", "summary", "st.caption"}:
             apply_text_op(data, op)
@@ -1087,6 +1076,7 @@ def build_corruption(
 
     for _ in range(24):
         data = copy.deepcopy(base_data)
+        data["_source_yaml_path"] = str(source_yaml)
         operations: list[dict[str, Any]] = []
 
         if family == "st_caption":
