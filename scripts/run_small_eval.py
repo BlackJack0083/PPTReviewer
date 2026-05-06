@@ -160,10 +160,12 @@ def to_injected_case(dataset_root: Path, inj_row: dict[str, Any]) -> dict[str, A
         output_yaml_rel,
     )
     return {
-        "case_id": f"inj-{inj_row['injection_id']}",
+        "case_id": f"inj-{inj_row.get('injection_id', Path(output_yaml_rel).parent.name)}",
         "kind": "injected",
-        "sample_id": inj_row["sample_id"],
-        "injection_id": inj_row["injection_id"],
+        "sample_id": inj_row.get(
+            "sample_id", Path(inj_row["source_yaml"]).parts[-3].removeprefix("s_")
+        ),
+        "injection_id": inj_row.get("injection_id", Path(output_yaml_rel).parent.name),
         "expected_has_issue": True,
         "image_path": str(output_yaml.with_name("slide.png")),
         "source_yaml": inj_row["source_yaml"],
@@ -621,7 +623,7 @@ def main() -> None:
     )
 
     samples_rows = read_jsonl(manifest_root / "samples.jsonl")
-    injections_rows = read_jsonl(manifest_root / "injections.jsonl")
+    injections_rows = read_jsonl(manifest_root / "corruptions.jsonl")
 
     split_samples = [r for r in samples_rows if r.get("split") == args.split]
     split_injections = [
@@ -632,7 +634,7 @@ def main() -> None:
     if not split_samples:
         raise ValueError(f"No samples found for split={args.split}")
     if not split_injections:
-        raise ValueError(f"No injections found for split={args.split}")
+        raise ValueError(f"No corruptions found for split={args.split}")
 
     rng = random.Random(args.seed)  # noqa: S311 - benchmark sampling only  # nosec B311
     gt_picks = rng.sample(split_samples, k=min(args.gt_samples, len(split_samples)))

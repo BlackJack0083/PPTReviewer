@@ -106,7 +106,7 @@ def pick_cases(
     dataset_root: Path, split: str, gt_samples: int, injected_samples: int, seed: int
 ) -> list[dict[str, Any]]:
     samples_rows = read_jsonl(dataset_root / "manifest" / "samples.jsonl")
-    injections_rows = read_jsonl(dataset_root / "manifest" / "injections.jsonl")
+    injections_rows = read_jsonl(dataset_root / "manifest" / "corruptions.jsonl")
 
     split_samples = [r for r in samples_rows if r.get("split") == split]
     split_injections = [
@@ -117,7 +117,7 @@ def pick_cases(
     if not split_samples:
         raise ValueError(f"No samples found for split={split}")
     if not split_injections:
-        raise ValueError(f"No injections found for split={split}")
+        raise ValueError(f"No corruptions found for split={split}")
 
     rng = random.Random(seed)  # noqa: S311 - benchmark sampling only  # nosec B311
     gt_picks = rng.sample(split_samples, k=min(gt_samples, len(split_samples)))

@@ -6,7 +6,6 @@ Benchmark ground-truth 数据集生成脚本。
 output/benchmark/dataset_v1/
   manifest/
     samples.jsonl
-    injections.jsonl
     eval_runs.jsonl
   split/<split>/s_<sample_id>/
     meta.json
@@ -24,7 +23,6 @@ import csv
 import hashlib
 import json
 import shutil
-import subprocess  # nosec B404
 import sys
 import tempfile
 import traceback
@@ -106,7 +104,6 @@ def init_manifests(dataset_root: Path) -> dict[str, Path]:
     manifest_dir.mkdir(parents=True, exist_ok=True)
     return {
         "samples": manifest_dir / "samples.jsonl",
-        "injections": manifest_dir / "injections.jsonl",
         "eval_runs": manifest_dir / "eval_runs.jsonl",
     }
 
@@ -440,46 +437,9 @@ def precheck_one_sample(
         return False, str(exc)
 
 
-def run_injection_phase(
-    dataset_root: Path,
-    split: str,
-    variants_per_yaml: int,
-    min_slots: int,
-    max_slots: int,
-    seed: int,
-    generate_ppt: bool,
-    errors: list[str] | None,
-) -> None:
-    injector_script = PROJECT_ROOT / "test" / "error_injector.py"
-    command = [
-        sys.executable,
-        str(injector_script),
-        "--benchmark-root",
-        str(dataset_root),
-        "--split",
-        split,
-        "--variants-per-yaml",
-        str(variants_per_yaml),
-        "--min-slots",
-        str(min_slots),
-        "--max-slots",
-        str(max_slots),
-        "--seed",
-        str(seed),
-    ]
-    if generate_ppt:
-        command.append("--generate-ppt")
-    if errors:
-        command.extend(["--errors", *errors])
-
-    logger.info("开始执行错误注入阶段...")
-    logger.info("命令: {}", " ".join(command))
-    subprocess.run(command, check=True, cwd=PROJECT_ROOT)  # noqa: S603  # nosec B603
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="生成 benchmark GT 样本（可选连跑错误注入）"
+        description="生成 benchmark GT 样本"
     )
     parser.add_argument(
         "--dataset-root",
@@ -562,46 +522,6 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="Windows 下 pdf2image 可选的 poppler bin 路径",
     )
-    parser.add_argument(
-        "--inject-after-gt",
-        action="store_true",
-        help="GT 生成后自动执行错误注入阶段",
-    )
-    parser.add_argument(
-        "--inject-variants-per-yaml",
-        type=int,
-        default=3,
-        help="注入阶段：每个 GT YAML 生成多少个错误版本",
-    )
-    parser.add_argument(
-        "--inject-min-slots",
-        type=int,
-        default=1,
-        help="注入阶段：单次最少修改槽位数",
-    )
-    parser.add_argument(
-        "--inject-max-slots",
-        type=int,
-        default=3,
-        help="注入阶段：单次最多修改槽位数",
-    )
-    parser.add_argument(
-        "--inject-seed",
-        type=int,
-        default=20260306,
-        help="注入阶段随机种子",
-    )
-    parser.add_argument(
-        "--inject-generate-ppt",
-        action="store_true",
-        help="注入阶段是否重建 PPT",
-    )
-    parser.add_argument(
-        "--inject-errors",
-        nargs="+",
-        default=None,
-        help="注入阶段限制错误类型（例如 trend_flip range_reverse）",
-    )
     return parser.parse_args()
 
 
@@ -614,9 +534,6 @@ def main() -> None:
         raise ValueError(
             f"无效城市: {invalid_cities}, 可选: {list(CITY_CONFIGS.keys())}"
         )
-
-    if args.precheck_only and args.inject_after_gt:
-        raise ValueError("--precheck-only 与 --inject-after-gt 不能同时使用")
 
     if args.clean_dataset and args.precheck_only:
         raise ValueError("--clean-dataset 不能与 --precheck-only 同时使用")
@@ -633,7 +550,6 @@ def main() -> None:
     samples_records: dict[str, dict[str, Any]] = {}
     if not args.precheck_only:
         manifests = init_manifests(dataset_root)
-        manifests["injections"].touch(exist_ok=True)
         manifests["eval_runs"].touch(exist_ok=True)
         samples_records = load_existing_sample_records(manifests["samples"])
 
@@ -747,20 +663,6 @@ def main() -> None:
     )
     if not args.precheck_only and manifests is not None:
         logger.info("samples manifest: {}", manifests["samples"])
-
-    if args.inject_after_gt:
-        run_injection_phase(
-            dataset_root=dataset_root,
-            split=args.split,
-            variants_per_yaml=args.inject_variants_per_yaml,
-            min_slots=args.inject_min_slots,
-            max_slots=args.inject_max_slots,
-            seed=args.inject_seed,
-            generate_ppt=args.inject_generate_ppt,
-            errors=args.inject_errors,
-        )
-        logger.info("注入阶段完成，manifest/injections.jsonl 已更新")
-
 
 if __name__ == "__main__":
     main()
