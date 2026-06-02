@@ -207,7 +207,11 @@ class StatTransformer:
         result = self._finalize_grouped_result(result, execution_plan.primary_dim)
 
         if execution_plan.table_type == "constraint-field":
-            result = transpose_dataframe(result, index_col=execution_plan.primary_dim)
+            result = transpose_dataframe(
+                result,
+                index_col=execution_plan.primary_dim,
+                new_index_name="metric",
+            )
 
         return result
 

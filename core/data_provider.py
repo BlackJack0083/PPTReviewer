@@ -126,7 +126,7 @@ class RealEstateDataProvider:
 
     def get_area_price_cross_stats(
         self, area_range_size: int = 20, price_range_size: int = 1
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, TableAnalysisConfig]:
         raw_df = self._fetch_raw_data_or_raise(
             columns=["dim_area", "dim_price"],
             function_key="Area x Price Cross Pivot",
@@ -751,8 +751,21 @@ class RealEstateDataProvider:
         df = df.sort_values("year").reset_index(drop=True)
         config = TableAnalysisConfig(
             table_type="field-constraint",
-            dimensions=[],
-            metrics=[],
+            dimensions=[self._build_year_dimension()],
+            metrics=[
+                MetricRule(
+                    name="supply_count",
+                    source_col="supply_sets",
+                    agg_func="count",
+                    filter_condition={"supply_sets": 1},
+                ),
+                MetricRule(
+                    name="deal_count",
+                    source_col="trade_sets",
+                    agg_func="count",
+                    filter_condition={"trade_sets": 1},
+                ),
+            ],
         )
         return df, config
 
@@ -804,8 +817,21 @@ class RealEstateDataProvider:
         df = df.sort_values("year").reset_index(drop=True)
         config = TableAnalysisConfig(
             table_type="field-constraint",
-            dimensions=[],
-            metrics=[],
+            dimensions=[self._build_year_dimension()],
+            metrics=[
+                MetricRule(
+                    name="supply_area",
+                    source_col="dim_area",
+                    agg_func="sum",
+                    filter_condition={"supply_sets": 1},
+                ),
+                MetricRule(
+                    name="deal_area",
+                    source_col="dim_area",
+                    agg_func="sum",
+                    filter_condition={"trade_sets": 1},
+                ),
+            ],
         )
         return df, config
 

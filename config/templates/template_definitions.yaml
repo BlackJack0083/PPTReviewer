@@ -424,48 +424,52 @@
 # ==============================================================================
 # ReSlide_10: Annual Avg Price Growth
 # ==============================================================================
-- uid: "T10_Price_Growth_Bar"
-  theme_key: "Annual Avg Price Growth"
-  function_key:
-    - "Annual Avg Price"
-  layout_type: "single_column_bar"
-  summary_item: 0
-  style_config_id: "marketing_orange_green"
-  data_keys:
-    chart_main: "price_growth_data"
-
-- uid: "T10_Price_Growth_Line"
-  theme_key: "Annual Avg Price Growth"
-  function_key:
-    - "Annual Avg Price & YoY Growth"
-  layout_type: "single_column_line"
-  summary_item: 0
-  style_config_id: "marketing_orange_green"
-  data_keys:
-    chart_main: "price_growth_data"
+# Disabled for the slide-review benchmark: these templates expose derived metrics
+# such as YoY growth, which are outside the current TableAnalysisConfig logic.
+# - uid: "T10_Price_Growth_Bar"
+#   theme_key: "Annual Avg Price Growth"
+#   function_key:
+#     - "Annual Avg Price"
+#   layout_type: "single_column_bar"
+#   summary_item: 0
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "price_growth_data"
+#
+# - uid: "T10_Price_Growth_Line"
+#   theme_key: "Annual Avg Price Growth"
+#   function_key:
+#     - "Annual Avg Price & YoY Growth"
+#   layout_type: "single_column_line"
+#   summary_item: 0
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "price_growth_data"
 
 # ==============================================================================
 # ReSlide_11: Annual Supply Ratio Analysis
 # ==============================================================================
-- uid: "T11_Supply_Ratio_Bar"
-  theme_key: "Annual Supply Ratio Analysis"
-  function_key:
-    - "Annual Supply Ratio"
-  layout_type: "single_column_bar"
-  summary_item: 0
-  style_config_id: "marketing_orange_green"
-  data_keys:
-    chart_main: "supply_ratio_data"
-
-- uid: "T11_Supply_Ratio_Line"
-  theme_key: "Annual Supply Ratio Analysis"
-  function_key:
-    - "Annual Supply Ratio Trend"
-  layout_type: "single_column_line"
-  summary_item: 0
-  style_config_id: "marketing_orange_green"
-  data_keys:
-    chart_main: "supply_ratio_data"
+# Disabled for the slide-review benchmark: these templates expose derived ratio
+# metrics, which are outside the current TableAnalysisConfig logic.
+# - uid: "T11_Supply_Ratio_Bar"
+#   theme_key: "Annual Supply Ratio Analysis"
+#   function_key:
+#     - "Annual Supply Ratio"
+#   layout_type: "single_column_bar"
+#   summary_item: 0
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "supply_ratio_data"
+#
+# - uid: "T11_Supply_Ratio_Line"
+#   theme_key: "Annual Supply Ratio Analysis"
+#   function_key:
+#     - "Annual Supply Ratio Trend"
+#   layout_type: "single_column_line"
+#   summary_item: 0
+#   style_config_id: "marketing_orange_green"
+#   data_keys:
+#     chart_main: "supply_ratio_data"
 
 # ==============================================================================
 # ReSlide_12: Area Segment Annual Trend Analysis
