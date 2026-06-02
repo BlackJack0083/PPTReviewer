@@ -5,16 +5,6 @@ from pathlib import Path
 from typing import Any
 
 
-def merge_patch(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
-    merged = dict(left)
-    for key, value in right.items():
-        if isinstance(value, dict) and isinstance(merged.get(key), dict):
-            merged[key] = merge_patch(merged[key], value)
-        else:
-            merged[key] = value
-    return merged
-
-
 def merge_fields(left: list[str], right: list[str]) -> list[str]:
     merged = list(left)
     for field_name in right:
@@ -52,45 +42,26 @@ class DetectedIssue:
 
 
 @dataclass
-class RepairState:
-    scope: dict[str, Any] = field(default_factory=dict)
-    logic: dict[str, Any] = field(default_factory=dict)
-    claim: dict[str, Any] = field(default_factory=dict)
-    targets_to_repair: list[str] = field(default_factory=list)
-
-    def merge(self, state_patch: dict[str, Any], targets: list[str]) -> None:
-        if "scope" in state_patch and isinstance(state_patch["scope"], dict):
-            self.scope = merge_patch(self.scope, state_patch["scope"])
-        if "logic" in state_patch and isinstance(state_patch["logic"], dict):
-            self.logic = merge_patch(self.logic, state_patch["logic"])
-        if "claim" in state_patch and isinstance(state_patch["claim"], dict):
-            self.claim = merge_patch(self.claim, state_patch["claim"])
-        self.targets_to_repair = merge_fields(self.targets_to_repair, targets)
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "scope": self.scope,
-            "logic": self.logic,
-            "claim": self.claim,
-            "targets_to_repair": self.targets_to_repair,
-        }
-
-
-@dataclass
 class SlideReviewResult:
     observed_slide: dict[str, Any]
-    structured_understanding: dict[str, Any]
+    ppt_representation: dict[str, Any]
+    analysis_state: dict[str, Any]
     detected_issues: list[dict[str, Any]]
-    interaction_log: list[dict[str, Any]]
-    repair_state: dict[str, Any]
-    repair_plan: dict[str, Any]
+    data_source_validation_log: list[dict[str, Any]] = field(default_factory=list)
+    content_validation_log: list[dict[str, Any]] = field(default_factory=list)
+    table_records: list[dict[str, Any]] = field(default_factory=list)
+    update_log: list[dict[str, Any]] = field(default_factory=list)
+    repaired_artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "observed_slide": self.observed_slide,
-            "structured_understanding": self.structured_understanding,
+            "ppt_representation": self.ppt_representation,
+            "analysis_state": self.analysis_state,
+            "data_source_validation_log": self.data_source_validation_log,
+            "content_validation_log": self.content_validation_log,
+            "table_records": self.table_records,
             "detected_issues": self.detected_issues,
-            "interaction_log": self.interaction_log,
-            "repair_state": self.repair_state,
-            "repair_plan": self.repair_plan,
+            "update_log": self.update_log,
+            "repaired_artifacts": self.repaired_artifacts,
         }

@@ -1,412 +1,247 @@
 from __future__ import annotations
 
 import re
+from pathlib import Path
 from typing import Any
+
+import pandas as pd
+
+from core.dao import RealEstateDAO
+from core.schemas import QueryFilter, TableAnalysisConfig
+from core.transformers import StatTransformer
 
 from .types import DetectedIssue, merge_fields
 
-YEAR_RE = re.compile(r"\b(20\d{2})\b")
-NUMBER_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?%?")
 PRESENTATION_LABEL_RE = re.compile(r"\((bar chart|line chart|pie chart|table)\)\s*$", re.I)
-TREND_RE = re.compile(r"\b(increase|increased|growth|upward|decrease|decreased|decline|downward)\b", re.I)
-STOPWORDS = {
-    "from",
-    "to",
-    "with",
-    "the",
-    "and",
-    "for",
-    "chart",
-    "table",
-    "analysis",
-    "trend",
-    "market",
-    "monthly",
-    "annual",
-    "resale",
-    "house",
-    "transactions",
-    "transaction",
-    "supply",
-    "price",
-    "avg",
-    "volume",
-    "distribution",
-}
+ROUNDING_ABS_TOLERANCE = 0.5
 
 
-def parse_number(text: str) -> float | None:
-    match = NUMBER_RE.search(str(text))
-    if not match:
-        return None
-    try:
-        return float(match.group(0).replace(",", "").replace("%", ""))
-    except ValueError:
-        return None
+class VerificationAgent:
+    """Verify extracted slide state against the underlying database.
+
+    Verification does not infer a new state. It treats `analysis_state` as the
+    slide's stated data source and calculation logic, recomputes the table from
+    the real database, then compares that result with the CSV exported from PPT.
+    """
+
+    def __init__(
+        self,
+        *,
+        dao: RealEstateDAO | None = None,
+        transformer: StatTransformer | None = None,
+    ) -> None:
+        self.dao = dao or RealEstateDAO()
+        self.transformer = transformer or StatTransformer()
+
+    def run(
+        self,
+        *,
+        ppt_representation: dict[str, Any],
+        analysis_state: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        """Run deterministic verification over one parsed slide.
+
+        Args:
+            ppt_representation: Parser output containing visible title, summary,
+                captions, and exported table/chart CSV paths.
+            analysis_state: Analysis output containing `data_source` and
+                `calculation_logic` for every structured table.
+
+        Returns:
+            A list of detected issue dictionaries for downstream interaction.
+        """
+        issues: list[DetectedIssue] = []
+        parsed_tables = list(ppt_representation.get("structured_tables", []))
+        analyzed_tables = list(analysis_state.get("tables", []))
+
+        for index, parsed_table in enumerate(parsed_tables):
+            issues.extend(_verify_presentation_type(parsed_table))
+            if index >= len(analyzed_tables):
+                continue
+            issues.extend(self._verify_table_against_database(analyzed_tables[index]))
+
+        return _dedupe_issues(issues)
+
+    def _verify_table_against_database(self, table_state: dict[str, Any]) -> list[DetectedIssue]:
+        """Compare visible CSV with DB recomputation from analysis state."""
+        visible = _read_visible_table(table_state["data_path"])
+        expected = self._compute_expected_table(table_state)
+
+        if expected.empty and not visible.empty:
+            return [
+                DetectedIssue(
+                    targets=["st.caption"],
+                    error_types=["scope_error"],
+                    evidence=_scope_empty_query_evidence(table_state),
+                    required_fields_guess=[
+                        "scope.city",
+                        "scope.block",
+                        "scope.start_year",
+                        "scope.end_year",
+                    ],
+                    confidence=0.9,
+                )
+            ]
+
+        if _tables_equal(visible, expected):
+            return []
+
+        if _same_shape_and_columns(visible, expected):
+            return [
+                DetectedIssue(
+                    targets=["st.body"],
+                    error_types=["value_error"],
+                    evidence="Visible CSV values differ from DB recomputation using extracted data_source and calculation_logic.",
+                    required_fields_guess=[],
+                    confidence=0.85,
+                )
+            ]
+
+        if _same_first_column_values(visible, expected):
+            return [
+                DetectedIssue(
+                    targets=["st.body"],
+                    error_types=["value_error"],
+                    evidence="Visible table columns differ from DB recomputation using extracted calculation_logic.",
+                    required_fields_guess=[],
+                    confidence=0.85,
+                )
+            ]
+
+        return [
+            DetectedIssue(
+                targets=["st.body"],
+                error_types=["value_error"],
+                evidence="Visible table structure differs from DB recomputation after data-source validation.",
+                required_fields_guess=[],
+                confidence=0.85,
+            )
+        ]
+
+    def _compute_expected_table(self, table_state: dict[str, Any]) -> pd.DataFrame:
+        data_source = table_state["data_source"]
+        filters = data_source["filters"]
+        query_filter = QueryFilter(
+            city=filters["city"],
+            block=filters["block"],
+            start_date=filters["start_date"],
+            end_date=filters["end_date"],
+            table_name=data_source["connection"]["table"],
+        )
+        raw_df = self.dao.fetch_raw_data(query_filter, columns=data_source["select_columns"])
+        config = TableAnalysisConfig.model_validate(table_state["calculation_logic"])
+        return self.transformer.process_data_pipeline(raw_df, config)
 
 
-def extract_year_range(text: str) -> tuple[int, int] | None:
-    years = [int(match.group(1)) for match in YEAR_RE.finditer(text)]
-    if not years:
-        return None
-    return min(years), max(years)
+def _verify_presentation_type(parsed_table: dict[str, Any]) -> list[DetectedIssue]:
+    caption_text = str((parsed_table.get("caption") or {}).get("text", ""))
+    caption_label = _extract_presentation_label(caption_text)
+    if not caption_label:
+        return []
+
+    body = parsed_table.get("body") or {}
+    actual_type = _body_presentation_type(str(body.get("type", "")))
+    if caption_label == actual_type:
+        return []
+
+    return [
+        DetectedIssue(
+            targets=["st.caption"],
+            error_types=["claim_error"],
+            evidence=f"caption says '{caption_label}' but body type is '{actual_type}'.",
+            required_fields_guess=["claim.presentation_type"],
+            confidence=0.9,
+        )
+    ]
 
 
-def extract_presentation_label(text: str) -> str | None:
+def _extract_presentation_label(text: str) -> str | None:
     match = PRESENTATION_LABEL_RE.search(text.strip())
     if not match:
         return None
     return match.group(1).lower()
-def summary_metric_mentions(text: str) -> set[str]:
-    lower = text.lower()
-    metric_kinds = set()
-    if any(keyword in lower for keyword in {"trade", "sales", "transaction"}):
-        metric_kinds.add("transaction")
-    if "supply" in lower:
-        metric_kinds.add("supply")
-    if "price" in lower:
-        metric_kinds.add("price")
-    if "area" in lower:
-        metric_kinds.add("area")
-    return metric_kinds
 
 
-def summary_trend_direction(text: str) -> str | None:
-    match = TREND_RE.search(text)
-    if not match:
-        return None
-    word = match.group(1).lower()
-    if word in {"increase", "increased", "growth", "upward"}:
-        return "increase"
-    return "decrease"
+def _body_presentation_type(body_type: str) -> str:
+    if body_type == "table":
+        return "table"
+    if body_type.startswith("chart-"):
+        return f"{body_type.removeprefix('chart-')} chart"
+    return body_type
 
 
-def extract_location_phrase(text: str) -> str | None:
-    cleaned = re.sub(r"\([^)]*\)", " ", text)
-    cleaned = YEAR_RE.sub(" ", cleaned)
-    tokens = re.findall(r"[A-Za-z][A-Za-z&.-]+", cleaned)
-    kept = []
-    for token in tokens:
-        if not token[:1].isupper():
-            if kept:
-                break
-            continue
-        if token.lower() in STOPWORDS:
-            if kept:
-                break
-            continue
-        kept.append(token)
-    if not kept:
-        return None
-    return " ".join(kept)
+def _read_visible_table(path: str | Path) -> pd.DataFrame:
+    return pd.read_csv(path)
 
 
-def approximately_matches(number: float, support_values: list[float]) -> bool:
-    for support in support_values:
-        tolerance = max(2.0, abs(support) * 0.015)
-        if abs(number - support) <= tolerance:
-            return True
-    return False
-
-
-def metric_value_profile_mismatch(metric_kind: str, values: list[float]) -> bool:
-    if not values:
+def _tables_equal(left: pd.DataFrame, right: pd.DataFrame) -> bool:
+    left_norm = _normalize_columns(left)
+    right_norm = _normalize_columns(right)
+    if list(left_norm.columns) != list(right_norm.columns):
         return False
-    max_value = max(values)
-    if metric_kind == "price":
-        return max_value < 1000
-    if metric_kind == "transaction":
-        return max_value > 5000
-    return False
+    if left_norm.shape != right_norm.shape:
+        return False
+    return all(
+        _series_equal(left_norm[column], right_norm[column])
+        for column in left_norm.columns
+    )
 
 
-class VerificationAgent:
-    """ST-first verifier using visible chart/table data and text consistency checks."""
+def _same_shape_and_columns(left: pd.DataFrame, right: pd.DataFrame) -> bool:
+    return left.shape == right.shape and list(left.columns) == list(right.columns)
 
-    def run(
-        self,
-        observed_slide: dict[str, Any],
-        structured_understanding: dict[str, Any],
-    ) -> list[dict[str, Any]]:
-        del observed_slide
-        issues: list[DetectedIssue] = []
 
-        summary_elements = structured_understanding["targets"]["summary"]
-        summary_text = "\n".join(
-            str(element.get("text", "")).strip() for element in summary_elements if str(element.get("text", "")).strip()
+def _same_first_column_values(left: pd.DataFrame, right: pd.DataFrame) -> bool:
+    if left.empty or right.empty or left.shape[0] != right.shape[0]:
+        return False
+    return _series_equal(left.iloc[:, 0], right.iloc[:, 0])
+
+
+def _normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
+    normalized = df.copy()
+    normalized.columns = [str(column).strip() for column in normalized.columns]
+    return normalized.reset_index(drop=True)
+
+
+def _series_equal(left: pd.Series, right: pd.Series) -> bool:
+    left_numeric = pd.to_numeric(left, errors="coerce")
+    right_numeric = pd.to_numeric(right, errors="coerce")
+    if left_numeric.notna().all() and right_numeric.notna().all():
+        delta = (left_numeric - right_numeric).abs()
+        return bool((delta <= ROUNDING_ABS_TOLERANCE).all())
+
+    left_text = left.astype(str).str.strip().reset_index(drop=True)
+    right_text = right.astype(str).str.strip().reset_index(drop=True)
+    return bool(left_text.equals(right_text))
+
+
+def _scope_empty_query_evidence(table_state: dict[str, Any]) -> str:
+    data_source = table_state["data_source"]
+    filters = data_source["filters"]
+    return (
+        "Extracted data_source returned no DB rows while the visible PPT table is non-empty: "
+        f"table={data_source['connection']['table']}, city={filters['city']}, "
+        f"block={filters['block']}, start_date={filters['start_date']}, "
+        f"end_date={filters['end_date']}."
+    )
+
+
+def _dedupe_issues(issues: list[DetectedIssue]) -> list[dict[str, Any]]:
+    deduped: dict[tuple[tuple[str, ...], tuple[str, ...]], DetectedIssue] = {}
+    for issue in issues:
+        key = (tuple(issue.targets), tuple(issue.error_types))
+        existing = deduped.get(key)
+        if existing is None:
+            deduped[key] = issue
+            continue
+        existing.required_fields_guess = merge_fields(
+            existing.required_fields_guess,
+            issue.required_fields_guess,
         )
-        summary_year_range = extract_year_range(summary_text) if summary_text else None
-        summary_location = extract_location_phrase(summary_text) if summary_text else None
-        summary_numbers = [
-            parse_number(match.group(0))
-            for match in NUMBER_RE.finditer(summary_text)
-            if parse_number(match.group(0)) is not None and not YEAR_RE.fullmatch(match.group(0))
-        ]
-        summary_metric_kinds = summary_metric_mentions(summary_text)
-        summary_trend = summary_trend_direction(summary_text) if summary_text else None
-
-        body_support_values: list[float] = []
-        body_metric_kinds: set[str] = set()
-        body_granularities: set[str] = set()
-        body_trends: set[str] = set()
-        analysis_logic_by_element = {
-            str(item.get("element_id")): item
-            for item in structured_understanding.get("analysis_logic", [])
-        }
-
-        for unit in structured_understanding["body_units"]:
-            body_element = unit["body_element"]
-            body_data = unit["body_data"]
-            caption = unit["paired_caption"]
-            caption_text = str(caption.get("text", "")).strip() if caption else ""
-            caption_scope_emitted = False
-            element_id = str(body_element.get("id"))
-            metric_logic_by_name = {
-                str(metric.get("name")): metric
-                for metric in analysis_logic_by_element.get(element_id, {}).get("metrics", [])
-            }
-
-            body_support_values.extend(body_data.get("support_values", []))
-            body_metric_kinds.update(body_data.get("metric_kinds", []))
-            if body_data.get("category_granularity"):
-                body_granularities.add(body_data["category_granularity"])
-
-            for payload in body_data.get("series", []) + body_data.get("rows", []):
-                if payload.get("trend_direction") in {"increase", "decrease"}:
-                    body_trends.add(payload["trend_direction"])
-                if metric_value_profile_mismatch(
-                    str(payload.get("metric_kind", "")),
-                    list(payload.get("values", [])),
-                ):
-                    metric_logic = metric_logic_by_name.get(str(payload.get("name"))) or {}
-                    source_columns = metric_logic.get("source_columns", [])
-                    agg_func = metric_logic.get("agg_func")
-                    logic_hint = (
-                        f" planned as {agg_func} over {source_columns}"
-                        if source_columns and agg_func
-                        else ""
-                    )
-                    issues.append(
-                        DetectedIssue(
-                            targets=["st.header"],
-                            error_types=["logic_error"],
-                            evidence=(
-                                f"metric label '{payload.get('name')}' is inconsistent with "
-                                f"its visible value profile{logic_hint}."
-                            ),
-                            required_fields_guess=["logic.metrics", "logic.aggregation"],
-                            confidence=0.75,
-                        )
-                    )
-
-            caption_label = extract_presentation_label(caption_text) if caption_text else None
-            actual_presentation = str(body_data.get("presentation_type", "")).lower()
-            if caption_label and actual_presentation and caption_label != actual_presentation:
-                issues.append(
-                    DetectedIssue(
-                        targets=["st.caption"],
-                        error_types=["claim_error"],
-                        evidence=(
-                            f"caption says '{caption_label}' but visible ST body is "
-                            f"'{actual_presentation}'."
-                        ),
-                        required_fields_guess=["claim.presentation_type"],
-                        confidence=0.95,
-                    )
-                )
-
-            caption_year_range = extract_year_range(caption_text) if caption_text else None
-            body_year_range = body_data.get("time_range")
-            if caption_year_range and body_year_range:
-                if tuple(body_year_range) != caption_year_range:
-                    caption_scope_emitted = True
-                    issues.append(
-                        DetectedIssue(
-                            targets=["st.caption"],
-                            error_types=["scope_error"],
-                            evidence=(
-                                f"caption year range {caption_year_range} disagrees with "
-                                f"visible ST range {tuple(body_year_range)}."
-                            ),
-                            required_fields_guess=["scope.start_year", "scope.end_year"],
-                            confidence=0.9,
-                        )
-                    )
-
-            caption_location = extract_location_phrase(caption_text) if caption_text else None
-            if caption_location and summary_location and caption_location != summary_location:
-                caption_scope_emitted = True
-                issues.append(
-                    DetectedIssue(
-                        targets=["st.caption"],
-                        error_types=["scope_error"],
-                        evidence=(
-                            f"caption location '{caption_location}' disagrees with summary "
-                            f"location '{summary_location}'."
-                        ),
-                        required_fields_guess=["scope.city", "scope.block"],
-                        confidence=0.7,
-                    )
-                )
-
-            if caption_text and not caption_scope_emitted:
-                scope_fields = []
-                if caption_location:
-                    scope_fields.extend(["scope.city", "scope.block"])
-                if caption_year_range:
-                    scope_fields.extend(["scope.start_year", "scope.end_year"])
-                if scope_fields:
-                    issues.append(
-                        DetectedIssue(
-                            targets=["st.caption"],
-                            error_types=["scope_error"],
-                            evidence=(
-                                "caption exposes explicit scope cues and should be verified "
-                                "against visible ST context."
-                            ),
-                            required_fields_guess=scope_fields,
-                            confidence=0.45,
-                        )
-                    )
-
-            if summary_text and summary_metric_kinds:
-                payloads = body_data.get("series", []) + body_data.get("rows", [])
-                for mentioned_kind in summary_metric_kinds:
-                    mentioned_payloads = [
-                        payload
-                        for payload in payloads
-                        if payload.get("metric_kind") == mentioned_kind
-                    ]
-                    other_payloads = [
-                        payload
-                        for payload in payloads
-                        if payload.get("metric_kind") != mentioned_kind
-                    ]
-                    for number in summary_numbers:
-                        mentioned_match = any(
-                            approximately_matches(number, list(payload.get("support_values", [])))
-                            for payload in mentioned_payloads
-                        )
-                        other_match = any(
-                            approximately_matches(number, list(payload.get("support_values", [])))
-                            for payload in other_payloads
-                        )
-                        if other_match and not mentioned_match:
-                            issues.append(
-                                DetectedIssue(
-                                    targets=["st.header"],
-                                    error_types=["logic_error"],
-                                    evidence=(
-                                        f"summary ties value {number:g} to '{mentioned_kind}', "
-                                        "but the visible ST value matches a different metric series."
-                                    ),
-                                    required_fields_guess=["logic.metrics"],
-                                    confidence=0.8,
-                                )
-                            )
-                            break
-
-        if summary_year_range and body_support_values:
-            body_year_ranges = [
-                tuple(unit["body_data"]["time_range"])
-                for unit in structured_understanding["body_units"]
-                if unit["body_data"].get("time_range")
-            ]
-            if body_year_ranges:
-                global_body_range = (
-                    min(start for start, _ in body_year_ranges),
-                    max(end for _, end in body_year_ranges),
-                )
-                if summary_year_range != global_body_range:
-                    issues.append(
-                        DetectedIssue(
-                            targets=["summary"],
-                            error_types=["scope_error"],
-                            evidence=(
-                                f"summary year range {summary_year_range} disagrees with "
-                                f"visible ST range {global_body_range}."
-                            ),
-                            required_fields_guess=["scope.start_year", "scope.end_year"],
-                            confidence=0.9,
-                        )
-                    )
-
-        if summary_numbers:
-            unsupported_numbers = [
-                number for number in summary_numbers if not approximately_matches(number, body_support_values)
-            ]
-            if unsupported_numbers and (
-                len(unsupported_numbers) >= 2 or len(unsupported_numbers) == len(summary_numbers)
-            ):
-                issues.append(
-                    DetectedIssue(
-                        targets=["summary"],
-                        error_types=["value_error"],
-                        evidence=(
-                            "summary contains values not supported by visible ST data: "
-                            + ", ".join(f"{number:g}" for number in unsupported_numbers[:3])
-                        ),
-                        required_fields_guess=[],
-                        confidence=0.8,
-                    )
-                )
-
-        if summary_trend and body_trends:
-            comparable_trends = {trend for trend in body_trends if trend != "flat"}
-            if comparable_trends and summary_trend not in comparable_trends:
-                issues.append(
-                    DetectedIssue(
-                        targets=["summary"],
-                        error_types=["claim_error"],
-                        evidence=(
-                            f"summary trend '{summary_trend}' disagrees with visible ST trend "
-                            f"{sorted(comparable_trends)}."
-                        ),
-                        required_fields_guess=[],
-                        confidence=0.85,
-                    )
-                )
-
-        title_elements = structured_understanding["targets"]["title"]
-        for element in title_elements:
-            title_text = str(element.get("text", "")).strip()
-            title_metric_kinds = summary_metric_mentions(title_text)
-            title_granularity = {
-                kind
-                for kind in {"month", "year", "area_segment"}
-                if kind.replace("_", " ") in title_text.lower() or kind.split("_")[0] in title_text.lower()
-            }
-            metric_mismatch = bool(title_metric_kinds and body_metric_kinds and title_metric_kinds.isdisjoint(body_metric_kinds))
-            granularity_mismatch = bool(title_granularity and body_granularities and title_granularity.isdisjoint(body_granularities))
-            if metric_mismatch or granularity_mismatch:
-                issues.append(
-                    DetectedIssue(
-                        targets=["title"],
-                        error_types=["claim_error"],
-                        evidence=(
-                            f"title '{title_text}' is weakly aligned with visible caption/body theme."
-                        ),
-                        required_fields_guess=["claim.topic"],
-                        confidence=0.65,
-                    )
-                )
-
-        deduped: dict[tuple[tuple[str, ...], tuple[str, ...]], DetectedIssue] = {}
-        for issue in issues:
-            key = (tuple(issue.targets), tuple(issue.error_types))
-            existing = deduped.get(key)
-            if existing is None:
-                deduped[key] = issue
-                continue
-            existing.required_fields_guess = merge_fields(
-                existing.required_fields_guess,
-                issue.required_fields_guess,
-            )
-            if issue.evidence not in existing.evidence:
-                existing.evidence = f"{existing.evidence} | {issue.evidence}"
-            if issue.confidence is not None and (
-                existing.confidence is None or issue.confidence > existing.confidence
-            ):
-                existing.confidence = issue.confidence
-
-        return [issue.to_dict() for issue in deduped.values()]
+        if issue.evidence not in existing.evidence:
+            existing.evidence = f"{existing.evidence} | {issue.evidence}"
+        if issue.confidence is not None and (
+            existing.confidence is None or issue.confidence > existing.confidence
+        ):
+            existing.confidence = issue.confidence
+    return [issue.to_dict() for issue in deduped.values()]
