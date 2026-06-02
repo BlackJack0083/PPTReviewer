@@ -1,5 +1,7 @@
 """Agent building blocks for the feedback-aware PPT repair workflow."""
 
+from .client_agent import ClientAgent
+from .data_source_validation_agent import DataSourceValidationAgent
 from .interaction_agent import InteractionAgent
 from .query_tools import (
     DatabaseAggregationTool,
@@ -20,6 +22,8 @@ from .types import (
 from .verification_agent import VerificationAgent
 
 __all__ = [
+    "ClientAgent",
+    "DataSourceValidationAgent",
     "DetectedIssue",
     "DatabaseAggregationTool",
     "HeuristicRoleLabeler",
