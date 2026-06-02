@@ -18,12 +18,18 @@ def main() -> None:
     args = parse_args()
     summary = generate_feedback_episodes(
         benchmark_root=args.benchmark_root,
-        output_path=args.output,
+        workers=args.workers,
+    )
+    by_split = summary.get("by_split", {})
+    split_summary = ", ".join(
+        f"{split}={count}" for split, count in sorted(by_split.items())
     )
     print(
-        f"Generated {summary['generated']} feedback episodes; "
+        f"Generated {summary['generated']} case-local feedback episodes; "
         f"skipped {summary['skipped']} unsupported samples"
     )
+    if split_summary:
+        print(f"By split: {split_summary}")
 
 
 if __name__ == "__main__":

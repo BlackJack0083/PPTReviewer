@@ -18,11 +18,46 @@ DEFAULT_FAMILIES = [
     "st_body",
     "summary",
     "title",
-    "metric_label",
+    "st_header",
     "st_summary",
     "summary_title",
     "three_element",
 ]
+VALID_ERROR_TYPES = {"scope_error", "logic_error", "value_error", "claim_error"}
+MUTATION_ERROR_TYPES = {
+    "scope_time_range_shift": ("scope_error",),
+    "scope_city_substitution": ("scope_error",),
+    "scope_block_substitution": ("scope_error",),
+    "chart_metric_label_swap": ("logic_error",),
+    "table_metric_label_swap": ("logic_error",),
+    "agg_func_swap": ("logic_error",),
+    "metric_source_swap": ("logic_error",),
+    "binning_step_swap": ("logic_error",),
+    "numeric_value_perturbation": ("value_error",),
+    "range_value_shift": ("value_error",),
+    "trend_direction_flip": ("claim_error",),
+    "title_topic_substitution": ("scope_error",),
+    "presentation_type_substitution": ("claim_error",),
+}
+MUTATION_TYPE_ALIASES = {
+    "caption_scope_year": "scope_time_range_shift",
+    "summary_scope_year": "scope_time_range_shift",
+    "caption_scope_city": "scope_city_substitution",
+    "summary_scope_city": "scope_city_substitution",
+    "caption_scope_block": "scope_block_substitution",
+    "summary_scope_block": "scope_block_substitution",
+    "caption_scope_object": "scope_block_substitution",
+    "summary_scope_object": "scope_block_substitution",
+    "series_metric_swap": "chart_metric_label_swap",
+    "table_metric_swap": "table_metric_label_swap",
+    "data_numeric_delta": "numeric_value_perturbation",
+    "numeric_delta": "numeric_value_perturbation",
+    "linked_numeric_delta": "numeric_value_perturbation",
+    "range_delta": "range_value_shift",
+    "trend_flip": "trend_direction_flip",
+    "title_theme_drift": "title_topic_substitution",
+    "caption_chart_type_mismatch": "presentation_type_substitution",
+}
 TITLE_DONORS = [
     "New-House Market Capacity Analysis",
     "New-House Cross-Structure Analysis",
@@ -51,6 +86,51 @@ GROUND_TRUTH_INPUT_DIR = PROJECT_ROOT / "config" / "benchmark" / "ground_truth_i
 def now_iso() -> str:
     """生成用于 manifest 和校验报告的 UTC 时间戳。"""
     return datetime.now(UTC).isoformat()
+
+
+def error_types_for_mutation(mutation_type: str) -> list[str]:
+    """Return benchmark error labels for a mutation type."""
+    labels = MUTATION_ERROR_TYPES.get(normalize_mutation_type(mutation_type))
+    if labels is None:
+        raise ValueError(f"Unknown mutation_type for error labels: {mutation_type}")
+    return list(labels)
+
+
+def normalize_mutation_type(mutation_type: str) -> str:
+    """Normalize legacy mutation names to the public benchmark vocabulary."""
+    raw = str(mutation_type)
+    return MUTATION_TYPE_ALIASES.get(raw, raw)
+
+
+def annotate_operations(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Attach operation-level error labels without changing other fields."""
+    annotated = []
+    for operation in operations:
+        op = dict(operation)
+        op["mutation_type"] = normalize_mutation_type(str(op.get("mutation_type", "")))
+        op["error_types"] = error_types_for_mutation(str(op.get("mutation_type", "")))
+        annotated.append(op)
+    return annotated
+
+
+def collect_error_types(operations: list[dict[str, Any]]) -> list[str]:
+    """Collect sorted case-level error labels from operation labels."""
+    labels: set[str] = set()
+    for operation in operations:
+        for label in operation.get("error_types", []):
+            labels.add(str(label))
+    return sorted(labels)
+
+
+def collect_affected_targets(operations: list[dict[str, Any]]) -> list[str]:
+    """Collect sorted case-level affected targets from operations."""
+    return sorted(
+        {
+            str(operation.get("target"))
+            for operation in operations
+            if operation.get("target")
+        }
+    )
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:

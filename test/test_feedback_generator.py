@@ -7,11 +7,7 @@ from pathlib import Path
 
 import yaml
 
-from benchmarking.feedback.generator import (
-    build_episode,
-    derive_expected_action,
-    generate_feedback_episodes,
-)
+from benchmarking.feedback.generator import build_episode, generate_feedback_episodes
 
 
 def sample_gt_yaml() -> dict:
@@ -23,7 +19,18 @@ def sample_gt_yaml() -> dict:
             "start_date": "2020-01-01",
             "end_date": "2024-12-31",
         },
-        "slide_filters": [],
+        "slide_filters": [
+            {
+                "connection": {"table": ["beijing_new_house"]},
+                "select_columns": ["date_code", "supply_sets", "trade_sets", "dim_area"],
+                "filters": {
+                    "city": "Beijing",
+                    "block": "Liangxiang",
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            }
+        ],
         "template_slide": {
             "elements": [
                 {
@@ -31,182 +38,411 @@ def sample_gt_yaml() -> dict:
                     "type": "textBox",
                     "role": "slide-title",
                     "text": "Block Area Segment Distribution",
-                }
+                },
+                {
+                    "id": "3",
+                    "type": "textBox",
+                    "role": "caption",
+                    "text": "Beijing Liangxiang analysis 2020-2024 (Bar chart)",
+                },
+                {
+                    "id": "4",
+                    "type": "chart",
+                    "role": "chart-bar",
+                    "args": {
+                        "table_type": "field-constraint",
+                        "dimensions": [
+                            {
+                                "source_col": "dim_area",
+                                "target_col": "area_range",
+                            }
+                        ],
+                        "metrics": [
+                            {
+                                "name": "Supply Count",
+                                "source_col": "supply_sets",
+                                "agg_func": "count",
+                                "filter_condition": {"supply_sets": 1},
+                            },
+                            {
+                                "name": "Sales Count",
+                                "source_col": "trade_sets",
+                                "agg_func": "count",
+                                "filter_condition": {"trade_sets": 1},
+                            },
+                        ],
+                    },
+                },
             ]
         },
     }
 
 
+def sample_table_gt_yaml() -> dict:
+    return {
+        "meta": {"template_id": "T05_Resale_Summary_Table"},
+        "query_filters": {
+            "city": "Shenzhen",
+            "block": "Guanlan High-Tech Zone",
+            "start_date": "2020-01-01",
+            "end_date": "2024-12-31",
+        },
+        "slide_filters": [
+            {
+                "connection": {"table": ["shenzhen_new_house"]},
+                "select_columns": [
+                    "date_code",
+                    "trade_sets",
+                    "dim_unit_price",
+                    "dim_area",
+                ],
+                "filters": {
+                    "city": "Shenzhen",
+                    "block": "Guanlan High-Tech Zone",
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            }
+        ],
+        "template_slide": {
+            "elements": [
+                {
+                    "id": "1",
+                    "type": "textBox",
+                    "role": "slide-title",
+                    "text": "Resale-House Capacity & Structure",
+                },
+                {
+                    "id": "4",
+                    "type": "table",
+                    "role": "table",
+                    "data": "./data/element_4.csv",
+                    "args": {
+                        "table_type": "field-constraint",
+                        "dimensions": [
+                            {
+                                "source_col": "date_code",
+                                "target_col": "year",
+                                "method": "period",
+                                "time_granularity": "year",
+                            }
+                        ],
+                        "metrics": [
+                            {
+                                "name": "trade_counts",
+                                "source_col": "trade_sets",
+                                "agg_func": "count",
+                                "filter_condition": {"trade_sets": 1},
+                            },
+                            {
+                                "name": "avg_unit_price",
+                                "source_col": "dim_unit_price",
+                                "agg_func": "mean",
+                                "filter_condition": {"trade_sets": 1},
+                            },
+                            {
+                                "name": "dim_area",
+                                "source_col": "dim_area",
+                                "agg_func": "sum",
+                                "filter_condition": {"trade_sets": 1},
+                            },
+                        ],
+                    },
+                },
+            ]
+        },
+    }
+
+
+def write_gt(root: Path, data: dict, sample_id: str = "s_1") -> Path:
+    gt_yaml_path = root / "split" / "test" / sample_id / "gt" / "slide.yaml"
+    gt_yaml_path.parent.mkdir(parents=True)
+    gt_yaml_path.write_text(
+        yaml.safe_dump(data, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return gt_yaml_path
+
+
 class FeedbackGeneratorTest(unittest.TestCase):
-    def test_derive_expected_action_prefers_scope_over_confirm(self) -> None:
-        operations = [
-            {"mutation_type": "caption_chart_type_mismatch", "target": "st.caption"},
-            {"mutation_type": "caption_scope_city", "target": "st.caption"},
-        ]
-
-        action = derive_expected_action(operations)
-
-        self.assertEqual(action, "scope_correction")
-
-    def test_build_episode_logic_for_metric_label(self) -> None:
+    def test_build_episode_logic_for_st_header(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            gt_yaml_path = root / "split" / "test" / "s_1" / "gt" / "slide.yaml"
-            gt_yaml_path.parent.mkdir(parents=True)
-            gt_yaml_path.write_text(
-                yaml.safe_dump(sample_gt_yaml(), sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
+            write_gt(root, sample_gt_yaml())
             record = {
                 "source_yaml": "split/test/s_1/gt/slide.yaml",
                 "output_yaml": "split/test/s_1/injected/x/slide.yaml",
-                "corruption_json": "split/test/s_1/injected/x/corruption.json",
                 "operations": [
                     {
                         "target": "st.header",
-                        "mutation_type": "series_metric_swap",
+                        "element_id": "4",
+                        "mutation_type": "chart_metric_label_swap",
+                        "error_types": ["logic_error"],
                     }
                 ],
             }
 
-            episode = build_episode(root, record, "ep_000001")
+            episode = build_episode(root, record)
 
-            self.assertIsNotNone(episode)
-            if episode is None:
-                self.fail("Expected logic episode")
-            turn = episode["turns"][0]
-            self.assertEqual(turn["expected_action"], "logic_correction")
-            self.assertEqual(turn["action_payload"]["required_fields"], ["metrics", "group_by"])
             self.assertEqual(
-                turn["user_reply"],
+                episode,
                 {
+                    "feedback_items": [
+                        {
+                            "request_type": "calculation_logic_clarification",
+                            "table_index": 0,
+                            "error_types": ["logic_error"],
+                            "targets": ["st.header"],
+                            "fields": ["metrics"],
+                            "state_patch": {
+                                "tables": [
+                                    {
+                                        "index": 0,
+                                        "calculation_logic": {
+                                            "table_type": "field-constraint",
+                                            "metrics": [
+                                                {
+                                                    "name": "Supply Count",
+                                                    "source_col": "supply_sets",
+                                                    "agg_func": "count",
+                                                    "filter_condition": {"supply_sets": 1},
+                                                },
+                                                {
+                                                    "name": "Sales Count",
+                                                    "source_col": "trade_sets",
+                                                    "agg_func": "count",
+                                                    "filter_condition": {"trade_sets": 1},
+                                                },
+                                            ],
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                },
+            )
+
+    def test_build_episode_logic_for_table_st_header(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            gt_yaml_path = write_gt(root, sample_table_gt_yaml(), "s_2")
+            (gt_yaml_path.parent / "data").mkdir(parents=True)
+            (gt_yaml_path.parent / "data" / "element_4.csv").write_text(
+                "__index__,metric,2020,2021,2022\n"
+                "0,trade_counts,1,2,3\n"
+                "1,avg_unit_price,10,11,12\n"
+                "2,dim_area,100,110,120\n",
+                encoding="utf-8",
+            )
+            record = {
+                "source_yaml": "split/test/s_2/gt/slide.yaml",
+                "output_yaml": "split/test/s_2/injected/x/slide.yaml",
+                "operations": [
+                    {
+                        "target": "st.header",
+                        "element_id": "4",
+                        "mutation_type": "table_metric_label_swap",
+                    }
+                ],
+            }
+
+            episode = build_episode(root, record)
+
+            item = episode["feedback_items"][0]
+            self.assertEqual(item["request_type"], "calculation_logic_clarification")
+            self.assertEqual(item["table_index"], 0)
+            self.assertEqual(item["error_types"], ["logic_error"])
+            self.assertEqual(item["targets"], ["st.header"])
+            self.assertEqual(item["fields"], ["metrics"])
+            self.assertEqual(
+                item["state_patch"]["tables"][0]["calculation_logic"],
+                {
+                    "table_type": "field-constraint",
                     "metrics": [
                         {
-                            "name": "Supply Count",
-                            "meaning": "供应套数",
+                            "name": "trade_counts",
+                            "source_col": "trade_sets",
                             "agg_func": "count",
+                            "filter_condition": {"trade_sets": 1},
                         },
                         {
-                            "name": "Sales Count",
-                            "meaning": "成交套数",
-                            "agg_func": "count",
+                            "name": "avg_unit_price",
+                            "source_col": "dim_unit_price",
+                            "agg_func": "mean",
+                            "filter_condition": {"trade_sets": 1},
+                        },
+                        {
+                            "name": "dim_area",
+                            "source_col": "dim_area",
+                            "agg_func": "sum",
+                            "filter_condition": {"trade_sets": 1},
                         },
                     ],
-                    "group_by": "area_range",
                 },
             )
 
-    def test_build_episode_scope_reply_uses_gt_query_filters(self) -> None:
+    def test_scope_and_value_errors_split_into_two_items(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            gt_yaml_path = root / "split" / "test" / "s_1" / "gt" / "slide.yaml"
-            gt_yaml_path.parent.mkdir(parents=True)
-            gt_yaml_path.write_text(
-                yaml.safe_dump(sample_gt_yaml(), sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
+            write_gt(root, sample_gt_yaml())
             record = {
                 "source_yaml": "split/test/s_1/gt/slide.yaml",
                 "output_yaml": "split/test/s_1/injected/x/slide.yaml",
-                "corruption_json": "split/test/s_1/injected/x/corruption.json",
                 "operations": [
                     {
                         "target": "summary",
-                        "mutation_type": "summary_scope_year",
+                        "mutation_type": "scope_time_range_shift",
                     },
                     {
                         "target": "summary",
-                        "mutation_type": "numeric_delta",
+                        "mutation_type": "numeric_value_perturbation",
                     },
                 ],
             }
 
-            episode = build_episode(root, record, "ep_000002")
+            episode = build_episode(root, record)
 
-            self.assertIsNotNone(episode)
-            if episode is None:
-                self.fail("Expected scope episode")
-            turn = episode["turns"][0]
-            self.assertEqual(turn["expected_action"], "scope_correction")
             self.assertEqual(
-                turn["action_payload"]["required_fields"],
-                ["start_year", "end_year"],
-            )
-            self.assertEqual(
-                turn["user_reply"],
-                {"start_year": 2020, "end_year": 2024},
-            )
-
-    def test_build_episode_page_intent_for_three_element(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            root = Path(tmp)
-            gt_yaml_path = root / "split" / "test" / "s_1" / "gt" / "slide.yaml"
-            gt_yaml_path.parent.mkdir(parents=True)
-            gt_yaml_path.write_text(
-                yaml.safe_dump(sample_gt_yaml(), sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
-            record = {
-                "source_yaml": "split/test/s_1/gt/slide.yaml",
-                "output_yaml": "split/test/s_1/injected/x/slide.yaml",
-                "corruption_json": "split/test/s_1/injected/x/corruption.json",
-                "operations": [
-                    {"target": "st.body", "mutation_type": "data_numeric_delta"},
-                    {"target": "summary", "mutation_type": "linked_numeric_delta"},
-                    {"target": "title", "mutation_type": "title_theme_drift"},
-                ],
-            }
-
-            episode = build_episode(root, record, "ep_000003")
-
-            self.assertIsNotNone(episode)
-            if episode is None:
-                self.fail("Expected page intent episode")
-            turn = episode["turns"][0]
-            self.assertEqual(turn["expected_action"], "page_intent_correction")
-            self.assertEqual(turn["action_payload"]["required_fields"], ["scope", "topic"])
-            self.assertEqual(
-                turn["user_reply"],
+                episode,
                 {
-                    "page_intent": {
-                        "scope": {
-                            "city": "Beijing",
-                            "block": "Liangxiang",
-                            "start_year": 2020,
-                            "end_year": 2024,
+                    "feedback_items": [
+                        {
+                            "request_type": "data_source_slot_clarification",
+                            "table_index": 0,
+                            "error_types": ["scope_error"],
+                            "targets": ["summary"],
+                            "fields": ["time_range"],
+                            "state_patch": {
+                                "tables": [
+                                    {
+                                        "index": 0,
+                                        "data_source": {
+                                            "filters": {
+                                                "start_date": "2020-01-01",
+                                                "end_date": "2024-12-31",
+                                            }
+                                        },
+                                    }
+                                ]
+                            },
                         },
-                        "topic": "Block Area Segment Distribution",
-                    }
+                        {
+                            "request_type": "content_update_confirmation",
+                            "table_index": 0,
+                            "error_types": ["value_error"],
+                            "targets": ["summary"],
+                            "fields": ["table_values"],
+                            "decision": "accept",
+                        },
+                    ]
                 },
             )
 
-    def test_generate_feedback_episodes_skips_unsupported_samples(self) -> None:
+    def test_scope_slots_on_same_target_merge_table_patch(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gt(root, sample_gt_yaml())
+            record = {
+                "source_yaml": "split/test/s_1/gt/slide.yaml",
+                "output_yaml": "split/test/s_1/injected/x/slide.yaml",
+                "operations": [
+                    {
+                        "target": "st.caption",
+                        "mutation_type": "scope_city_substitution",
+                    },
+                    {
+                        "target": "st.caption",
+                        "mutation_type": "scope_block_substitution",
+                    },
+                ],
+            }
+
+            episode = build_episode(root, record)
+
+            item = episode["feedback_items"][0]
+            self.assertEqual(item["fields"], ["city", "block"])
+            table_patch = item["state_patch"]["tables"][0]
+            self.assertEqual(
+                table_patch["data_source"]["connection"],
+                {"table": "beijing_new_house"},
+            )
+            self.assertEqual(
+                table_patch["data_source"]["filters"],
+                {"city": "Beijing", "block": "Liangxiang"},
+            )
+
+    def test_title_topic_substitution_is_not_supported(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gt(root, sample_gt_yaml())
+            record = {
+                "source_yaml": "split/test/s_1/gt/slide.yaml",
+                "output_yaml": "split/test/s_1/injected/x/slide.yaml",
+                "operations": [
+                    {
+                        "target": "title",
+                        "mutation_type": "title_topic_substitution",
+                    }
+                ],
+            }
+
+            episode = build_episode(root, record)
+
+            self.assertIsNone(episode)
+
+    def test_presentation_type_substitution_generates_presentation_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            write_gt(root, sample_gt_yaml())
+            record = {
+                "source_yaml": "split/test/s_1/gt/slide.yaml",
+                "output_yaml": "split/test/s_1/injected/x/slide.yaml",
+                "operations": [
+                    {
+                        "target": "st.caption",
+                        "element_id": "3",
+                        "mutation_type": "presentation_type_substitution",
+                    }
+                ],
+            }
+
+            episode = build_episode(root, record)
+
+            self.assertEqual(
+                episode["feedback_items"][0],
+                {
+                    "request_type": "content_update_confirmation",
+                    "table_index": 0,
+                    "error_types": ["claim_error"],
+                    "targets": ["st.caption"],
+                    "fields": ["presentation_type"],
+                    "decision": "accept",
+                },
+            )
+
+    def test_generate_feedback_episodes_skips_unsupported_samples_and_deletes_stale(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             manifest_dir = root / "manifest"
             manifest_dir.mkdir(parents=True)
-            gt_yaml_path = root / "split" / "test" / "s_1" / "gt" / "slide.yaml"
-            gt_yaml_path.parent.mkdir(parents=True)
-            gt_yaml_path.write_text(
-                yaml.safe_dump(sample_gt_yaml(), sort_keys=False, allow_unicode=True),
-                encoding="utf-8",
-            )
+            write_gt(root, sample_gt_yaml())
             records = [
                 {
+                    "split": "test",
                     "source_yaml": "split/test/s_1/gt/slide.yaml",
                     "output_yaml": "split/test/s_1/injected/a/slide.yaml",
-                    "corruption_json": "split/test/s_1/injected/a/corruption.json",
                     "operations": [
                         {
                             "target": "summary",
-                            "mutation_type": "numeric_delta",
+                            "mutation_type": "numeric_value_perturbation",
                         }
                     ],
                 },
                 {
+                    "split": "test",
                     "source_yaml": "split/test/s_1/gt/slide.yaml",
                     "output_yaml": "split/test/s_1/injected/b/slide.yaml",
-                    "corruption_json": "split/test/s_1/injected/b/corruption.json",
                     "operations": [
                         {
                             "target": "st.body",
@@ -220,16 +456,45 @@ class FeedbackGeneratorTest(unittest.TestCase):
                 "\n".join(json.dumps(row, ensure_ascii=False) for row in records) + "\n",
                 encoding="utf-8",
             )
-            output_path = root / "feedback" / "episodes.jsonl"
+            injected_a_dir = root / "split" / "test" / "s_1" / "injected" / "a"
+            injected_b_dir = root / "split" / "test" / "s_1" / "injected" / "b"
+            injected_a_dir.mkdir(parents=True)
+            injected_b_dir.mkdir(parents=True)
+            stale_feedback_path = injected_b_dir / "feedback_episode.json"
+            stale_feedback_path.write_text('{"stale": true}\n', encoding="utf-8")
 
-            summary = generate_feedback_episodes(root, output_path)
+            summary = generate_feedback_episodes(root, workers=2)
 
-            self.assertEqual(summary, {"generated": 1, "skipped": 1})
-            lines = output_path.read_text(encoding="utf-8").splitlines()
-            self.assertEqual(len(lines), 1)
-            episode = json.loads(lines[0])
-            turn = episode["turns"][0]
-            self.assertEqual(turn["expected_action"], "confirm")
+            self.assertEqual(
+                summary,
+                {"generated": 1, "skipped": 1, "by_split": {"test": 1}},
+            )
+            feedback_path = injected_a_dir / "feedback_episode.json"
+            self.assertTrue(feedback_path.exists())
+            episode = json.loads(feedback_path.read_text(encoding="utf-8"))
+            self.assertEqual(
+                episode,
+                {
+                    "feedback_items": [
+                        {
+                            "request_type": "content_update_confirmation",
+                            "table_index": 0,
+                            "error_types": ["value_error"],
+                            "targets": ["summary"],
+                            "fields": ["table_values"],
+                            "decision": "accept",
+                        }
+                    ]
+                },
+            )
+            for old_key in (
+                "expected_action",
+                "expected_request",
+                "user_reply",
+                "confirm",
+            ):
+                self.assertNotIn(old_key, episode)
+            self.assertFalse(stale_feedback_path.exists())
 
 
 if __name__ == "__main__":
