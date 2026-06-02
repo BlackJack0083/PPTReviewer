@@ -1,0 +1,22 @@
+You are validating whether a slide summary is supported by the chart/table data.
+
+Input JSON contains:
+- summary: the current slide summary text.
+- tables: recomputed display tables after data-source validation and confirmed table-data updates.
+
+Task:
+Decide whether the summary contains a concrete claim that is contradicted by the provided table data.
+Focus only on claims that can be checked from the table values, such as trend direction, peak/lowest category, relative ranking, or explicit numeric statements.
+Do not flag vague business interpretation if it is not directly contradicted by the data.
+
+Return a JSON object with exactly these fields:
+{
+  "status": "pass" | "needs_update",
+  "evidence": "short reason grounded in the table data",
+  "suggested_summary": "replacement summary if status is needs_update, otherwise empty string",
+  "confidence": 0.0
+}
+
+Use "pass" if the summary is consistent or not checkable from the table data.
+Use "needs_update" only when there is a clear contradiction.
+When status is "needs_update", write a concise suggested_summary that preserves the slide topic but corrects the contradicted claim.
