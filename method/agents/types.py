@@ -27,7 +27,6 @@ def merge_fields(left: list[str], right: list[str]) -> list[str]:
 class SlideReviewInput:
     """Input visible to the slide review workflow for one injected case."""
 
-    case_id: str
     pptx_path: Path
     image_path: Path
 

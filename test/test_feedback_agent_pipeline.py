@@ -16,8 +16,8 @@ from method.agents import (
     SlideParserAgent,
     SlideReviewInput,
 )
-from method.pipeline import SlideReviewWorkflow
 from method.agents.verification_agent import VerificationAgent
+from method.pipeline import SlideReviewWorkflow
 
 
 class FeedbackMatcherTest(unittest.TestCase):
@@ -157,7 +157,6 @@ class FeedbackPipelineTest(unittest.TestCase):
         agent = SlideParserAgent(HeuristicRoleLabeler())
         result = agent.run(
             SlideReviewInput(
-                case_id="sample",
                 pptx_path=self.case_dir / "slide.pptx",
                 image_path=self.case_dir / "slide.png",
             )
@@ -174,7 +173,6 @@ class FeedbackPipelineTest(unittest.TestCase):
         )
         result = workflow.run(
             SlideReviewInput(
-                case_id="sample",
                 pptx_path=self.case_dir / "slide.pptx",
                 image_path=self.case_dir / "slide.png",
             ),
@@ -196,7 +194,6 @@ class FeedbackPipelineTest(unittest.TestCase):
         )
         result = workflow.run(
             SlideReviewInput(
-                case_id="caption_case",
                 pptx_path=case_dir / "slide.pptx",
                 image_path=case_dir / "slide.png",
             ),
@@ -215,7 +212,6 @@ class FeedbackPipelineTest(unittest.TestCase):
         agent = SlideParserAgent(HeuristicRoleLabeler())
         parsed = agent.run(
             SlideReviewInput(
-                case_id="logic_case",
                 pptx_path=case_dir / "slide.pptx",
                 image_path=case_dir / "slide.png",
             )
@@ -240,7 +236,6 @@ class FeedbackPipelineTest(unittest.TestCase):
         )
         parsed = SlideParserAgent(HeuristicRoleLabeler()).run(
             SlideReviewInput(
-                case_id="tool_case",
                 pptx_path=case_dir / "slide.pptx",
                 image_path=case_dir / "slide.png",
             )

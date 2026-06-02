@@ -10,11 +10,15 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from benchmarking.evaluation import ClientSimulator, SlideReviewEvaluator
-from benchmarking.fine_grained.common import read_jsonl
-from method.agents import HeuristicRoleLabeler, SlideParserAgent, SlideReviewInput
-from method.pipeline import SlideReviewWorkflow
-from method.slide_parser import OpenAIRoleLabeler
+from benchmarking.evaluation import ClientSimulator, SlideReviewEvaluator  # noqa: E402
+from benchmarking.fine_grained.common import read_jsonl  # noqa: E402
+from method.agents import (  # noqa: E402
+    HeuristicRoleLabeler,
+    SlideParserAgent,
+    SlideReviewInput,
+)
+from method.pipeline import SlideReviewWorkflow  # noqa: E402
+from method.slide_parser import OpenAIRoleLabeler  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:
@@ -100,7 +104,6 @@ def main() -> None:
 
         case_id = f"{record.get('sample_id')}__{record.get('injection_id')}"
         slide_input = SlideReviewInput(
-            case_id=case_id,
             pptx_path=assets["pptx_path"],
             image_path=assets["image_path"],
         )
