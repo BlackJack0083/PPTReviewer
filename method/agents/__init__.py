@@ -8,6 +8,7 @@ from .query_tools import (
 )
 from .repair_executor import RepairExecutor
 from .role_labelers import HeuristicRoleLabeler
+from .slide_analysis_agent import SlideAnalysisAgent
 from .slide_parser_agent import SlideParserAgent, extract_pptx_elements
 from .structure_reasoning_agent import StructureReasoningAgent
 from .types import (
@@ -27,6 +28,7 @@ __all__ = [
     "RepairState",
     "SlideReviewInput",
     "SlideReviewResult",
+    "SlideAnalysisAgent",
     "SlideParserAgent",
     "SlideAgentInspiredToolPlanner",
     "StructureReasoningAgent",
