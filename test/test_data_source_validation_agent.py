@@ -6,8 +6,8 @@ from typing import Any
 
 from langchain_core.messages import AIMessage
 
-from method.agents.client_agent import ClientAgent
-from method.agents.data_source_validation_agent import (
+from method.agents.client import ClientAgent
+from method.agents.data_source_validation import (
     DataSourceValidationAgent,
     apply_state_patch,
 )
@@ -31,7 +31,7 @@ class FakeGraph:
                         "request_type": "data_source_slot_clarification",
                         "table_index": table_index,
                         "fields": ["city"],
-                        "question": "Please provide the missing city.",
+                        "description": "The city slot is missing.",
                     },
                 }
             )
@@ -53,7 +53,7 @@ class FakeGraph:
                         "request_type": "data_source_slot_clarification",
                         "table_index": table_index,
                         "fields": ["city", "block"],
-                        "question": "Please confirm city and block.",
+                        "description": "The city and block slots do not match.",
                     },
                 }
             )
@@ -84,30 +84,20 @@ class FakeClient:
             return {
                 "matched": True,
                 "state_patch": {
-                    "tables": [
-                        {
-                            "index": request["table_index"],
-                            "data_source": {"filters": {"city": "Beijing"}},
-                        }
-                    ]
+                    "final_data_source": {"filters": {"city": "Beijing"}}
                 },
             }
         if {"city", "block"}.issubset(fields):
             return {
                 "matched": True,
                 "state_patch": {
-                    "tables": [
-                        {
-                            "index": request["table_index"],
-                            "data_source": {
-                                "connection": {"table": "shenzhen_new_house"},
-                                "filters": {
-                                    "city": "Shenzhen",
-                                    "block": "Nanshan CBD",
-                                },
-                            },
-                        }
-                    ]
+                    "final_data_source": {
+                        "connection": {"table": "shenzhen_new_house"},
+                        "filters": {
+                            "city": "Shenzhen",
+                            "block": "Nanshan CBD",
+                        },
+                    }
                 },
             }
         return {"matched": False, "state_patch": {}}
@@ -116,42 +106,33 @@ class FakeClient:
 class DataSourceValidationAgentTest(unittest.TestCase):
     def test_apply_state_patch_deep_merges_table_state(self) -> None:
         state = {
-            "tables": [
-                {
-                    "data_source": {
-                        "connection": {"table": "beijing_new_house"},
-                        "filters": {
-                            "city": "",
-                            "block": "Liangxiang",
-                            "start_date": "2020-01-01",
-                            "end_date": "2024-12-31",
-                        },
-                    }
-                }
-            ]
+            "final_data_source": {
+                "connection": {"table": "beijing_new_house"},
+                "filters": {
+                    "city": "",
+                    "block": "Liangxiang",
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            }
         }
         apply_state_patch(
             state,
             {
-                "tables": [
-                    {
-                        "index": 0,
-                        "data_source": {"filters": {"city": "Beijing"}},
-                    }
-                ]
+                "final_data_source": {"filters": {"city": "Beijing"}}
             },
         )
-        self.assertEqual(state["tables"][0]["data_source"]["filters"]["city"], "Beijing")
-        self.assertEqual(state["tables"][0]["data_source"]["filters"]["block"], "Liangxiang")
+        self.assertEqual(state["final_data_source"]["filters"]["city"], "Beijing")
+        self.assertEqual(state["final_data_source"]["filters"]["block"], "Liangxiang")
 
     def test_run_with_client_patches_missing_slot_and_reruns(self) -> None:
         state = _analysis_state(city="", block="Liangxiang")
         agent = DataSourceValidationAgent(graph=FakeGraph())
         result = agent.run_with_client(state, FakeClient())
 
-        table = result["analysis_state"]["tables"][0]
-        self.assertEqual(table["data_source"]["filters"]["city"], "Beijing")
-        self.assertEqual(table["data_source_validation"]["status"], "pass")
+        state = result["analysis_state"]
+        self.assertEqual(state["final_data_source"]["filters"]["city"], "Beijing")
+        self.assertEqual(state["data_source_validation"]["status"], "pass")
         self.assertEqual(len(result["validation_log"]), 2)
 
     def test_run_with_client_supports_unmatch_patch_and_rerun(self) -> None:
@@ -159,11 +140,11 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         agent = DataSourceValidationAgent(graph=FakeGraph())
         result = agent.run_with_client(state, FakeClient())
 
-        data_source = result["analysis_state"]["tables"][0]["data_source"]
+        data_source = result["analysis_state"]["final_data_source"]
         self.assertEqual(data_source["connection"]["table"], "shenzhen_new_house")
         self.assertEqual(data_source["filters"]["city"], "Shenzhen")
         self.assertEqual(data_source["filters"]["block"], "Nanshan CBD")
-        self.assertEqual(result["analysis_state"]["tables"][0]["data_source_validation"]["status"], "pass")
+        self.assertEqual(result["analysis_state"]["data_source_validation"]["status"], "pass")
         self.assertEqual(len(result["validation_log"]), 2)
 
     def test_client_agent_returns_requested_data_source_patch(self) -> None:
@@ -175,18 +156,13 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                     "fields": ["city", "block"],
                     "targets": ["st.caption"],
                     "state_patch": {
-                        "tables": [
-                            {
-                                "index": 0,
-                                "data_source": {
-                                    "connection": {"table": "shenzhen_new_house"},
-                                    "filters": {
-                                        "city": "Shenzhen",
-                                        "block": "Nanshan CBD",
-                                    },
-                                },
-                            }
-                        ]
+                        "final_data_source": {
+                            "connection": {"table": "shenzhen_new_house"},
+                            "filters": {
+                                "city": "Shenzhen",
+                                "block": "Nanshan CBD",
+                            },
+                        }
                     },
                 }
             ]
@@ -200,13 +176,13 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         )
 
         self.assertTrue(response["matched"])
-        table_patch = response["state_patch"]["tables"][0]
+        data_source_patch = response["state_patch"]["final_data_source"]
         self.assertEqual(
-            table_patch["data_source"]["connection"]["table"],
+            data_source_patch["connection"]["table"],
             "shenzhen_new_house",
         )
         self.assertEqual(
-            table_patch["data_source"]["filters"],
+            data_source_patch["filters"],
             {"city": "Shenzhen", "block": "Nanshan CBD"},
         )
 
@@ -217,17 +193,31 @@ def _message(payload: dict[str, Any]) -> dict[str, list[AIMessage]]:
 
 def _analysis_state(city: str, block: str) -> dict[str, Any]:
     return {
+        "summary": {
+            "text": "Example summary",
+            "data_source": {
+                "connection": {"table": "beijing_new_house"},
+                "filters": {
+                    "city": city,
+                    "block": block,
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            },
+        },
         "tables": [
             {
-                "caption": "Example caption",
-                "data_source": {
-                    "connection": {"table": "beijing_new_house"},
-                    "select_columns": ["date_code", "trade_sets"],
-                    "filters": {
-                        "city": city,
-                        "block": block,
-                        "start_date": "2020-01-01",
-                        "end_date": "2024-12-31",
+                "caption": {
+                    "text": "Example caption",
+                    "data_source": {
+                        "connection": {"table": "beijing_new_house"},
+                        "select_columns": ["date_code", "trade_sets"],
+                        "filters": {
+                            "city": city,
+                            "block": block,
+                            "start_date": "2020-01-01",
+                            "end_date": "2024-12-31",
+                        },
                     },
                 },
             }

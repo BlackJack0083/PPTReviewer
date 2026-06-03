@@ -1,16 +1,15 @@
 """Agent building blocks for the feedback-aware PPT repair workflow."""
 
-from .client_agent import ClientAgent
-from .content_validation_agent import ContentValidationAgent
-from .data_source_validation_agent import DataSourceValidationAgent
-from .slide_analysis_agent import SlideAnalysisAgent
-from .slide_parser_agent import SlideParserAgent, extract_pptx_elements
+from .client import ClientAgent
+from .content_validation import ContentValidationAgent
+from .data_source_validation import DataSourceValidationAgent
+from .slide_analysis import SlideAnalysisAgent
+from .slide_parser import SlideParserAgent, extract_pptx_elements
 from .types import (
     DetectedIssue,
     SlideReviewInput,
     SlideReviewResult,
 )
-from .verification_agent import VerificationAgent
 
 __all__ = [
     "ClientAgent",
@@ -21,6 +20,5 @@ __all__ = [
     "SlideReviewResult",
     "SlideAnalysisAgent",
     "SlideParserAgent",
-    "VerificationAgent",
     "extract_pptx_elements",
 ]

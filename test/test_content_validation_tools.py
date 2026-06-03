@@ -9,7 +9,7 @@ import pandas as pd
 import yaml
 
 from core.transformers import StatTransformer
-from method.tools.content_validation import (
+from method.agents.content_validation.tools import (
     compare_display_dataframes,
     execute_table_state,
     modify_chart,
@@ -40,6 +40,7 @@ class ContentValidationToolsTest(unittest.TestCase):
     def test_execute_table_state_runs_extracted_state(self) -> None:
         expected = execute_table_state(
             _analysis_state(data_path="visible.csv")["tables"][0],
+            final_data_source=_analysis_state(data_path="visible.csv")["final_data_source"],
             dao=FakeDAO(),
             transformer=StatTransformer(),
         )
@@ -97,21 +98,43 @@ class ContentValidationToolsTest(unittest.TestCase):
 def _analysis_state(data_path: str) -> dict[str, Any]:
     return {
         "title": "Example",
-        "summary": "Example summary",
+        "summary": {
+            "text": "Example summary",
+            "data_source": {
+                "connection": {"table": "beijing_new_house"},
+                "filters": {
+                    "city": "Beijing",
+                    "block": "Liangxiang",
+                    "start_date": "2020-01-01",
+                    "end_date": "2021-12-31",
+                },
+            },
+        },
+        "final_data_source": {
+            "connection": {"table": "beijing_new_house"},
+            "filters": {
+                "city": "Beijing",
+                "block": "Liangxiang",
+                "start_date": "2020-01-01",
+                "end_date": "2021-12-31",
+            },
+        },
         "tables": [
             {
-                "caption": "Example caption",
-                "data_path": data_path,
-                "data_source": {
-                    "connection": {"table": "beijing_new_house"},
-                    "select_columns": ["date_code", "trade_sets"],
-                    "filters": {
-                        "city": "Beijing",
-                        "block": "Liangxiang",
-                        "start_date": "2020-01-01",
-                        "end_date": "2021-12-31",
+                "caption": {
+                    "text": "Example caption",
+                    "data_source": {
+                        "connection": {"table": "beijing_new_house"},
+                        "select_columns": ["date_code", "trade_sets"],
+                        "filters": {
+                            "city": "Beijing",
+                            "block": "Liangxiang",
+                            "start_date": "2020-01-01",
+                            "end_date": "2021-12-31",
+                        },
                     },
                 },
+                "data_path": data_path,
                 "calculation_logic": {
                     "table_type": "field-constraint",
                     "dimensions": [

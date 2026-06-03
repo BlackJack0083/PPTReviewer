@@ -5,8 +5,6 @@ import re
 import unittest
 from pathlib import Path
 
-import pandas as pd
-
 from method.agents import (
     ClientAgent,
     ContentValidationAgent,
@@ -107,11 +105,14 @@ class TestAnalysisClient:
         del image_path, response_format
         payload = json.loads(user_prompt)
         del system_prompt
-        if {"caption", "row_headers", "column_headers"}.issubset(payload):
+        if payload.get("source") in {"summary", "caption"}:
+            select_columns = []
+            if payload["source"] == "caption":
+                select_columns = ["date_code", "supply_sets", "trade_sets", "dim_area"]
             return json.dumps(
                 {
                     "connection": {"table": "beijing_new_house"},
-                    "select_columns": ["date_code", "supply_sets", "trade_sets", "dim_area"],
+                    "select_columns": select_columns,
                     "filters": {
                         "city": "Beijing",
                         "block": "Liangxiang",
@@ -172,6 +173,18 @@ class TestSummaryValidationClient:
 class PassThroughDataSourceValidationAgent:
     def run_with_client(self, analysis_state, client):
         del client
+        first_caption_source = analysis_state["tables"][0]["caption"]["data_source"]
+        filters = first_caption_source["filters"]
+        analysis_state["final_data_source"] = {
+            "connection": first_caption_source["connection"],
+            "filters": {
+                "city": filters["city"],
+                "block": filters["block"],
+                "start_date": filters["start_date"],
+                "end_date": filters["end_date"],
+            },
+        }
+        analysis_state["data_source_validation"] = {"status": "pass"}
         return {
             "analysis_state": analysis_state,
             "validation_log": [],
@@ -266,7 +279,7 @@ class FeedbackPipelineTest(unittest.TestCase):
         self.assertIn("error_types", first_issue)
         self.assertIn("required_fields_guess", first_issue)
 
-    def test_verification_agent_flags_real_caption_presentation_mismatch(self) -> None:
+    def test_content_validation_flags_real_caption_presentation_mismatch(self) -> None:
         case_dir = Path(
             "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_caption-935ecdac"
         )
@@ -301,90 +314,6 @@ class FeedbackPipelineTest(unittest.TestCase):
             if issue["targets"] == ["st.caption"] and "claim_error" in issue["error_types"]
         ]
         self.assertTrue(caption_claim)
-
-    def test_verification_agent_no_longer_emits_logic_error(self) -> None:
-        case_dir = Path(
-            "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_header-22248c0e"
-        )
-        parsed = SlideParserAgent(client=TestRoleClient()).run(
-            SlideReviewInput(
-                pptx_path=case_dir / "slide.pptx",
-                image_path=case_dir / "slide.png",
-            )
-        )
-        from method.agents import VerificationAgent
-
-        first_table = parsed["ppt_representation"]["structured_tables"][0]
-        analysis_state = {
-            "title": parsed["ppt_representation"]["title"]["text"],
-            "summary": parsed["ppt_representation"]["summary"]["text"],
-            "tables": [
-                {
-                    "caption": first_table["caption"]["text"],
-                    "data_path": first_table["body"]["data_path"],
-                    "data_source": {
-                        "connection": {"table": "beijing_new_house"},
-                        "select_columns": ["date_code", "supply_sets", "trade_sets"],
-                        "filters": {
-                            "city": "Beijing",
-                            "block": "Miyun District",
-                            "start_date": "2020-01-01",
-                            "end_date": "2024-12-31",
-                        },
-                    },
-                    "calculation_logic": {
-                        "table_type": "field-constraint",
-                        "dimensions": [
-                            {
-                                "source_col": "date_code",
-                                "target_col": "month",
-                                "method": "period",
-                                "time_granularity": "month",
-                            }
-                        ],
-                        "metrics": [
-                            {
-                                "name": "supply_counts",
-                                "source_col": "supply_sets",
-                                "agg_func": "count",
-                                "filter_condition": {"supply_sets": 1},
-                            },
-                            {
-                                "name": "trade_counts",
-                                "source_col": "trade_sets",
-                                "agg_func": "count",
-                                "filter_condition": {"trade_sets": 1},
-                            },
-                        ],
-                        "crosstab_row": None,
-                        "crosstab_col": None,
-                    },
-                }
-            ],
-        }
-        detected = VerificationAgent().run(
-            ppt_representation=parsed["ppt_representation"],
-            analysis_state=analysis_state,
-        )
-        self.assertFalse(
-            [
-                issue
-                for issue in detected
-                if "logic_error" in issue["error_types"]
-            ]
-        )
-
-    def test_verification_table_compare_allows_rounding_noise(self) -> None:
-        from method.agents.verification_agent import _tables_equal
-
-        visible = pd.DataFrame({"metric": ["supply_area"], "2020": [32770.0]})
-        expected_with_rounding_noise = pd.DataFrame(
-            {"metric": ["supply_area"], "2020": [32770.45]}
-        )
-        expected_with_real_delta = pd.DataFrame({"metric": ["supply_area"], "2020": [32771.0]})
-
-        self.assertTrue(_tables_equal(visible, expected_with_rounding_noise))
-        self.assertFalse(_tables_equal(visible, expected_with_real_delta))
 
     def test_ppt_representation_uses_csv_instead_of_nested_chart_payload(self) -> None:
         case_dir = Path(

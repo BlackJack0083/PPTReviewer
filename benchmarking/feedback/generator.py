@@ -151,7 +151,7 @@ def build_data_source_state_patch(
     table_index: int,
     fields: list[str],
 ) -> dict:
-    """Build a table-indexed data-source patch for requested slots only."""
+    """Build a slide-level final data-source patch for requested slots only."""
     slide_filters = gt_yaml.get("slide_filters")
     if not isinstance(slide_filters, list) or table_index >= len(slide_filters):
         raise ValueError(f"GT slide_filters missing table_index={table_index}")
@@ -160,12 +160,11 @@ def build_data_source_state_patch(
     filters = source.get("filters") or {}
     connection = source.get("connection") or {}
     requested = set(fields)
-    table_patch: dict[str, Any] = {"index": table_index, "data_source": {}}
+    del table_index
+    final_patch: dict[str, Any] = {}
 
     if "city" in requested:
-        table_patch["data_source"]["connection"] = {
-            "table": _normalize_table_name(connection.get("table"))
-        }
+        final_patch["connection"] = {"table": _normalize_table_name(connection.get("table"))}
 
     filter_patch: dict[str, Any] = {}
     if "city" in requested:
@@ -176,11 +175,11 @@ def build_data_source_state_patch(
         filter_patch["start_date"] = filters["start_date"]
         filter_patch["end_date"] = filters["end_date"]
     if filter_patch:
-        table_patch["data_source"]["filters"] = filter_patch
+        final_patch["filters"] = filter_patch
 
-    if not table_patch["data_source"]:
+    if not final_patch:
         raise ValueError(f"No data-source patch can be built for fields={fields}")
-    return {"tables": [table_patch]}
+    return {"final_data_source": final_patch}
 
 
 def build_calculation_logic_state_patch(

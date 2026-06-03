@@ -15,7 +15,7 @@ def merge_fields(left: list[str], right: list[str]) -> list[str]:
 
 @dataclass
 class SlideReviewInput:
-    """Input visible to the slide review workflow for one injected case."""
+    """单个 injected case 中 slide review workflow 可见的输入。"""
 
     pptx_path: Path
     image_path: Path

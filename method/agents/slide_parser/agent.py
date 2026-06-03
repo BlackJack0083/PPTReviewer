@@ -11,9 +11,9 @@ from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from method.utils import Client, parse_json_object
 
-from .types import SlideReviewInput
+from ..types import SlideReviewInput
 
-PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
+PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_ROLE_LABELING_PROMPT_PATH = PROMPT_DIR / "role_labeling_prompt.txt"
 
 ROLE_SET = {
@@ -27,35 +27,6 @@ ROLE_SET = {
 }
 
 
-def emu_to_cm(emu: float) -> float:
-    """将 PPTX 的 EMU 坐标单位转换为厘米。
-
-    Args:
-        emu: PPTX 内部使用的 EMU 数值。
-
-    Returns:
-        转换并保留两位小数后的厘米数值。
-    """
-    return round(emu / 360000.0, 2)
-
-
-def get_shape_layout(shape) -> dict[str, float]:
-    """读取 PPTX shape 在页面上的位置和尺寸。
-
-    Args:
-        shape: python-pptx 的 shape 对象。
-
-    Returns:
-        包含 `x`、`y`、`width`、`height` 的布局字典，单位为厘米。
-    """
-    return {
-        "x": emu_to_cm(shape.left),
-        "y": emu_to_cm(shape.top),
-        "width": emu_to_cm(shape.width),
-        "height": emu_to_cm(shape.height),
-    }
-
-
 def get_shape_kind(shape) -> str:
     """判断 PPTX shape 的粗粒度类型。
 
@@ -64,7 +35,7 @@ def get_shape_kind(shape) -> str:
 
     Returns:
         shape 类型字符串。可能值包括 `text`、`table`、`chart-bar`、
-        `chart-line`、`chart-pie`、`chart`、`other`。
+        `chart-line`、`chart-pie`、`other`。
     """
     if shape.shape_type == MSO_SHAPE_TYPE.TABLE:
         return "table"
@@ -91,7 +62,7 @@ def get_shape_kind(shape) -> str:
             return "chart-line"
         if chart_type in _chart_type_values("PIE", "PIE_EXPLODED", "DOUGHNUT"):
             return "chart-pie"
-        return "chart"
+        return "other"
 
     if shape.has_text_frame and shape.text.strip():
         return "text"
@@ -113,12 +84,15 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
         `observed_slide` 初始结构，包含 `slide_size` 和 `elements`。
         此时 `elements` 中还没有 `role` 字段。
 
-    Raises:
+    Exceptions:
         IndexError: 当 `slide_idx` 超出 PPTX 页数时抛出。
     """
     presentation = Presentation(pptx_path)
     if slide_idx >= len(presentation.slides):
         raise IndexError(f"Slide index {slide_idx} out of range.")
+
+    def cm(emu: float) -> float:
+        return round(emu / 360000.0, 2)
 
     slide = presentation.slides[slide_idx]
     elements: list[dict[str, Any]] = []
@@ -131,7 +105,12 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
         element_id = str(shape_idx)
         element: dict[str, Any] = {
             "id": element_id,
-            "layout": get_shape_layout(shape),
+            "layout": {
+                "x": cm(shape.left),
+                "y": cm(shape.top),
+                "width": cm(shape.width),
+                "height": cm(shape.height),
+            },
         }
 
         if shape_kind == "text":
@@ -151,79 +130,11 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
 
     return {
         "slide_size": {
-            "width": emu_to_cm(presentation.slide_width),
-            "height": emu_to_cm(presentation.slide_height),
+            "width": cm(presentation.slide_width),
+            "height": cm(presentation.slide_height),
         },
         "elements": elements,
     }
-
-
-def build_role_labeling_prompt(observed_slide: dict[str, Any]) -> str:
-    """构造 VLM role 标注输入。
-
-    这一步只组装 PPTX 已抽取出的元素列表、元素布局、文本内容和允许的
-    role 集合。具体 role 标注规则存放在 `method/prompts/role_labeling_prompt.txt`。
-
-    Args:
-        observed_slide: `extract_pptx_elements` 输出的无 role slide 结构。
-
-    Returns:
-        传给 VLM user message 的输入字符串。
-    """
-    elements = []
-    for element in observed_slide.get("elements", []):
-        prompt_element = {
-            "id": str(element.get("id")),
-            "type": element.get("type"),
-            "layout": element.get("layout"),
-        }
-        if element.get("type") == "textBox":
-            prompt_element["text"] = element.get("text", "")
-        else:
-            prompt_element["shape_kind"] = element.get("_shape_kind") or element.get("type")
-        elements.append(prompt_element)
-
-    payload = {
-        "slide_size": observed_slide.get("slide_size"),
-        "elements": elements,
-        "allowed_roles": sorted(ROLE_SET),
-    }
-    return f"Input elements:\n{json.dumps(payload, ensure_ascii=False, indent=2)}"
-
-
-def _label_roles(
-    client: Any,
-    *,
-    system_prompt: str,
-    image_path: Path,
-    observed_slide: dict[str, Any],
-) -> list[dict[str, str]]:
-    """调用 VLM 为 PPTX 元素标注语义 role。
-
-    Args:
-        client: 具备 `chat(...)` 方法的 OpenAI-compatible client。
-        system_prompt: 从 prompt 文件读取的 role 标注规则。
-        image_path: slide 渲染图路径，供 VLM 结合视觉布局判断 role。
-        observed_slide: 无 role 的 PPTX 元素结构。
-
-    Returns:
-        VLM 返回的 role 标注列表，每项包含 `id` 和 `role`。
-
-    Raises:
-        ValueError: 当 VLM 返回 JSON 中缺少 `roles` 列表时抛出。
-    """
-    prompt = build_role_labeling_prompt(observed_slide)
-    content = client.chat(
-        system_prompt,
-        prompt,
-        image_path=image_path,
-        response_format="json_object",
-    )
-    parsed = parse_json_object(content)
-    roles = parsed.get("roles")
-    if not isinstance(roles, list):
-        raise ValueError(f"VLM role response must contain roles list: {content}")
-    return roles
 
 
 def validate_role_labels(
@@ -239,7 +150,7 @@ def validate_role_labels(
     Returns:
         规范化后的 role 标注列表，每项为 `{"id": ..., "role": ...}`。
 
-    Raises:
+    Exceptions:
         ValueError: 当 role 项格式错误、id 未知、id 重复、role 不在允许集合、
             或存在未标注元素时抛出。
     """
@@ -265,34 +176,6 @@ def validate_role_labels(
     if missing:
         raise ValueError(f"Missing role assignments for element ids: {sorted(missing)}")
     return assignments
-
-
-def apply_role_labels(
-    observed_slide: dict[str, Any],
-    roles: list[dict[str, str]],
-) -> dict[str, Any]:
-    """把 role 标注合并回 PPTX 元素结构。
-
-    Args:
-        observed_slide: 无 role 的 PPTX 元素结构。
-        roles: 已通过校验的 role 标注列表。
-
-    Returns:
-        带 `role` 字段的 `observed_slide`。内部临时字段如 `_shape_kind`
-        会被移除，避免泄漏到后续表示中。
-    """
-    role_by_id = {item["id"]: item["role"] for item in roles}
-    elements = []
-    for element in observed_slide.get("elements", []):
-        clean_element = {
-            key: value for key, value in element.items() if not str(key).startswith("_")
-        }
-        clean_element["role"] = role_by_id[str(element.get("id"))]
-        elements.append(clean_element)
-    return {
-        "slide_size": observed_slide.get("slide_size", {}),
-        "elements": elements,
-    }
 
 
 class SlideParserAgent:
@@ -327,7 +210,7 @@ class SlideParserAgent:
         Returns:
             None。
 
-        Raises:
+        Exceptions:
             ValueError: 当未提供 `client` 且 `model` 为空时抛出。
         """
         self.role_labeling_prompt = role_labeling_prompt_path.read_text(encoding="utf-8")
@@ -340,7 +223,6 @@ class SlideParserAgent:
                 model=model,
                 api_key=api_key,
                 base_url=base_url,
-                timeout_sec=timeout_sec,
                 enable_thinking=enable_thinking,
             )
 
@@ -357,16 +239,56 @@ class SlideParserAgent:
             `ppt_representation` 为简化后的 slide 表示，并引用导出的 CSV。
         """
         raw_elements = extract_pptx_elements(slide_input.pptx_path)
-        role_labels = validate_role_labels(
-            raw_elements,
-            _label_roles(
-                self.client,
-                system_prompt=self.role_labeling_prompt,
-                image_path=slide_input.image_path,
-                observed_slide=raw_elements,
-            ),
+
+        prompt_elements = []
+        for element in raw_elements.get("elements", []):
+            prompt_element = {
+                "id": str(element.get("id")),
+                "type": element.get("type"),
+                "layout": element.get("layout"),
+            }
+            if element.get("type") == "textBox":
+                prompt_element["text"] = element.get("text", "")
+            else:
+                prompt_element["shape_kind"] = element.get("_shape_kind") or element.get("type")
+            prompt_elements.append(prompt_element)
+        prompt = "Input elements:\n" + json.dumps(
+            {
+                "slide_size": raw_elements.get("slide_size"),
+                "elements": prompt_elements,
+                "allowed_roles": sorted(ROLE_SET),
+            },
+            ensure_ascii=False,
+            indent=2,
         )
-        observed_slide = apply_role_labels(raw_elements, role_labels)
+        content = self.client.chat(
+            self.role_labeling_prompt,
+            prompt,
+            image_path=slide_input.image_path,
+            response_format="json_object",
+        )
+        roles = parse_json_object(content).get("roles")
+        if not isinstance(roles, list):
+            raise ValueError(f"VLM role response must contain roles list: {content}")
+
+        role_by_id = {
+            item["id"]: item["role"]
+            for item in validate_role_labels(raw_elements, roles)
+        }
+        observed_slide = {
+            "slide_size": raw_elements.get("slide_size", {}),
+            "elements": [
+                {
+                    **{
+                        key: value
+                        for key, value in element.items()
+                        if not str(key).startswith("_")
+                    },
+                    "role": role_by_id[str(element.get("id"))],
+                }
+                for element in raw_elements.get("elements", [])
+            ],
+        }
         ppt_representation = build_ppt_representation(
             pptx_path=slide_input.pptx_path,
             observed_slide=observed_slide,
@@ -400,8 +322,8 @@ def build_ppt_representation(
     presentation = Presentation(pptx_path)
     slide = presentation.slides[slide_idx]
     elements = list(observed_slide.get("elements", []))
-    title = _first_element_by_role(elements, "title")
-    summary = _first_element_by_role(elements, "summary")
+    title = next((element for element in elements if element.get("role") == "title"), None)
+    summary = next((element for element in elements if element.get("role") == "summary"), None)
     captions = [element for element in elements if element.get("role") == "caption"]
     bodies = [
         element
@@ -416,7 +338,10 @@ def build_ppt_representation(
         caption = _nearest_caption(body_element, captions)
         header, rows = _extract_body_table(shape=shape, role=str(body_element.get("role")))
         csv_path = output_dir / ("data.csv" if len(bodies) == 1 else f"data_{table_idx}.csv")
-        _write_csv(csv_path, header, rows)
+        with csv_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.writer(handle)
+            writer.writerow(header)
+            writer.writerows(rows)
         structured_tables.append(
             {
                 "caption": _compact_text_element(caption),
@@ -434,22 +359,6 @@ def build_ppt_representation(
         "summary": _compact_text_element(summary),
         "structured_tables": structured_tables,
     }
-
-
-def _first_element_by_role(elements: list[dict[str, Any]], role: str) -> dict[str, Any] | None:
-    """按 role 查找第一个元素。
-
-    Args:
-        elements: 带 role 的元素列表。
-        role: 要查找的 role 名称。
-
-    Returns:
-        第一个匹配元素；若不存在则返回 None。
-    """
-    for element in elements:
-        if element.get("role") == role:
-            return element
-    return None
 
 
 def _compact_text_element(element: dict[str, Any] | None) -> dict[str, Any] | None:
@@ -484,26 +393,18 @@ def _nearest_caption(
     """
     if not captions:
         return None
-    body_center = _center(body_element.get("layout", {}))
+
+    def center(layout: dict[str, Any]) -> tuple[float, float]:
+        return (
+            float(layout.get("x", 0.0)) + float(layout.get("width", 0.0)) / 2.0,
+            float(layout.get("y", 0.0)) + float(layout.get("height", 0.0)) / 2.0,
+        )
+
+    body_center = center(body_element.get("layout", {}))
     return min(
         captions,
-        key=lambda caption: abs(body_center[0] - _center(caption.get("layout", {}))[0])
-        + abs(body_center[1] - _center(caption.get("layout", {}))[1]),
-    )
-
-
-def _center(layout: dict[str, Any]) -> tuple[float, float]:
-    """计算布局矩形中心点。
-
-    Args:
-        layout: 包含 `x`、`y`、`width`、`height` 的布局字典。
-
-    Returns:
-        `(center_x, center_y)` 中心点坐标。
-    """
-    return (
-        float(layout.get("x", 0.0)) + float(layout.get("width", 0.0)) / 2.0,
-        float(layout.get("y", 0.0)) + float(layout.get("height", 0.0)) / 2.0,
+        key=lambda caption: abs(body_center[0] - center(caption.get("layout", {}))[0])
+        + abs(body_center[1] - center(caption.get("layout", {}))[1]),
     )
 
 
@@ -532,23 +433,6 @@ def _extract_body_table(shape, role: str) -> tuple[list[str], list[list[Any]]]:
     for idx, category in enumerate(categories):
         rows.append([category] + [item.values[idx] if idx < len(item.values) else "" for item in series])
     return header, rows
-
-
-def _write_csv(path: Path, header: list[str], rows: list[list[Any]]) -> None:
-    """把二维数据写成 CSV。
-
-    Args:
-        path: 输出 CSV 路径。
-        header: CSV 表头。
-        rows: CSV 数据行。
-
-    Returns:
-        None。
-    """
-    with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(header)
-        writer.writerows(rows)
 
 
 def _chart_type_values(*names: str) -> set[Any]:

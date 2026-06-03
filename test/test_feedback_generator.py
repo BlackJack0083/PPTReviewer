@@ -314,17 +314,12 @@ class FeedbackGeneratorTest(unittest.TestCase):
                             "targets": ["summary"],
                             "fields": ["time_range"],
                             "state_patch": {
-                                "tables": [
-                                    {
-                                        "index": 0,
-                                        "data_source": {
-                                            "filters": {
-                                                "start_date": "2020-01-01",
-                                                "end_date": "2024-12-31",
-                                            }
-                                        },
+                                "final_data_source": {
+                                    "filters": {
+                                        "start_date": "2020-01-01",
+                                        "end_date": "2024-12-31",
                                     }
-                                ]
+                                }
                             },
                         },
                         {
@@ -362,13 +357,13 @@ class FeedbackGeneratorTest(unittest.TestCase):
 
             item = episode["feedback_items"][0]
             self.assertEqual(item["fields"], ["city", "block"])
-            table_patch = item["state_patch"]["tables"][0]
+            data_source_patch = item["state_patch"]["final_data_source"]
             self.assertEqual(
-                table_patch["data_source"]["connection"],
+                data_source_patch["connection"],
                 {"table": "beijing_new_house"},
             )
             self.assertEqual(
-                table_patch["data_source"]["filters"],
+                data_source_patch["filters"],
                 {"city": "Beijing", "block": "Liangxiang"},
             )
 

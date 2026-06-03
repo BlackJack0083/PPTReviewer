@@ -4,7 +4,7 @@ from typing import Any
 
 
 class ClientAgent:
-    """Shared benchmark client backed by case-local feedback items."""
+    """由 case-local feedback items 驱动的共享 benchmark client。"""
 
     def __init__(self, *, feedback_items: list[dict[str, Any]]):
         self.feedback_items = [_normalize_feedback_item(item) for item in feedback_items]
@@ -12,15 +12,14 @@ class ClientAgent:
 
     @classmethod
     def from_feedback_episode(cls, episode: dict[str, Any]) -> ClientAgent:
-        """Build a client from one `feedback_episode.json` payload.
+        """从单个 `feedback_episode.json` payload 构造 client。
 
         Args:
-            episode: Case-local feedback episode. It is only available to the
-                simulated client, not to the reviewing agents.
+            episode: case-local feedback episode。它只对 simulated client
+                可见，不对 reviewing agents 可见。
 
         Returns:
-            A shared client that answers explicit clarification/confirmation
-            requests for injected error points only.
+            只响应 injected error points 显式澄清/确认请求的共享 client。
         """
         items = episode.get("feedback_items")
         if not isinstance(items, list):
@@ -28,15 +27,15 @@ class ClientAgent:
         return cls(feedback_items=items)
 
     def respond(self, request: dict[str, Any]) -> dict[str, Any]:
-        """Answer a clarification or confirmation request from an agent.
+        """响应 agent 发出的澄清或确认请求。
 
         Args:
-            request: Request object with `request_type`, and optional
-                `table_index`, `fields`, and `targets`.
+            request: 请求对象，包含 `request_type`，以及可选的 `table_index`、
+                `fields` 和 `targets`。
 
         Returns:
-            A compact response. `matched=false` means this request did not hit
-            an injected error point in the feedback episode.
+            精简响应。`matched=false` 表示该请求没有命中 feedback episode 中的
+            injected error point。
         """
         request_type = request.get("request_type")
         if not isinstance(request_type, str) or not request_type.strip():

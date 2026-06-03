@@ -1,3 +1,10 @@
+"""仅供 `DataSourceValidationAgent` 使用的工具。
+
+这个文件放在 `agent.py` 旁边，是为了明确：只有数据源验证 ReAct agent
+可以直接调用数据库 slot 验证工具。工具只返回证据；Missing/Error/Unmatch/
+Correct 的标签判断由 LLM agent 根据 prompt 完成。
+"""
+
 from __future__ import annotations
 
 from typing import Any
@@ -19,7 +26,7 @@ REAL_ESTATE_TABLES = [
 
 
 class DataSourceSlots(BaseModel):
-    """Slots needed to identify the underlying real-estate data source."""
+    """定位底层房地产数据源所需的 slots。"""
 
     table: str = Field(..., description="Database table name, e.g. beijing_new_house")
     city: str = Field(..., description="City slot extracted from the slide")
@@ -29,17 +36,22 @@ class DataSourceSlots(BaseModel):
 
 
 class DataSourceQueryTool:
-    """Validate data-source slots against the real estate database.
+    """用真实房地产数据库验证 data-source slots。
 
-    The tool intentionally returns evidence only. The ReAct agent decides whether
-    the slots are Missing, Error, Unmatch, or Correct.
+    该工具刻意只返回证据，不直接给出错误类型。ReAct agent 负责判断 slots 是
+    Missing、Error、Unmatch 还是 Correct。
 
-    The default check is scoped to the selected table. Cross-table diagnosis is
-    intentionally excluded because data-source verification only needs to know
-    whether the current PPT state can retrieve data from its claimed source.
+    默认检查只在当前 table 内进行。这里不做跨表诊断，因为 data-source 验证
+    只需要判断当前 PPT 声称的数据源是否能检索到数据。
     """
 
     def __init__(self, database: Any = db_manager, tables: list[str] | None = None):
+        """初始化数据库驱动的 data-source checker。
+
+        Args:
+            database: 暴露 `query(sql, params=None)` 的数据库适配器。
+            tables: 可选的房地产数据表白名单。
+        """
         self.database = database
         self.tables = list(tables or REAL_ESTATE_TABLES)
         self._existing_tables_cache: set[str] | None = None
@@ -52,6 +64,19 @@ class DataSourceQueryTool:
         start_date: str,
         end_date: str,
     ) -> dict[str, Any]:
+        """检查 data-source slots 是否能从数据库中检索到行。
+
+        Args:
+            table: PPT 声称的数据库表名。
+            city: PPT 声称的 city slot。
+            block: PPT 声称的 block/district slot。
+            start_date: PPT 声称的开始日期，格式为 `YYYY-MM-DD`。
+            end_date: PPT 声称的结束日期，格式为 `YYYY-MM-DD`。
+
+        Returns:
+            供 ReAct prompt 使用的证据字典。计数被编码为 `0/1`，让 LLM 可以
+            在不看到原始 SQL rows 的情况下判断 Missing/Error/Unmatch/Correct。
+        """
         slots = {
             "table": table,
             "city": city,
@@ -205,7 +230,15 @@ class DataSourceQueryTool:
 def build_data_source_query_tool(
     query_tool: DataSourceQueryTool | None = None,
 ) -> StructuredTool:
-    """Build the LangChain tool exposed to the ReAct agent."""
+    """构建暴露给 ReAct agent 的 LangChain StructuredTool。
+
+    Args:
+        query_tool: 可选的测试 runner。未提供时使用真实数据库驱动的
+            `DataSourceQueryTool`。
+
+    Returns:
+        名为 `data_source_query_tool` 的 LangChain-compatible structured tool。
+    """
 
     runner = query_tool or DataSourceQueryTool()
 
@@ -216,7 +249,7 @@ def build_data_source_query_tool(
         start_date: str,
         end_date: str,
     ) -> dict[str, Any]:
-        """Validate table/city/block/time_range slots against the database."""
+        """用数据库验证 table/city/block/time_range slots。"""
 
         return runner.run(
             table=table,
@@ -230,14 +263,15 @@ def build_data_source_query_tool(
         func=_tool,
         name="data_source_query_tool",
         description=(
-            "Validate PPT data-source slots against the real-estate database. "
-            "Use this only after all required slots are non-empty."
+            "用真实房地产数据库验证 PPT data-source slots。"
+            "仅在所有 required slots 都非空后调用。"
         ),
         args_schema=DataSourceSlots,
     )
 
 
 def _valid_date_order(start_date: str, end_date: str) -> bool:
+    """判断两个日期能否解析，且 `start_date <= end_date`。"""
     start = pd.to_datetime(start_date, errors="coerce")
     end = pd.to_datetime(end_date, errors="coerce")
     if pd.isna(start) or pd.isna(end):

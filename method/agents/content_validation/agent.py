@@ -1,3 +1,9 @@
+"""内容验证 agent。
+
+该 agent 在 data source 修正后验证 value/claim 错误。它显式调用 `tools.py`
+中的确定性工具；只有 summary claim 判断会调用 LLM。
+"""
+
 from __future__ import annotations
 
 import json
@@ -9,7 +15,7 @@ import pandas as pd
 
 from core.dao import RealEstateDAO
 from core.transformers import StatTransformer
-from method.tools.content_validation import (
+from .tools import (
     compare_display_dataframes,
     execute_table_state,
     modify_chart,
@@ -19,15 +25,15 @@ from method.tools.content_validation import (
 )
 from method.utils import Client, parse_json_object
 
-from .types import DetectedIssue
+from ..types import DetectedIssue
 
-PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
+PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_SUMMARY_PROMPT_PATH = PROMPT_DIR / "summary_claim_validation_prompt.txt"
 PRESENTATION_LABEL_RE = re.compile(r"\((bar chart|line chart|pie chart|table)\)\s*$", re.I)
 
 
 class ContentValidationAgent:
-    """Validate table data and summary claims after data-source repair."""
+    """在 data-source 修正后验证表格数据和 summary claims。"""
 
     def __init__(
         self,
@@ -42,6 +48,22 @@ class ContentValidationAgent:
         transformer: StatTransformer | None = None,
         summary_prompt_path: Path = DEFAULT_SUMMARY_PROMPT_PATH,
     ) -> None:
+        """初始化内容验证 agent。
+
+        Args:
+            model: OpenAI-compatible chat model 名称。未注入 `client` 时必填。
+            api_key: OpenAI-compatible endpoint 的 API key。
+            base_url: OpenAI-compatible endpoint 的 base URL。
+            timeout_sec: LLM 请求超时时间，单位为秒。
+            enable_thinking: 传给 `Client` 的 provider-specific thinking 开关。
+            client: 可选的测试用 LLM client。
+            dao: 可选 DAO，用于读取原始数据库行。
+            transformer: 可选 transformer，用于执行 calculation logic。
+            summary_prompt_path: summary-claim validation 使用的 prompt 路径。
+
+        异常:
+            ValueError: 未注入 `client` 且未提供 `model`。
+        """
         if client is not None:
             self.llm_client = client
         else:
@@ -66,7 +88,19 @@ class ContentValidationAgent:
         client: Any,
         artifact_dir: Path,
     ) -> dict[str, Any]:
-        """Validate table display data and summary claims with client confirmation."""
+        """在 client 确认下验证表格展示数据和 summary claims。
+
+        Args:
+            ppt_representation: Parser 输出，包含可见 chart/table 的数据路径和
+                元素 id。
+            analysis_state: 经过 `DataSourceValidationAgent` 修正后的
+                analysis state。
+            client: 共享的 client simulator 或人工桥接对象。
+            artifact_dir: expected/repaired CSV 和 YAML 的输出目录。
+
+        Returns:
+            验证日志、检测到的问题、确认过的更新记录，以及 repaired artifact 路径。
+        """
         artifact_dir.mkdir(parents=True, exist_ok=True)
         table_records: list[dict[str, Any]] = []
         validation_log: list[dict[str, Any]] = []
@@ -74,11 +108,13 @@ class ContentValidationAgent:
         detected_issues: list[dict[str, Any]] = []
         parsed_tables = list(ppt_representation.get("structured_tables", []))
 
+        # 阶段 1：用最终 state 重新计算每个可见 chart/table；记录替换前先问 client。
         for table_index, table_state in enumerate(analysis_state.get("tables", [])):
             parsed_table = parsed_tables[table_index] if table_index < len(parsed_tables) else {}
             table_result = self._validate_table_data(
                 table_index=table_index,
                 table_state=table_state,
+                final_data_source=analysis_state["final_data_source"],
                 parsed_table=parsed_table,
                 client=client,
                 artifact_dir=artifact_dir,
@@ -88,6 +124,8 @@ class ContentValidationAgent:
             update_log.extend(table_result["updates"])
             detected_issues.extend(table_result["detected_issues"])
 
+        # 阶段 2：检查 caption 写的展示形式是否和实际 PPT body 不一致。
+        # 当前实现只修 caption 文本。
         presentation_result = self._validate_caption_presentation(
             ppt_representation=ppt_representation,
             client=client,
@@ -96,6 +134,8 @@ class ContentValidationAgent:
         update_log.extend(presentation_result["updates"])
         detected_issues.extend(presentation_result["detected_issues"])
 
+        # 阶段 3：让 LLM 判断 summary claim 是否被重算表格支持；
+        # 接受新文本前仍然需要 client 确认。
         summary_result = self._validate_summary_claim(
             analysis_state=analysis_state,
             table_records=table_records,
@@ -125,12 +165,27 @@ class ContentValidationAgent:
         *,
         table_index: int,
         table_state: dict[str, Any],
+        final_data_source: dict[str, Any],
         parsed_table: dict[str, Any],
         client: Any,
         artifact_dir: Path,
     ) -> dict[str, Any]:
+        """用重算数据验证单个 chart/table body。
+
+        Args:
+            table_index: 在 `analysis_state["tables"]` 中的下标。
+            table_state: 单个 analyzed table state。
+            final_data_source: client 验证后的 slide 级 data source。
+            parsed_table: 匹配的 parser table 对象，包含 body metadata。
+            client: 共享的 client simulator 或人工桥接对象。
+            artifact_dir: expected CSV 的写入目录。
+
+        Returns:
+            table record、验证日志、确认过的 updates 和 detected issues。
+        """
         expected_df = execute_table_state(
             table_state,
+            final_data_source=final_data_source,
             dao=self.dao,
             transformer=self.transformer,
         )
@@ -223,6 +278,15 @@ class ContentValidationAgent:
         ppt_representation: dict[str, Any],
         client: Any,
     ) -> dict[str, Any]:
+        """验证 caption 中的 presentation-type 文本。
+
+        Args:
+            ppt_representation: Parser 输出，包含 caption 文本和 body 类型。
+            client: 共享的 client simulator 或人工桥接对象。
+
+        Returns:
+            日志、确认过的 textbox updates 和 detected claim issues。
+        """
         logs: list[dict[str, Any]] = []
         updates: list[dict[str, Any]] = []
         detected_issues: list[dict[str, Any]] = []
@@ -276,8 +340,18 @@ class ContentValidationAgent:
         table_records: list[dict[str, Any]],
         client: Any,
     ) -> dict[str, Any]:
+        """验证 summary 文本是否被重算表格支持。
+
+        Args:
+            analysis_state: 包含 summary 文本的最终 analysis state。
+            table_records: 指向重算 expected CSV 文件的记录。
+            client: 共享的 client simulator 或人工桥接对象。
+
+        Returns:
+            单条验证日志、确认过的 textbox updates 和 claim issues。
+        """
         payload = {
-            "summary": analysis_state.get("summary", ""),
+            "summary": _summary_text(analysis_state),
             "tables": [
                 {
                     "table_index": record["table_index"],
@@ -364,6 +438,13 @@ def _validate_summary_judgment(judgment: dict[str, Any]) -> dict[str, Any]:
         "suggested_summary": suggested_summary,
         "confidence": float(confidence),
     }
+
+
+def _summary_text(analysis_state: dict[str, Any]) -> str:
+    summary = analysis_state.get("summary")
+    if not isinstance(summary, dict) or not isinstance(summary.get("text"), str):
+        raise ValueError(f"analysis_state.summary must contain text: {analysis_state}")
+    return summary["text"]
 
 
 def _caption_presentation_issue(parsed_table: dict[str, Any]) -> DetectedIssue | None:

@@ -174,6 +174,7 @@ cython_debug/
 .pypirc
 
 output/
+baseline/
 office_ppt_ser.py
 
 data/
@@ -198,3 +199,4 @@ plan.md
 Benchmark 设计.md
 AGENT.md
 CLAUDE.md
+.vscode/

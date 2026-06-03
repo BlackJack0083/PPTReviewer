@@ -8,13 +8,13 @@ from typing import Any
 from core.schemas import TableAnalysisConfig
 from method.utils import Client, parse_json_object
 
-PROMPT_DIR = Path(__file__).resolve().parents[1] / "prompts"
+PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_DATA_SOURCE_PROMPT_PATH = PROMPT_DIR / "data_source_extraction_prompt.txt"
 DEFAULT_FUNCTION_LOGIC_PROMPT_PATH = PROMPT_DIR / "function_logic_extraction_prompt.txt"
 
 
 class SlideAnalysisAgent:
-    """Extract executable data-source and calculation logic state from PPT representation."""
+    """从 PPT representation 中抽取可执行 data source 和 calculation logic。"""
 
     def __init__(
         self,
@@ -28,6 +28,21 @@ class SlideAnalysisAgent:
         data_source_prompt_path: Path = DEFAULT_DATA_SOURCE_PROMPT_PATH,
         function_logic_prompt_path: Path = DEFAULT_FUNCTION_LOGIC_PROMPT_PATH,
     ):
+        """初始化 slide analysis agent。
+
+        Args:
+            model: OpenAI-compatible chat model 名称。未注入 `client` 时必填。
+            api_key: OpenAI-compatible endpoint 的 API key。
+            base_url: OpenAI-compatible endpoint 的 base URL。
+            timeout_sec: LLM 请求超时时间，单位为秒。
+            enable_thinking: 传给 `Client` 的 provider-specific thinking 开关。
+            client: 可选的测试用 LLM client。
+            data_source_prompt_path: data-source extraction prompt 路径。
+            function_logic_prompt_path: calculation-logic extraction prompt 路径。
+
+        Raise:
+            ValueError: 未注入 `client` 且未提供 `model`。
+        """
         if client is not None:
             self.client = client
         else:
@@ -44,60 +59,112 @@ class SlideAnalysisAgent:
         self.function_logic_prompt = function_logic_prompt_path.read_text(encoding="utf-8")
 
     def run(self, *, ppt_representation: dict[str, Any]) -> dict[str, Any]:
-        """Run Phase 1 analysis over parser output.
+        """对 parser 输出执行 Phase 1 analysis。
 
         Args:
-            ppt_representation: Parser output containing title, summary, and structured
-                chart/table bodies with CSV paths.
+            ppt_representation: Parser 输出，包含 title、summary，以及带 CSV
+                路径的结构化 chart/table body。
 
         Returns:
-            Analysis state with title, summary, and per-table `data_source` plus
-            `calculation_logic`.
+            Analysis state，包含 title、summary source、每个 table 的 caption
+            source，以及 `calculation_logic`。
 
-        Raises:
-            ValueError: If the model output does not match the required schema.
+        Raise:
+            ValueError: 当模型输出不符合要求 schema 时抛出。
         """
         analysis_input = build_analysis_input(ppt_representation)
+        # summary 和 caption 可能同时描述同一组 source slots。这里先保留为
+        # 独立证据，后续由 `DataSourceValidationAgent` 聚合为一个
+        # `final_data_source`。
+        summary_data_source = self._extract_data_source(
+            {
+                "source": "summary",
+                "text": analysis_input["summary"],
+                "row_headers": [],
+                "column_headers": [],
+            },
+            0,
+            include_select_columns=False,
+        )
+
         analyzed_tables = []
         for index, table_input in enumerate(analysis_input["tables"]):
-            data_source = self._extract_data_source(table_input, index)
+            # `select_columns` 归 caption data source 管，因为即使 slide-level
+            # filters 相同，不同 visual body 也可能需要不同原始列。
+            data_source = self._extract_data_source(
+                {
+                    "source": "caption",
+                    "text": table_input["caption"],
+                    "row_headers": table_input["row_headers"],
+                    "column_headers": table_input["column_headers"],
+                },
+                index,
+                include_select_columns=True,
+            )
             calculation_logic = self._extract_function_logic(table_input, index)
             analyzed_tables.append(
                 {
-                    "caption": table_input["caption"],
+                    "caption": {
+                        "text": table_input["caption"],
+                        "data_source": data_source,
+                    },
                     "data_path": table_input["data_path"],
-                    "data_source": data_source,
                     "calculation_logic": calculation_logic,
                 }
             )
         return {
             "title": analysis_input["title"],
-            "summary": analysis_input["summary"],
+            "summary": {
+                "text": analysis_input["summary"],
+                "data_source": summary_data_source,
+            },
             "tables": analyzed_tables,
         }
 
     def _extract_data_source(
         self,
-        table_input: dict[str, Any],
+        payload: dict[str, Any],
         index: int,
+        *,
+        include_select_columns: bool,
     ) -> dict[str, Any]:
-        payload = {
-            "caption": table_input["caption"],
-            "row_headers": table_input["row_headers"],
-            "column_headers": table_input["column_headers"],
-        }
+        """从单个 summary/caption payload 中抽取 data-source slots。
+
+        Args:
+            payload: Prompt 输入，包含 `source`、`text` 和可选的 visible table
+                headers。
+            index: caption extraction 使用的 table index；summary 固定为 `0`。
+            include_select_columns: 输出是否必须包含 `select_columns`。
+                summary extraction 会设为 `False`。
+
+        Returns:
+            校验后的 data-source object。
+        """
         content = self.client.chat(
             self.data_source_prompt,
             json.dumps(payload, ensure_ascii=False, indent=2),
             response_format="json_object",
         )
-        return _validate_data_source(parse_json_object(content), index)
+        return _validate_data_source(
+            parse_json_object(content),
+            index,
+            include_select_columns=include_select_columns,
+        )
 
     def _extract_function_logic(
         self,
         table_input: dict[str, Any],
         index: int,
     ) -> dict[str, Any]:
+        """从 visible table data 中抽取 table calculation logic。
+
+        Args:
+            table_input: 单个 visible chart/table 的紧凑表示。
+            index: 用于 validation error message 的 table index。
+
+        Returns:
+            序列化为字典的 `TableAnalysisConfig`。
+        """
         payload = {
             "table_caption": table_input["caption"],
             "table_data": table_input["table_data"],
@@ -112,7 +179,19 @@ class SlideAnalysisAgent:
 
 
 def build_analysis_input(ppt_representation: dict[str, Any]) -> dict[str, Any]:
-    """Build the compact JSON payload sent to the analysis LLM."""
+    """构造发送给 analysis LLM 的紧凑 JSON payload。
+
+    Args:
+        ppt_representation: Parser 输出，包含 title、summary、captions 和 body
+            CSV 路径。
+
+    Returns:
+        包含 table headers 和 CSV rows 的紧凑 analysis input。
+
+    Raise:
+        FileNotFoundError: parser 引用的 table body CSV 不存在时抛出。
+        ValueError: 引用的 CSV 为空时抛出。
+    """
     tables = []
     for table in ppt_representation.get("structured_tables", []):
         body = table.get("body") or {}
@@ -138,16 +217,16 @@ def build_analysis_input(ppt_representation: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _validate_data_source(data_source: dict[str, Any], index: int) -> dict[str, Any]:
+def _validate_data_source(
+    data_source: dict[str, Any],
+    index: int,
+    *,
+    include_select_columns: bool,
+) -> dict[str, Any]:
     connection = data_source.get("connection")
-    select_columns = data_source.get("select_columns")
     filters = data_source.get("filters")
     if not isinstance(connection, dict) or not isinstance(connection.get("table"), str):
         raise ValueError(f"Analysis table #{index + 1} missing connection.table.")
-    if not isinstance(select_columns, list) or not all(
-        isinstance(column, str) for column in select_columns
-    ):
-        raise ValueError(f"Analysis table #{index + 1} select_columns must be string list.")
     if not isinstance(filters, dict):
         raise ValueError(f"Analysis table #{index + 1} missing filters object.")
 
@@ -160,11 +239,20 @@ def _validate_data_source(data_source: dict[str, Any], index: int) -> dict[str, 
     if not all(isinstance(filters[key], str) for key in required_filter_keys):
         raise ValueError(f"Analysis table #{index + 1} filters values must be strings.")
 
-    return {
+    validated = {
         "connection": {"table": connection["table"]},
-        "select_columns": list(select_columns),
         "filters": {key: filters[key] for key in ("city", "block", "start_date", "end_date")},
     }
+    if include_select_columns:
+        select_columns = data_source.get("select_columns")
+        if not isinstance(select_columns, list) or not all(
+            isinstance(column, str) for column in select_columns
+        ):
+            raise ValueError(
+                f"Analysis table #{index + 1} select_columns must be string list."
+            )
+        validated["select_columns"] = list(select_columns)
+    return validated
 
 
 def _text_value(element: Any) -> str:

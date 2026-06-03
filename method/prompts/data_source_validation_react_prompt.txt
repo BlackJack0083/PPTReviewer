@@ -81,6 +81,6 @@ Final JSON schema:
     "request_type": "data_source_slot_clarification",
     "table_index": 0,
     "fields": ["city", "block"],
-    "question": "A concise question for the client."
+    "description": "Concise evidence describing which data-source slots need client clarification."
   }
 }
