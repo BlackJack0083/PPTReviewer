@@ -10,9 +10,6 @@ from utils.data_utils import compact_dataframe, preprocess_raw_data, transpose_d
 from .schemas import BinningRule, MetricRule, TableAnalysisConfig
 
 RANGE_DIMENSIONS = {"area_range", "price_range"}
-TABLE_TYPE_ALIASES = {
-    "constraint-filed": "constraint-field",
-}
 SUPPORTED_TABLE_TYPES = {"field-constraint", "constraint-field", "cross-constraint"}
 
 
@@ -62,15 +59,14 @@ class StatTransformer:
 
     def _normalize_config(self, config: TableAnalysisConfig) -> _ExecutionPlan:
         """将 schema 配置归一化为统一执行语义。"""
-        table_type = TABLE_TYPE_ALIASES.get(config.table_type, config.table_type)
-        if table_type not in SUPPORTED_TABLE_TYPES:
+        if config.table_type not in SUPPORTED_TABLE_TYPES:
             raise ValueError(f"Unknown table type: {config.table_type}")
 
         primary_dim = config.dimensions[0].target_col if config.dimensions else None
         crosstab_row = config.crosstab_row
         crosstab_col = config.crosstab_col
 
-        if table_type == "cross-constraint":
+        if config.table_type == "cross-constraint":
             if crosstab_row is None and len(config.dimensions) >= 1:
                 crosstab_row = config.dimensions[0].target_col
             if crosstab_col is None and len(config.dimensions) >= 2:
@@ -81,7 +77,7 @@ class StatTransformer:
             group_dims = [primary_dim] if primary_dim else []
 
         return _ExecutionPlan(
-            table_type=table_type,
+            table_type=config.table_type,
             primary_dim=primary_dim,
             group_dims=group_dims,
             crosstab_row=crosstab_row,

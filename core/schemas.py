@@ -373,7 +373,7 @@ class TableAnalysisConfig(BaseModel):
     """
 
     table_type: Literal[
-        "field-constraint", "constraint-filed", "constraint-field", "cross-constraint"
+        "field-constraint", "constraint-field", "cross-constraint"
     ] = Field(..., description="表格类型")
 
     # 使用 default_factory=list 防止可变默认参数问题
