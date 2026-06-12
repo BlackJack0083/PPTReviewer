@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import re
 import sys
@@ -34,7 +35,7 @@ TREND_RE = re.compile(
 class InspectRoleClient:
     """测试/检查用 role client，根据 PPTX 文本和 shape 类型生成稳定 role。"""
 
-    def chat(
+    async def achat(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -126,7 +127,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def main() -> None:
+async def main() -> None:
     """运行 parser inspection 并打印逐 case 结果。"""
     args = parse_args()
     split_root = args.benchmark_root / "split" / args.split
@@ -145,7 +146,7 @@ def main() -> None:
     case_results = []
     print(f"Inspecting {len(cases)} parser cases under {split_root}\n")
     for idx, case_dir in enumerate(cases, 1):
-        case_result = inspect_case(agent, case_dir, show_rows=args.show_rows)
+        case_result = await inspect_case(agent, case_dir, show_rows=args.show_rows)
         totals.update(case_result["stats"])
         print_case_result(idx, case_dir, case_result)
         case_results.append({"case_dir": str(case_dir), **case_result})
@@ -220,7 +221,7 @@ def to_jsonable(value: Any) -> Any:
     return value
 
 
-def inspect_case(
+async def inspect_case(
     agent: SlideParserAgent,
     case_dir: Path,
     *,
@@ -232,7 +233,7 @@ def inspect_case(
     corruption_path = case_dir / "corruption.json"
     if corruption_path.exists():
         corruption = json.loads(corruption_path.read_text(encoding="utf-8"))
-    parsed = agent.run(
+    parsed = await agent.arun(
         SlideReviewInput(
             pptx_path=case_dir / "slide.pptx",
             image_path=case_dir / "slide.png",
@@ -254,7 +255,7 @@ def inspect_case(
     table_results = []
 
     for table_idx, (parsed_table, expected_table) in enumerate(
-        zip(parsed_tables, expected_tables),
+        zip(parsed_tables, expected_tables, strict=False),
         1,
     ):
         parsed_csv = Path(parsed_table["body"]["data_path"])
@@ -520,4 +521,4 @@ def format_text_result(name: str, result: dict[str, Any]) -> str:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

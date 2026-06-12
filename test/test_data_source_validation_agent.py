@@ -1,194 +1,814 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import re
 import unittest
+from dataclasses import dataclass
 from typing import Any
+from unittest.mock import patch
 
-from langchain_core.messages import AIMessage
+import pandas as pd
+from langchain.tools import ToolRuntime
 
 from method.agents.client import ClientAgent
 from method.agents.data_source_validation import (
     DataSourceValidationAgent,
-    apply_state_patch,
+    build_validation_payload,
+)
+from method.agents.data_source_validation.tools import (
+    DATA_SOURCE_VALIDATION_TOOLS,
+    DataSourceQueryTool,
+    DataSourceValidationContext,
+)
+
+SLOT_REPLY_RE = re.compile(
+    r"(table|city|block|start_date|end_date)=(.*?)(?=,\s*(?:table|city|block|start_date|end_date)=|\.?$)"
 )
 
 
-class FakeGraph:
-    def invoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+class FakeAgent:
+    async def ainvoke(self, payload: dict[str, Any]) -> dict[str, Any]:
         user_payload = json.loads(payload["messages"][0].content)
-        slots = user_payload["slots"]
-        table_index = user_payload["table_index"]
+        conflict_fields = _fake_conflict_fields(user_payload)
+        if conflict_fields:
+            data_source = _fake_synthesize_final_data_source(user_payload)
+            data_source["filters"]["city"] = "Beijing"
+            return _structured_response(data_source)
+
+        data_source = _fake_synthesize_final_data_source(user_payload)
+        filters = data_source["filters"]
+        slots = {
+            "table": data_source["connection"]["table"],
+            "city": filters["city"],
+            "block": filters["block"],
+            "start_date": filters["start_date"],
+            "end_date": filters["end_date"],
+        }
 
         if not slots["city"]:
-            return _message(
-                {
-                    "status": "needs_client",
-                    "table_index": table_index,
-                    "slot_check_result": [
-                        {"slot": "", "slot_type": "city", "label": "Missing"}
-                    ],
-                    "client_request": {
-                        "request_type": "data_source_slot_clarification",
-                        "table_index": table_index,
-                        "fields": ["city"],
-                        "description": "The city slot is missing.",
-                    },
-                }
-            )
+            data_source["filters"]["city"] = "Beijing"
+            return _structured_response(data_source)
 
         if slots["city"] == "Beijing" and slots["block"] == "Nanshan CBD":
-            return _message(
-                {
-                    "status": "needs_client",
-                    "table_index": table_index,
-                    "slot_check_result": [
-                        {"slot": "Beijing", "slot_type": "city", "label": "Unmatch"},
-                        {
-                            "slot": "Nanshan CBD",
-                            "slot_type": "block",
-                            "label": "Unmatch",
-                        },
-                    ],
-                    "client_request": {
-                        "request_type": "data_source_slot_clarification",
-                        "table_index": table_index,
-                        "fields": ["city", "block"],
-                        "description": "The city and block slots do not match.",
-                    },
-                }
-            )
+            data_source["connection"]["table"] = "shenzhen_new_house"
+            data_source["filters"]["city"] = "Shenzhen"
+            return _structured_response(data_source)
 
-        return _message(
-            {
-                "status": "pass",
-                "table_index": table_index,
-                "slot_check_result": [
-                    {"slot": slots["table"], "slot_type": "table", "label": "Correct"},
-                    {"slot": slots["city"], "slot_type": "city", "label": "Correct"},
-                    {"slot": slots["block"], "slot_type": "block", "label": "Correct"},
-                    {
-                        "slot": f"{slots['start_date']}~{slots['end_date']}",
-                        "slot_type": "time_range",
-                        "label": "Correct",
-                    },
-                ],
-                "client_request": None,
-            }
-        )
+        return _structured_response(data_source)
 
 
 class FakeClient:
     def respond(self, request: dict[str, Any]) -> dict[str, Any]:
-        fields = set(request["fields"])
-        if fields == {"city"}:
+        field = request["field"]
+        if request.get("scope_error_type") == "unmatch" and field in {"city", "block"}:
             return {
-                "matched": True,
-                "state_patch": {
-                    "final_data_source": {"filters": {"city": "Beijing"}}
-                },
+                "response": (
+                    "Please use table=shenzhen_new_house, "
+                    "city=Shenzhen, block=Nanshan CBD."
+                )
             }
-        if {"city", "block"}.issubset(fields):
-            return {
-                "matched": True,
-                "state_patch": {
-                    "final_data_source": {
-                        "connection": {"table": "shenzhen_new_house"},
-                        "filters": {
-                            "city": "Shenzhen",
-                            "block": "Nanshan CBD",
-                        },
-                    }
+        if field == "city":
+            return {"response": "Please use city=Beijing."}
+        return {"response": "I do not have a confirmed correction for this request."}
+
+
+class ToolCallingFakeAgent:
+    """用真实 LangChain tools 模拟 ReAct agent 的关键控制流。
+
+    Args:
+        tools: `DataSourceValidationAgent` 注入给 agent 的 LangChain tools。
+    """
+
+    def __init__(self, tools: list[Any], state: dict[str, Any], context: Any) -> None:
+        """初始化测试 agent。
+
+        Args:
+            tools: `slot_query` 和 `ask_client`。
+
+        Returns:
+            None.
+        """
+        self.tools = {tool.name: tool for tool in tools}
+        self.state = state
+        self.context = context
+
+    def invoke_tool(self, name: str, args: dict[str, Any]) -> dict[str, Any]:
+        command = self.tools[name].func(
+            **args,
+            runtime=ToolRuntime(
+                state=self.state,
+                context=self.context,
+                config={},
+                stream_writer=lambda _: None,
+                tool_call_id=f"fake-{name}",
+                store=None,
+            ),
+        )
+        update = dict(command.update)
+        messages = update.pop("messages", [])
+        self.state.update(update)
+        return json.loads(messages[0].content) if messages else {}
+
+    async def ainvoke(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """模拟一次 ReAct 调用。
+
+        Args:
+            payload: LangChain agent 输入，包含序列化后的 validation payload。
+
+        Returns:
+            与 LangChain agent 兼容的消息结果。
+        """
+        user_payload = json.loads(payload["messages"][0].content)
+        data_source = _fake_synthesize_final_data_source(user_payload)
+        conflict_fields = _fake_conflict_fields(user_payload)
+        if conflict_fields:
+            response = self._ask_client(
+                fields=conflict_fields,
+                scope_error_type="conflict",
+                description=f"Conflicting data-source fields: {conflict_fields}",
+            )
+            if not _merge_client_reply(data_source, response):
+                raise ValueError("Data source validation requires client input: conflict fields")
+
+        missing_fields = _missing_scope_fields(data_source)
+        if missing_fields:
+            response = self._ask_client(
+                fields=missing_fields,
+                scope_error_type="missing",
+                description=f"Missing data-source fields: {missing_fields}",
+            )
+            if not _merge_client_reply(data_source, response):
+                raise ValueError("Data source validation requires client input: missing fields")
+
+        evidence = self.invoke_tool("slot_query", _slots(data_source))
+        if "date_range_error" in evidence:
+            response = self._ask_client(
+                fields=["start_date", "end_date"],
+                scope_error_type="error",
+                description=evidence["date_range_error"],
+            )
+            if not _merge_client_reply(data_source, response):
+                raise ValueError("Data source validation requires client input: invalid date range")
+            evidence = self.invoke_tool("slot_query", _slots(data_source))
+
+        if not evidence["full_scope_has_data"]:
+            response = self._ask_client(
+                fields=["city", "block"],
+                scope_error_type="unmatch",
+                description="Current city/block combination has no database rows.",
+            )
+            if not _merge_client_reply(data_source, response):
+                raise ValueError("Data source validation requires client input: scope unmatch")
+            self.invoke_tool("slot_query", _slots(data_source))
+
+        return _structured_response(data_source)
+
+    def _ask_client(
+        self,
+        *,
+        fields: list[str],
+        scope_error_type: str,
+        description: str,
+    ) -> dict[str, Any]:
+        """通过真实 `ask_client` 发起澄清请求。
+
+        Args:
+            fields: 需要 client 澄清或修正的 data-source slots。
+            scope_error_type: scope 错误细分标签。
+            description: 请求说明。
+
+        Returns:
+            client tool 返回的 response。
+        """
+        response: dict[str, Any] = {}
+        for field in fields:
+            response = self.invoke_tool(
+                "ask_client",
+                {
+                    "error_type": "scope_error",
+                    "scope_error_type": scope_error_type,
+                    "field": field,
+                    "description": description,
                 },
+            )
+            if SLOT_REPLY_RE.search(str(response.get("response", ""))):
+                break
+        return response
+
+
+@dataclass
+class FakeMessage:
+    content: str
+
+
+def run_data_source_tool(
+    name: str,
+    args: dict[str, Any],
+    *,
+    client: Any,
+    query_tool: Any | None = None,
+    state: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    tool = next(item for item in DATA_SOURCE_VALIDATION_TOOLS if item.name == name)
+    runtime_state = state or {"messages": [], "tool_log": []}
+    command = tool.func(
+        **args,
+        runtime=ToolRuntime(
+            state=runtime_state,
+            context=DataSourceValidationContext(
+                client=client,
+                query_tool=query_tool or DataSourceQueryTool(),
+            ),
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id=f"fake-{name}",
+            store=None,
+        ),
+    )
+    update = dict(command.update)
+    messages = update.pop("messages", [])
+    runtime_state.update(update)
+    result = json.loads(messages[0].content) if messages else {}
+    return result, runtime_state
+
+
+class ScenarioQueryTool:
+    """可控数据库证据：北京 + Nanshan CBD 被视为组合不匹配。
+
+    Args:
+        无。
+    """
+
+    def __init__(self) -> None:
+        """初始化查询记录器。
+
+        Args:
+            无。
+
+        Returns:
+            None.
+        """
+        self.calls: list[dict[str, str]] = []
+
+    def run(
+        self,
+        table: str,
+        city: str,
+        block: str,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, Any]:
+        """返回测试用数据库证据。
+
+        Args:
+            table: 待验证的数据库表名。
+            city: 待验证的城市 slot。
+            block: 待验证的板块或区域 slot。
+            start_date: 待验证的开始日期。
+            end_date: 待验证的结束日期。
+
+        Returns:
+            与 `DataSourceQueryTool.run` 兼容的证据字典。
+        """
+        slots = {
+            "table": table,
+            "city": city,
+            "block": block,
+            "start_date": start_date,
+            "end_date": end_date,
+        }
+        self.calls.append(slots)
+        full_scope_rows = not (
+            table == "beijing_new_house"
+            and city == "Beijing"
+            and block == "Nanshan CBD"
+        )
+        return {
+            "table_exists": True,
+            "city_exists": True,
+            "block_exists": True,
+            "table_city_matches": True,
+            "city_block_matches": full_scope_rows,
+            "table_city_block_matches": full_scope_rows,
+            "full_scope_has_data": full_scope_rows,
+        }
+
+
+class FakeDataSourceValidationAgent(DataSourceValidationAgent):
+    def __init__(self) -> None:
+        pass
+
+    async def arun(
+        self,
+        analysis_state: dict[str, Any],
+        client: Any,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        del client
+        result = await FakeAgent().ainvoke(
+            {
+                "messages": [
+                    FakeMessage(
+                        json.dumps(
+                            build_validation_payload(analysis_state),
+                            ensure_ascii=False,
+                        )
+                    )
+                ]
             }
-        return {"matched": False, "state_patch": {}}
+        )
+        return result["structured_response"], []
+
+
+class ToolCallingDataSourceValidationAgent(DataSourceValidationAgent):
+    def __init__(self, query_tool: ScenarioQueryTool) -> None:
+        self.query_tool = query_tool
+
+    async def arun(
+        self,
+        analysis_state: dict[str, Any],
+        client: Any,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        state = {"messages": [], "tool_log": []}
+        agent = ToolCallingFakeAgent(
+            DATA_SOURCE_VALIDATION_TOOLS,
+            state,
+            DataSourceValidationContext(client=client, query_tool=self.query_tool),
+        )
+        result = await agent.ainvoke(
+            {
+                "messages": [
+                    FakeMessage(
+                        json.dumps(
+                            build_validation_payload(analysis_state),
+                            ensure_ascii=False,
+                        )
+                    )
+                ]
+            }
+        )
+        return result["structured_response"], state["tool_log"]
 
 
 class DataSourceValidationAgentTest(unittest.TestCase):
-    def test_apply_state_patch_deep_merges_table_state(self) -> None:
-        state = {
-            "final_data_source": {
-                "connection": {"table": "beijing_new_house"},
-                "filters": {
-                    "city": "",
-                    "block": "Liangxiang",
-                    "start_date": "2020-01-01",
-                    "end_date": "2024-12-31",
-                },
-            }
-        }
-        apply_state_patch(
-            state,
-            {
-                "final_data_source": {"filters": {"city": "Beijing"}}
-            },
-        )
-        self.assertEqual(state["final_data_source"]["filters"]["city"], "Beijing")
-        self.assertEqual(state["final_data_source"]["filters"]["block"], "Liangxiang")
-
-    def test_run_with_client_patches_missing_slot_and_reruns(self) -> None:
+    def test_run_with_client_returns_agent_confirmed_missing_slot_repair(self) -> None:
         state = _analysis_state(city="", block="Liangxiang")
-        agent = DataSourceValidationAgent(graph=FakeGraph())
-        result = agent.run_with_client(state, FakeClient())
+        agent = FakeDataSourceValidationAgent()
+        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
 
-        state = result["analysis_state"]
-        self.assertEqual(state["final_data_source"]["filters"]["city"], "Beijing")
-        self.assertEqual(state["data_source_validation"]["status"], "pass")
-        self.assertEqual(len(result["validation_log"]), 2)
+        self.assertEqual(final_data_source["filters"]["city"], "Beijing")
+        self.assertEqual(interactions, [])
 
-    def test_run_with_client_supports_unmatch_patch_and_rerun(self) -> None:
+    def test_run_with_client_returns_agent_confirmed_unmatch_repair(self) -> None:
         state = _analysis_state(city="Beijing", block="Nanshan CBD")
-        agent = DataSourceValidationAgent(graph=FakeGraph())
-        result = agent.run_with_client(state, FakeClient())
+        agent = FakeDataSourceValidationAgent()
+        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
 
-        data_source = result["analysis_state"]["final_data_source"]
-        self.assertEqual(data_source["connection"]["table"], "shenzhen_new_house")
-        self.assertEqual(data_source["filters"]["city"], "Shenzhen")
-        self.assertEqual(data_source["filters"]["block"], "Nanshan CBD")
-        self.assertEqual(result["analysis_state"]["data_source_validation"]["status"], "pass")
-        self.assertEqual(len(result["validation_log"]), 2)
+        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_new_house")
+        self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
+        self.assertEqual(final_data_source["filters"]["block"], "Nanshan CBD")
+        self.assertEqual(interactions, [])
 
-    def test_client_agent_returns_requested_data_source_patch(self) -> None:
+    def test_run_with_client_lets_agent_detect_candidate_conflict(self) -> None:
+        state = _analysis_state(city="Beijing", block="Liangxiang")
+        state["tables"][0]["caption"]["data_source"]["filters"]["city"] = "Shenzhen"
+        agent = FakeDataSourceValidationAgent()
+        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
+
+        self.assertEqual(final_data_source["filters"]["city"], "Beijing")
+        self.assertEqual(interactions, [])
+
+    def test_ask_client_records_interaction(self) -> None:
+        client = FakeClient()
+
+        response, state = run_data_source_tool(
+            "ask_client",
+            {
+                "error_type": "scope_error",
+                "scope_error_type": "missing",
+                "field": "city",
+                "description": "city is missing",
+            },
+            client=client,
+        )
+
+        self.assertEqual(response, {"response": "Please use city=Beijing."})
+        self.assertIn("city=Beijing", response["response"])
+        self.assertNotIn("matched", response)
+        self.assertNotIn("state_patch", response)
+        self.assertNotIn("city", response)
+        self.assertEqual(state["tool_log"][0]["tool"], "ask_client")
+        self.assertEqual(state["tool_log"][0]["request"]["field"], "city")
+        self.assertEqual(state["tool_log"][0]["response"], response)
+
+    def test_ask_client_returns_plain_customer_reply_when_unmatched(self) -> None:
+        response, state = run_data_source_tool(
+            "ask_client",
+            {
+                "error_type": "scope_error",
+                "scope_error_type": "missing",
+                "field": "block",
+                "description": "block is missing",
+            },
+            client=ClientAgent(feedback_items=[]),
+        )
+
+        self.assertEqual(
+            response,
+            {"response": "I do not have a confirmed correction for this request."},
+        )
+        self.assertEqual(state["tool_log"][0]["tool"], "ask_client")
+        self.assertEqual(state["tool_log"][0]["response"], response)
+
+    def test_client_agent_returns_configured_response(self) -> None:
         client = ClientAgent(
             feedback_items=[
                 {
                     "request_type": "data_source_slot_clarification",
-                    "table_index": 0,
-                    "fields": ["city", "block"],
-                    "targets": ["st.caption"],
-                    "state_patch": {
-                        "final_data_source": {
-                            "connection": {"table": "shenzhen_new_house"},
-                            "filters": {
-                                "city": "Shenzhen",
-                                "block": "Nanshan CBD",
-                            },
-                        }
-                    },
+                    "scope_error_type": "unmatch",
+                    "field": "city",
+                    "target": "st.caption",
+                    "response": (
+                        "Please use table=shenzhen_new_house, "
+                        "city=Shenzhen, block=Nanshan CBD."
+                    ),
                 }
             ]
         )
         response = client.respond(
             {
                 "request_type": "data_source_slot_clarification",
-                "table_index": 0,
-                "fields": ["city", "block", "table"],
+                "scope_error_type": "unmatch",
+                "field": "city",
+                "target": "st.caption",
             }
         )
 
-        self.assertTrue(response["matched"])
-        data_source_patch = response["state_patch"]["final_data_source"]
         self.assertEqual(
-            data_source_patch["connection"]["table"],
-            "shenzhen_new_house",
-        )
-        self.assertEqual(
-            data_source_patch["filters"],
-            {"city": "Shenzhen", "block": "Nanshan CBD"},
+            response,
+            {
+                "response": (
+                    "Please use table=shenzhen_new_house, "
+                    "city=Shenzhen, block=Nanshan CBD."
+                )
+            },
         )
 
+    def test_client_agent_matches_slide_level_scope_request_without_target(self) -> None:
+        client = ClientAgent(
+            feedback_items=[
+                {
+                    "request_type": "data_source_slot_clarification",
+                    "scope_error_type": "error",
+                    "field": "time_range",
+                    "response": (
+                        "Please use start_date=2020-01-01, "
+                        "end_date=2024-12-31."
+                    ),
+                }
+            ]
+        )
+        response = client.respond(
+            {
+                "request_type": "data_source_slot_clarification",
+                "field": "time_range",
+                "error_type": "scope_error",
+                "scope_error_type": "error",
+            }
+        )
 
-def _message(payload: dict[str, Any]) -> dict[str, list[AIMessage]]:
-    return {"messages": [AIMessage(content=json.dumps(payload, ensure_ascii=False))]}
+        self.assertEqual(
+            response,
+            {
+                "response": (
+                    "Please use start_date=2020-01-01, "
+                    "end_date=2024-12-31."
+                )
+            },
+        )
+
+    def test_client_agent_matches_targeted_data_source_response(self) -> None:
+        client = ClientAgent(
+            feedback_items=[
+                {
+                    "request_type": "data_source_slot_clarification",
+                    "scope_error_type": "unmatch",
+                    "field": "block",
+                    "target": "st.caption",
+                    "response": "Please use block=Miyun District.",
+                }
+            ]
+        )
+
+        response = client.respond(
+            {
+                "request_type": "data_source_slot_clarification",
+                "field": "block",
+                "target": "st.caption",
+                "error_type": "scope_error",
+                "scope_error_type": "unmatch",
+            }
+        )
+
+        self.assertEqual(response, {"response": "Please use block=Miyun District."})
+
+    def test_validation_payload_keeps_only_scope_slots(self) -> None:
+        state = _analysis_state(city="Beijing", block="Liangxiang")
+
+        payload = build_validation_payload(state)
+
+        self.assertEqual(
+            [candidate["source"] for candidate in payload["source_candidates"]],
+            ["summary", "caption[0]"],
+        )
+        caption_candidate = payload["source_candidates"][1]["data_source"]
+        self.assertNotIn("select_columns", caption_candidate)
+        self.assertEqual(caption_candidate["filters"]["block"], "Liangxiang")
+
+    def test_tool_calling_agent_records_missing_slot_interaction(self) -> None:
+        state = _analysis_state(city="", block="Liangxiang")
+        query_tool = ScenarioQueryTool()
+        agent = ToolCallingDataSourceValidationAgent(query_tool)
+
+        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+
+        self.assertEqual(final_data_source["filters"]["city"], "Beijing")
+        self.assertEqual([item["tool"] for item in tool_log], ["ask_client", "slot_query"])
+        ask_client_log = tool_log[0]
+        self.assertEqual(ask_client_log["request"]["scope_error_type"], "missing")
+        self.assertEqual(ask_client_log["request"]["field"], "city")
+        self.assertEqual(len(query_tool.calls), 1)
+
+    def test_tool_calling_agent_queries_then_repairs_unmatch(self) -> None:
+        state = _analysis_state(city="Beijing", block="Nanshan CBD")
+        query_tool = ScenarioQueryTool()
+        agent = ToolCallingDataSourceValidationAgent(query_tool)
+
+        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+
+        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_new_house")
+        self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
+        self.assertEqual(
+            [item["tool"] for item in tool_log],
+            ["slot_query", "ask_client", "slot_query"],
+        )
+        self.assertEqual(tool_log[1]["request"]["scope_error_type"], "unmatch")
+        self.assertEqual(len(query_tool.calls), 2)
+
+    def test_real_estate_beijing_liangxiang_example_validates_without_client(self) -> None:
+        state = _real_estate_analysis_state(
+            summary_text="From 2020 to 2024, Beijing Liangxiang supply and transaction area both increased.",
+            caption_text="Beijing Liangxiang: Historical Supply and Transaction Area Statistics (2020-2024)",
+            table="beijing_new_house",
+            city="Beijing",
+            block="Liangxiang",
+            start_date="2020-01-01",
+            end_date="2024-12-31",
+        )
+        query_tool = ScenarioQueryTool()
+        agent = ToolCallingDataSourceValidationAgent(query_tool)
+
+        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+
+        self.assertEqual(
+            final_data_source,
+            {
+                "connection": {"table": "beijing_new_house"},
+                "filters": {
+                    "city": "Beijing",
+                    "block": "Liangxiang",
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            },
+        )
+        self.assertEqual([item["tool"] for item in tool_log], ["slot_query"])
+        self.assertEqual(tool_log[0]["args"], _slots(final_data_source))
+        self.assertEqual(query_tool.calls, [_slots(final_data_source)])
+
+    def test_real_estate_shenzhen_nanshan_example_keeps_real_date_fields(self) -> None:
+        state = _real_estate_analysis_state(
+            summary_text="Shenzhen Nanshan CBD resale house area segment statistics from 2021 to 2023.",
+            caption_text="2021-2023 Shenzhen Nanshan CBD Resale House Total Area Segment Distribution Statistics",
+            table="shenzhen_resale_house",
+            city="Shenzhen",
+            block="Nanshan CBD",
+            start_date="2021-01-01",
+            end_date="2023-12-31",
+        )
+        query_tool = ScenarioQueryTool()
+        agent = ToolCallingDataSourceValidationAgent(query_tool)
+
+        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+
+        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_resale_house")
+        self.assertEqual(final_data_source["filters"]["start_date"], "2021-01-01")
+        self.assertEqual(final_data_source["filters"]["end_date"], "2023-12-31")
+        self.assertNotIn("time_range", final_data_source["filters"])
+        self.assertEqual([item["tool"] for item in tool_log], ["slot_query"])
+        self.assertEqual(len(query_tool.calls), 1)
+
+    def test_real_estate_candidate_conflict_asks_client_before_query(self) -> None:
+        state = _real_estate_analysis_state(
+            summary_text="Beijing Liangxiang market from 2020 to 2024 increased.",
+            caption_text="2021-2023 Shenzhen Nanshan CBD Resale House Total Area Segment Distribution Statistics",
+            table="beijing_new_house",
+            city="Beijing",
+            block="Liangxiang",
+            start_date="2020-01-01",
+            end_date="2024-12-31",
+        )
+        state["tables"][0]["caption"]["data_source"] = {
+            "connection": {"table": "shenzhen_resale_house"},
+            "select_columns": ["date_code", "area_segment", "total_area"],
+            "filters": {
+                "city": "Shenzhen",
+                "block": "Nanshan CBD",
+                "start_date": "2021-01-01",
+                "end_date": "2023-12-31",
+            },
+        }
+        query_tool = ScenarioQueryTool()
+        agent = ToolCallingDataSourceValidationAgent(query_tool)
+        client = ClientAgent(
+            feedback_items=[
+                {
+                    "request_type": "data_source_slot_clarification",
+                    "scope_error_type": "conflict",
+                    "field": "table",
+                    "response": (
+                        "Please use table=shenzhen_resale_house, city=Shenzhen, "
+                        "block=Nanshan CBD, start_date=2021-01-01, "
+                        "end_date=2023-12-31."
+                    ),
+                }
+            ]
+        )
+
+        final_data_source, tool_log = asyncio.run(agent.arun(state, client))
+
+        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_resale_house")
+        self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
+        self.assertEqual([item["tool"] for item in tool_log], ["ask_client", "slot_query"])
+        self.assertEqual(tool_log[0]["request"]["scope_error_type"], "conflict")
+        self.assertEqual(tool_log[0]["request"]["field"], "table")
+        self.assertEqual(query_tool.calls, [_slots(final_data_source)])
+
+    def test_tool_calling_agent_fails_when_client_has_no_matching_feedback(self) -> None:
+        state = _analysis_state(city="Beijing", block="Nanshan CBD")
+        agent = ToolCallingDataSourceValidationAgent(ScenarioQueryTool())
+
+        with self.assertRaisesRegex(ValueError, "requires client input"):
+            asyncio.run(agent.arun(state, ClientAgent(feedback_items=[])))
+
+    def test_slot_query_returns_database_evidence(self) -> None:
+        calls: list[tuple[str, dict[str, str] | None]] = []
+
+        def query_func(sql: str, params: dict[str, str] | None = None) -> pd.DataFrame:
+            calls.append((sql, params))
+            if "information_schema.tables" in sql:
+                return pd.DataFrame([{"table_name": "beijing_new_house"}])
+            if "AS full_scope" in sql:
+                return pd.DataFrame([{"full_scope": False}])
+            return pd.DataFrame(
+                [
+                    {
+                        "table_city": True,
+                        "table_block": True,
+                        "table_city_block": False,
+                    }
+                ]
+            )
+
+        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+            evidence = DataSourceQueryTool().run(
+                table="beijing_new_house",
+                city="Beijing",
+                block="Nanshan CBD",
+                start_date="2020-01-01",
+                end_date="2024-12-31",
+            )
+
+        self.assertTrue(evidence["table_exists"])
+        self.assertFalse(evidence["full_scope_has_data"])
+        self.assertEqual(len(calls), 3)
+
+    def test_slot_query_skips_full_scope_when_date_range_invalid(self) -> None:
+        calls: list[tuple[str, dict[str, str] | None]] = []
+
+        def query_func(sql: str, params: dict[str, str] | None = None) -> pd.DataFrame:
+            calls.append((sql, params))
+            raise AssertionError(f"Invalid date range should not query database: {sql}")
+
+        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+            evidence = DataSourceQueryTool().run(
+                table="beijing_new_house",
+                city="Beijing",
+                block="Liangxiang",
+                start_date="bad-date",
+                end_date="2024-12-31",
+            )
+
+        self.assertEqual(
+            evidence,
+            {
+                "date_range_error": (
+                    "start_date/end_date must be valid dates and start_date must be "
+                    "less than or equal to end_date."
+                )
+            },
+        )
+        self.assertEqual(calls, [])
+
+
+def _structured_response(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    return {"structured_response": payload}
+
+
+def _fake_synthesize_final_data_source(payload: dict[str, Any]) -> dict[str, Any]:
+    synthesized = {
+        "connection": {"table": ""},
+        "filters": {
+            "city": "",
+            "block": "",
+            "start_date": "",
+            "end_date": "",
+        },
+    }
+    for candidate in payload["source_candidates"]:
+        data_source = candidate["data_source"]
+        if not synthesized["connection"]["table"]:
+            synthesized["connection"]["table"] = data_source["connection"]["table"]
+        for key in ("city", "block", "start_date", "end_date"):
+            if not synthesized["filters"][key]:
+                synthesized["filters"][key] = data_source["filters"][key]
+    return synthesized
+
+
+def _fake_conflict_fields(payload: dict[str, Any]) -> list[str]:
+    conflict_fields: list[str] = []
+    slot_paths = {
+        "table": ("connection", "table"),
+        "city": ("filters", "city"),
+        "block": ("filters", "block"),
+        "start_date": ("filters", "start_date"),
+        "end_date": ("filters", "end_date"),
+    }
+    for field, path in slot_paths.items():
+        values = []
+        for candidate in payload["source_candidates"]:
+            value = candidate["data_source"][path[0]][path[1]]
+            if value and value not in values:
+                values.append(value)
+        if len(values) > 1:
+            conflict_fields.append(field)
+    return conflict_fields
+
+
+def _missing_scope_fields(data_source: dict[str, Any]) -> list[str]:
+    fields = []
+    if not data_source["connection"]["table"]:
+        fields.append("table")
+    filters = data_source["filters"]
+    for key in ("city", "block"):
+        if not filters[key]:
+            fields.append(key)
+    if not filters["start_date"]:
+        fields.append("start_date")
+    if not filters["end_date"]:
+        fields.append("end_date")
+    return fields
+
+
+def _merge_client_reply(
+    data_source: dict[str, Any],
+    response: dict[str, Any],
+) -> bool:
+    updated = False
+    text = str(response.get("response", ""))
+    slots = {
+        match.group(1): match.group(2).strip(" .")
+        for match in SLOT_REPLY_RE.finditer(text)
+    }
+    if slots.get("table"):
+        data_source["connection"]["table"] = slots["table"]
+        updated = True
+    for key in ("city", "block", "start_date", "end_date"):
+        if slots.get(key):
+            data_source["filters"][key] = slots[key]
+            updated = True
+    return updated
+
+
+def _slots(data_source: dict[str, Any]) -> dict[str, str]:
+    filters = data_source["filters"]
+    return {
+        "table": data_source["connection"]["table"],
+        "city": filters["city"],
+        "block": filters["block"],
+        "start_date": filters["start_date"],
+        "end_date": filters["end_date"],
+    }
 
 
 def _analysis_state(city: str, block: str) -> dict[str, Any]:
@@ -222,6 +842,49 @@ def _analysis_state(city: str, block: str) -> dict[str, Any]:
                 },
             }
         ]
+    }
+
+
+def _real_estate_analysis_state(
+    *,
+    summary_text: str,
+    caption_text: str,
+    table: str,
+    city: str,
+    block: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, Any]:
+    return {
+        "summary": {
+            "text": summary_text,
+            "data_source": {
+                "connection": {"table": table},
+                "filters": {
+                    "city": city,
+                    "block": block,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            },
+        },
+        "tables": [
+            {
+                "caption": {
+                    "text": caption_text,
+                    "data_source": {
+                        "connection": {"table": table},
+                        "select_columns": ["date_code", "supply_sets", "trade_sets", "dim_area"],
+                        "filters": {
+                            "city": city,
+                            "block": block,
+                            "start_date": start_date,
+                            "end_date": end_date,
+                        },
+                    },
+                },
+            }
+        ],
     }
 
 if __name__ == "__main__":

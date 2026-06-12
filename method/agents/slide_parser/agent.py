@@ -84,7 +84,7 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
         `observed_slide` 初始结构，包含 `slide_size` 和 `elements`。
         此时 `elements` 中还没有 `role` 字段。
 
-    Exceptions:
+    Raises:
         IndexError: 当 `slide_idx` 超出 PPTX 页数时抛出。
     """
     presentation = Presentation(pptx_path)
@@ -150,7 +150,7 @@ def validate_role_labels(
     Returns:
         规范化后的 role 标注列表，每项为 `{"id": ..., "role": ...}`。
 
-    Exceptions:
+    Raises:
         ValueError: 当 role 项格式错误、id 未知、id 重复、role 不在允许集合、
             或存在未标注元素时抛出。
     """
@@ -194,7 +194,6 @@ class SlideParserAgent:
         timeout_sec: int = 120,
         enable_thinking: bool | None = False,
         client: Any | None = None,
-        role_labeling_prompt_path: Path = DEFAULT_ROLE_LABELING_PROMPT_PATH,
     ):
         """初始化 slide parser。
 
@@ -205,15 +204,16 @@ class SlideParserAgent:
             timeout_sec: 单次请求超时时间，单位秒。
             enable_thinking: 是否通过 `extra_body` 打开模型 thinking。
             client: 可选的已构造 client，主要用于测试或外部统一注入。
-            role_labeling_prompt_path: role 标注 prompt 文件路径。
 
         Returns:
             None。
 
-        Exceptions:
+        Raises:
             ValueError: 当未提供 `client` 且 `model` 为空时抛出。
         """
-        self.role_labeling_prompt = role_labeling_prompt_path.read_text(encoding="utf-8")
+        self.role_labeling_prompt = DEFAULT_ROLE_LABELING_PROMPT_PATH.read_text(
+            encoding="utf-8"
+        )
         if client is not None:
             self.client = client
         else:
@@ -223,10 +223,11 @@ class SlideParserAgent:
                 model=model,
                 api_key=api_key,
                 base_url=base_url,
+                timeout_sec=timeout_sec,
                 enable_thinking=enable_thinking,
             )
 
-    def run(self, slide_input: SlideReviewInput) -> dict[str, Any]:
+    async def arun(self, slide_input: SlideReviewInput) -> dict[str, Any]:
         """执行单页 slide 的 Phase 1 parser 流程。
 
         Args:
@@ -239,29 +240,28 @@ class SlideParserAgent:
             `ppt_representation` 为简化后的 slide 表示，并引用导出的 CSV。
         """
         raw_elements = extract_pptx_elements(slide_input.pptx_path)
-
-        prompt_elements = []
-        for element in raw_elements.get("elements", []):
-            prompt_element = {
-                "id": str(element.get("id")),
-                "type": element.get("type"),
-                "layout": element.get("layout"),
-            }
-            if element.get("type") == "textBox":
-                prompt_element["text"] = element.get("text", "")
-            else:
-                prompt_element["shape_kind"] = element.get("_shape_kind") or element.get("type")
-            prompt_elements.append(prompt_element)
         prompt = "Input elements:\n" + json.dumps(
             {
-                "slide_size": raw_elements.get("slide_size"),
-                "elements": prompt_elements,
+                "slide_size": raw_elements["slide_size"],
+                "elements": [
+                    {
+                        "id": element["id"],
+                        "type": element["type"],
+                        "layout": element["layout"],
+                        **(
+                            {"text": element["text"]}
+                            if element["type"] == "textBox"
+                            else {"shape_kind": element.get("_shape_kind", element["type"])}
+                        ),
+                    }
+                    for element in raw_elements["elements"]
+                ],
                 "allowed_roles": sorted(ROLE_SET),
             },
             ensure_ascii=False,
             indent=2,
         )
-        content = self.client.chat(
+        content = await self.client.achat(
             self.role_labeling_prompt,
             prompt,
             image_path=slide_input.image_path,
@@ -276,7 +276,7 @@ class SlideParserAgent:
             for item in validate_role_labels(raw_elements, roles)
         }
         observed_slide = {
-            "slide_size": raw_elements.get("slide_size", {}),
+            "slide_size": raw_elements["slide_size"],
             "elements": [
                 {
                     **{
@@ -284,9 +284,9 @@ class SlideParserAgent:
                         for key, value in element.items()
                         if not str(key).startswith("_")
                     },
-                    "role": role_by_id[str(element.get("id"))],
+                    "role": role_by_id[element["id"]],
                 }
-                for element in raw_elements.get("elements", [])
+                for element in raw_elements["elements"]
             ],
         }
         ppt_representation = build_ppt_representation(
@@ -322,14 +322,16 @@ def build_ppt_representation(
     presentation = Presentation(pptx_path)
     slide = presentation.slides[slide_idx]
     elements = list(observed_slide.get("elements", []))
-    title = next((element for element in elements if element.get("role") == "title"), None)
-    summary = next((element for element in elements if element.get("role") == "summary"), None)
+    title = _single_role(elements, "title")
+    summary = _single_role(elements, "summary")
     captions = [element for element in elements if element.get("role") == "caption"]
     bodies = [
         element
         for element in elements
         if element.get("role") in {"chart-bar", "chart-line", "chart-pie", "table"}
     ]
+    if not bodies:
+        raise ValueError("Parser found no chart/table body elements.")
 
     structured_tables = []
     output_dir = pptx_path.parent
@@ -344,7 +346,7 @@ def build_ppt_representation(
             writer.writerows(rows)
         structured_tables.append(
             {
-                "caption": _compact_text_element(caption),
+                "caption": _compact_text_element(caption, "caption"),
                 "header": header,
                 "body": {
                     "element_id": str(body_element.get("id")),
@@ -355,33 +357,58 @@ def build_ppt_representation(
         )
 
     return {
-        "title": _compact_text_element(title),
-        "summary": _compact_text_element(summary),
+        "title": _compact_text_element(title, "title"),
+        "summary": _compact_text_element(summary, "summary"),
         "structured_tables": structured_tables,
     }
 
 
-def _compact_text_element(element: dict[str, Any] | None) -> dict[str, Any] | None:
+def _single_role(elements: list[dict[str, Any]], role: str) -> dict[str, Any]:
+    """读取唯一的 slide-level 文本元素。
+
+    Args:
+        elements: 已标注 role 的 PPT 元素列表。
+        role: 要读取的 role 名称。
+
+    Returns:
+        唯一匹配该 role 的元素。
+
+    Raises:
+        ValueError: 没有匹配元素或匹配元素超过一个时抛出。
+    """
+    matches = [element for element in elements if element.get("role") == role]
+    if len(matches) != 1:
+        raise ValueError(f"Parser expected exactly one {role}, got {len(matches)}.")
+    return matches[0]
+
+
+def _compact_text_element(element: dict[str, Any], context: str) -> dict[str, Any]:
     """压缩文本元素，只保留后续需要的字段。
 
     Args:
-        element: 带文本的元素；可以为 None。
+        element: 带文本的元素。
+        context: 用于错误消息的字段名。
 
     Returns:
-        包含 `element_id` 和 `text` 的字典；输入为空时返回 None。
+        包含 `element_id` 和 `text` 的字典。
+
+    Raises:
+        ValueError: 文本元素缺少 id 或 text 时抛出。
     """
-    if not element:
-        return None
+    text = str(element.get("text", "")).strip()
+    element_id = str(element.get("id", "")).strip()
+    if not element_id or not text:
+        raise ValueError(f"Parser {context} must contain non-empty id and text.")
     return {
-        "element_id": str(element.get("id")),
-        "text": str(element.get("text", "")).strip(),
+        "element_id": element_id,
+        "text": text,
     }
 
 
 def _nearest_caption(
     body_element: dict[str, Any],
     captions: list[dict[str, Any]],
-) -> dict[str, Any] | None:
+) -> dict[str, Any]:
     """为 chart/table body 选择空间位置最近的 caption。
 
     Args:
@@ -389,10 +416,13 @@ def _nearest_caption(
         captions: 候选 caption 元素列表。
 
     Returns:
-        距离 body 中心点最近的 caption；没有候选时返回 None。
+        距离 body 中心点最近的 caption。
+
+    Raises:
+        ValueError: 没有 caption 候选时抛出。
     """
     if not captions:
-        return None
+        raise ValueError(f"Parser found no caption for body element {body_element['id']}.")
 
     def center(layout: dict[str, Any]) -> tuple[float, float]:
         return (
@@ -420,18 +450,27 @@ def _extract_body_table(shape, role: str) -> tuple[list[str], list[list[Any]]]:
     """
     if role == "table":
         raw_rows = [
-            [str(shape.table.cell(row_idx, col_idx).text).strip() for col_idx in range(len(shape.table.columns))]
+            [
+                str(shape.table.cell(row_idx, col_idx).text).strip()
+                for col_idx in range(len(shape.table.columns))
+            ]
             for row_idx in range(len(shape.table.rows))
         ]
-        return (raw_rows[0] if raw_rows else []), raw_rows[1:]
+        if not raw_rows or not raw_rows[0]:
+            raise ValueError("Parser cannot export an empty PPT table.")
+        return raw_rows[0], raw_rows[1:]
 
     chart = shape.chart
     categories = [str(category.label) for category in chart.plots[0].categories]
     series = list(chart.series)
+    if not categories or not series:
+        raise ValueError("Parser cannot export an empty chart.")
     header = ["category"] + [str(item.name) for item in series]
     rows = []
     for idx, category in enumerate(categories):
-        rows.append([category] + [item.values[idx] if idx < len(item.values) else "" for item in series])
+        rows.append(
+            [category] + [item.values[idx] if idx < len(item.values) else "" for item in series]
+        )
     return header, rows
 
 

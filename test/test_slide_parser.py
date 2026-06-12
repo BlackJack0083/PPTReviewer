@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import unittest
 from pathlib import Path
@@ -8,7 +9,7 @@ from method.agents import SlideParserAgent, SlideReviewInput, extract_pptx_eleme
 
 
 class SequentialRoleClient:
-    def chat(
+    async def achat(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -49,10 +50,12 @@ class TestSlideParser(unittest.TestCase):
         self.assertNotIn("data", observed_slide["elements"][-1])
 
     def test_slide_parser_agent_merges_roles_and_exports_csv(self):
-        result = SlideParserAgent(client=SequentialRoleClient()).run(
-            SlideReviewInput(
-                pptx_path=self.pptx_path,
-                image_path=self.image_path,
+        result = asyncio.run(
+            SlideParserAgent(client=SequentialRoleClient()).arun(
+                SlideReviewInput(
+                    pptx_path=self.pptx_path,
+                    image_path=self.image_path,
+                )
             )
         )
 

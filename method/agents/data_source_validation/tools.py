@@ -1,19 +1,18 @@
-"""仅供 `DataSourceValidationAgent` 使用的工具。
-
-这个文件放在 `agent.py` 旁边，是为了明确：只有数据源验证 ReAct agent
-可以直接调用数据库 slot 验证工具。工具只返回证据；Missing/Error/Unmatch/
-Correct 的标签判断由 LLM agent 根据 prompt 完成。
-"""
+"""DataSourceValidationAgent 使用的 LangChain/LangGraph tools。"""
 
 from __future__ import annotations
 
+import json
+from dataclasses import dataclass, field
 from typing import Any
 
 import pandas as pd
-from langchain_core.tools import StructuredTool
-from pydantic import BaseModel, Field
+from langchain.agents import AgentState
+from langchain.messages import ToolMessage
+from langchain.tools import ToolRuntime, tool
+from langgraph.types import Command
 
-from core.database import db_manager
+from method.database import query as database_query
 
 REAL_ESTATE_TABLES = [
     "beijing_new_house",
@@ -23,16 +22,6 @@ REAL_ESTATE_TABLES = [
     "shenzhen_new_house",
     "shenzhen_resale_house",
 ]
-
-
-class DataSourceSlots(BaseModel):
-    """定位底层房地产数据源所需的 slots。"""
-
-    table: str = Field(..., description="Database table name, e.g. beijing_new_house")
-    city: str = Field(..., description="City slot extracted from the slide")
-    block: str = Field(..., description="Block or district slot extracted from the slide")
-    start_date: str = Field(..., description="Start date in YYYY-MM-DD format")
-    end_date: str = Field(..., description="End date in YYYY-MM-DD format")
 
 
 class DataSourceQueryTool:
@@ -45,15 +34,8 @@ class DataSourceQueryTool:
     只需要判断当前 PPT 声称的数据源是否能检索到数据。
     """
 
-    def __init__(self, database: Any = db_manager, tables: list[str] | None = None):
-        """初始化数据库驱动的 data-source checker。
-
-        Args:
-            database: 暴露 `query(sql, params=None)` 的数据库适配器。
-            tables: 可选的房地产数据表白名单。
-        """
-        self.database = database
-        self.tables = list(tables or REAL_ESTATE_TABLES)
+    def __init__(self) -> None:
+        """初始化数据库驱动的 data-source checker。"""
         self._existing_tables_cache: set[str] | None = None
 
     def run(
@@ -74,114 +56,96 @@ class DataSourceQueryTool:
             end_date: PPT 声称的结束日期，格式为 `YYYY-MM-DD`。
 
         Returns:
-            供 ReAct prompt 使用的证据字典。计数被编码为 `0/1`，让 LLM 可以
-            在不看到原始 SQL rows 的情况下判断 Missing/Error/Unmatch/Correct。
+            供 ReAct prompt 使用的布尔证据字典。
         """
-        slots = {
-            "table": table,
-            "city": city,
-            "block": block,
-            "start_date": start_date,
-            "end_date": end_date,
-        }
-        table_exists = self._table_exists(table)
-        date_valid = _valid_date_order(start_date, end_date)
+        start = pd.to_datetime(start_date, errors="coerce")
+        end = pd.to_datetime(end_date, errors="coerce")
+        date_valid = not pd.isna(start) and not pd.isna(end) and bool(start <= end)
+        if not date_valid:
+            return {
+                "date_range_error": (
+                    "start_date/end_date must be valid dates and start_date must be less than or equal to end_date."
+                ),
+            }
 
-        table_city_rows = False
-        table_block_rows = False
-        table_city_block_rows = False
-        full_scope_rows = False
+        if self._existing_tables_cache is None:
+            allowed_tables = ", ".join(f"'{table_name}'" for table_name in REAL_ESTATE_TABLES)
+            result = database_query(
+                f"""
+                SELECT table_name
+                FROM information_schema.tables
+                WHERE table_schema = 'public' AND table_name IN ({allowed_tables})
+                """,  # nosec - table names come from the static allowlist.
+            )
+            self._existing_tables_cache = {
+                str(row["table_name"]) for _, row in result.iterrows()
+            }
+
+        table_exists = table in self._existing_tables_cache
+
+        scope_checks = {
+            "table_city": False,
+            "table_block": False,
+            "table_city_block": False,
+            "full_scope": False,
+        }
         if table_exists:
-            table_checks = self._table_scope_checks(
+            scope_checks = self._query_table_scope(
                 table=table,
                 city=city,
                 block=block,
-                start_date=start_date,
-                end_date=end_date,
-                include_time_range=date_valid,
             )
-            table_city_rows = table_checks["table_city"]
-            table_block_rows = table_checks["table_block"]
-            table_city_block_rows = table_checks["table_city_block"]
-            full_scope_rows = table_checks["full_scope"]
+            full_scope_result = database_query(
+                f"""
+                SELECT EXISTS (
+                    SELECT 1
+                    FROM public.{table}
+                    WHERE city = :city
+                      AND block = :block
+                      AND date_code >= :start_date
+                      AND date_code <= :end_date
+                    LIMIT 1
+                ) AS full_scope
+                """,  # nosec - table name comes from the static allowlist.
+                {
+                    "city": city,
+                    "block": block,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                },
+            )
+            scope_checks["full_scope"] = bool(full_scope_result.iloc[0]["full_scope"])
 
         return {
-            "input_slots": slots,
-            "single_slot_counts": {
-                "table": int(table_exists),
-                "city": int(table_city_rows),
-                "block": int(table_block_rows),
-                "time_range": int(date_valid),
-            },
-            "combination_counts": {
-                "table_city": int(table_city_rows),
-                "city_block": int(table_city_block_rows),
-                "table_city_block": int(table_city_block_rows),
-                "full_scope_rows": int(full_scope_rows),
-            },
-            "checks": {
-                "table_exists": table_exists,
-                "city_exists": table_city_rows,
-                "block_exists": table_block_rows,
-                "time_range_valid": date_valid,
-                "table_city_matches": table_city_rows,
-                "city_block_matches": table_city_block_rows,
-                "table_city_block_matches": table_city_block_rows,
-                "full_scope_has_data": full_scope_rows,
-            },
+            "table_exists": table_exists,
+            "city_exists": scope_checks["table_city"],
+            "block_exists": scope_checks["table_block"],
+            "table_city_matches": scope_checks["table_city"],
+            "city_block_matches": scope_checks["table_city_block"],
+            "table_city_block_matches": scope_checks["table_city_block"],
+            "full_scope_has_data": scope_checks["full_scope"],
         }
 
-    def _table_exists(self, table: str) -> bool:
-        return table in self._existing_tables()
-
-    def _existing_tables(self) -> set[str]:
-        if self._existing_tables_cache is not None:
-            return self._existing_tables_cache
-
-        allowed_tables = ", ".join(f"'{table}'" for table in self.tables)
-        result = self.database.query(
-            f"""
-            SELECT table_name
-            FROM information_schema.tables
-            WHERE table_schema = 'public' AND table_name IN ({allowed_tables})
-            """,  # nosec - table names come from the static allowlist.
-        )
-        self._existing_tables_cache = {str(row["table_name"]) for _, row in result.iterrows()}
-        return self._existing_tables_cache
-
-    def _table_scope_checks(
+    def _query_table_scope(
         self,
         *,
         table: str,
         city: str,
         block: str,
-        start_date: str,
-        end_date: str,
-        include_time_range: bool,
     ) -> dict[str, bool]:
-        if table not in self.tables:
-            return {
-                "table_city": False,
-                "table_block": False,
-                "table_city_block": False,
-                "full_scope": False,
-            }
-        full_scope_sql = (
-            f"""
-            EXISTS (
-                SELECT 1
-                FROM public.{table}
-                WHERE city = :city
-                  AND block = :block
-                  AND date_code >= :start_date
-                  AND date_code <= :end_date
-                LIMIT 1
-            )
-            """
-            if include_time_range
-            else "FALSE"
-        )
-        result = self.database.query(
+        """在当前表内检查 city/block 组合是否有数据。
+
+        Args:
+            table: 已通过 allowlist 和存在性检查的数据库表名。
+            city: PPT 声称的城市 slot。
+            block: PPT 声称的板块或区域 slot。
+
+        Returns:
+            包含 `table_city`、`table_block`、`table_city_block` 和
+            `full_scope` 四个布尔检查结果的字典。`full_scope` 默认是
+            `False`，由 `run` 在日期合法时补充。
+        """
+        result = database_query(
             f"""
             SELECT
                 EXISTS (
@@ -201,79 +165,155 @@ class DataSourceQueryTool:
                     FROM public.{table}
                     WHERE city = :city AND block = :block
                     LIMIT 1
-                ) AS table_city_block,
-                {full_scope_sql} AS full_scope
+                ) AS table_city_block
             """,  # nosec - table name comes from the static allowlist.
             {
                 "city": city,
                 "block": block,
-                "start_date": start_date,
-                "end_date": end_date,
             },
         )
-        if result.empty:
-            return {
-                "table_city": False,
-                "table_block": False,
-                "table_city_block": False,
-                "full_scope": False,
-            }
         row = result.iloc[0]
         return {
             "table_city": bool(row["table_city"]),
             "table_block": bool(row["table_block"]),
             "table_city_block": bool(row["table_city_block"]),
-            "full_scope": bool(row["full_scope"]),
+            "full_scope": False,
         }
 
 
-def build_data_source_query_tool(
-    query_tool: DataSourceQueryTool | None = None,
-) -> StructuredTool:
-    """构建暴露给 ReAct agent 的 LangChain StructuredTool。
+@dataclass
+class DataSourceValidationContext:
+    """Data source validation tools 的运行上下文。
 
     Args:
-        query_tool: 可选的测试 runner。未提供时使用真实数据库驱动的
-            `DataSourceQueryTool`。
-
-    Returns:
-        名为 `data_source_query_tool` 的 LangChain-compatible structured tool。
+        client: 具备 `respond(request)` 的 benchmark client。
+        query_tool: 数据库 slot evidence 工具。
     """
 
-    runner = query_tool or DataSourceQueryTool()
+    client: Any
+    query_tool: Any = field(default_factory=DataSourceQueryTool)
 
-    def _tool(
-        table: str,
-        city: str,
-        block: str,
-        start_date: str,
-        end_date: str,
-    ) -> dict[str, Any]:
-        """用数据库验证 table/city/block/time_range slots。"""
 
-        return runner.run(
-            table=table,
-            city=city,
-            block=block,
-            start_date=start_date,
-            end_date=end_date,
-        )
+class DataSourceValidationState(AgentState):
+    """Data source validation agent 的 LangGraph state。
 
-    return StructuredTool.from_function(
-        func=_tool,
-        name="data_source_query_tool",
-        description=(
-            "用真实房地产数据库验证 PPT data-source slots。"
-            "仅在所有 required slots 都非空后调用。"
-        ),
-        args_schema=DataSourceSlots,
+    Args:
+        tool_log: 本轮 ReAct 过程中所有 data-source validation 工具调用记录。
+    """
+
+    tool_log: list[dict[str, Any]]
+
+
+@tool
+def slot_query(
+    table: str,
+    city: str,
+    block: str,
+    start_date: str,
+    end_date: str,
+    runtime: ToolRuntime,
+) -> Command:
+    """用数据库验证 table/city/block/start_date/end_date slots。
+
+    Args:
+        table: PPT 声称的数据库表名。
+        city: PPT 声称的城市 slot。
+        block: PPT 声称的板块或区域 slot。
+        start_date: PPT 声称的开始日期，格式为 `YYYY-MM-DD`。
+        end_date: PPT 声称的结束日期，格式为 `YYYY-MM-DD`。
+
+    Returns:
+        可供 ReAct agent 判断 slot 状态的数据库证据字典。
+    """
+    result = runtime.context.query_tool.run(
+        table=table,
+        city=city,
+        block=block,
+        start_date=start_date,
+        end_date=end_date,
+    )
+    args = {
+        "table": table,
+        "city": city,
+        "block": block,
+        "start_date": start_date,
+        "end_date": end_date,
+    }
+    state = runtime.state
+    return _command(
+        runtime,
+        result,
+        {
+            "tool_log": [
+                *state["tool_log"],
+                {"tool": "slot_query", "args": args, "result": result},
+            ]
+        },
     )
 
 
-def _valid_date_order(start_date: str, end_date: str) -> bool:
-    """判断两个日期能否解析，且 `start_date <= end_date`。"""
-    start = pd.to_datetime(start_date, errors="coerce")
-    end = pd.to_datetime(end_date, errors="coerce")
-    if pd.isna(start) or pd.isna(end):
-        return False
-    return bool(start <= end)
+@tool
+def ask_client(
+    error_type: str,
+    scope_error_type: str,
+    field: str,
+    description: str,
+    runtime: ToolRuntime,
+    target: str | None = None,
+) -> Command:
+    """向 client 请求 data-source slot 澄清。
+
+    Args:
+        error_type: benchmark error type，data-source validation 中通常是
+            `scope_error`。
+        scope_error_type: scope 细分类型，例如 `missing`、`error`、
+            `unmatch` 或 `conflict`。
+        field: 需要 client 澄清或修正的单个 slot 字段。
+        description: agent 对当前问题的简短说明。
+        target: 可选的单个目标元素标签。冲突或 slide-level 问题可以不传。
+
+    Returns:
+        面向 ReAct agent 的客户式回复，只包含 `response`。
+    """
+    request: dict[str, Any] = {
+        "request_type": "data_source_slot_clarification",
+        "error_type": error_type,
+        "scope_error_type": scope_error_type,
+        "field": field,
+        "description": description,
+    }
+    if target:
+        request["target"] = target
+    response = runtime.context.client.respond(request)
+
+    if set(response) != {"response"} or not isinstance(response["response"], str):
+        raise ValueError(f"ask_client expects client to return only response: {response}")
+
+    state = runtime.state
+    log_item = {"tool": "ask_client", "request": request, "response": response}
+    return _command(
+        runtime,
+        response,
+        {"tool_log": [*state["tool_log"], log_item]},
+    )
+
+
+DATA_SOURCE_VALIDATION_TOOLS = [slot_query, ask_client]
+
+
+def _command(
+    runtime: ToolRuntime,
+    result: dict[str, Any],
+    update: dict[str, Any],
+) -> Command:
+    if runtime.tool_call_id is not None:
+        update = {
+            **update,
+            "messages": [
+                ToolMessage(
+                    content=json.dumps(result, ensure_ascii=False, default=str),
+                    tool_call_id=runtime.tool_call_id,
+                )
+            ],
+        }
+    return Command(update=update)

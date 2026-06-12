@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 import unittest
@@ -17,7 +18,7 @@ TREND_RE = re.compile(
 class BatchRoleClient:
     """测试用 role client，根据 PPTX 元素文本和 shape 类型生成稳定 role。"""
 
-    def chat(
+    async def achat(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -89,15 +90,19 @@ class SlideParserBatchTest(unittest.TestCase):
             for pptx_path in sorted(root.glob("s_*/injected/*/slide.pptx"))
             if (pptx_path.parent / "slide.png").exists()
         ][:10]
+        if not cases:
+            self.skipTest(f"Injected benchmark fixtures not found under {root}.")
         self.assertEqual(len(cases), 10, f"Expected 10 parser cases under {root}.")
 
         agent = SlideParserAgent(client=BatchRoleClient())
         for case_dir in cases:
             with self.subTest(case=str(case_dir)):
-                result = agent.run(
-                    SlideReviewInput(
-                        pptx_path=case_dir / "slide.pptx",
-                        image_path=case_dir / "slide.png",
+                result = asyncio.run(
+                    agent.arun(
+                        SlideReviewInput(
+                            pptx_path=case_dir / "slide.pptx",
+                            image_path=case_dir / "slide.png",
+                        )
                     )
                 )
 

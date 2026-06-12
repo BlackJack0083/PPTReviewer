@@ -56,12 +56,11 @@
 常见映射：
 - 年度：`{"source_col": "date_code", "target_col": "year", "method": "period", "time_granularity": "year"}`
 - 月度：`{"source_col": "date_code", "target_col": "month", "method": "period", "time_granularity": "month"}`
-- 面积段：`{"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 20, "format_str": "{}-{}m²", "min": 0, "max": 300}`
-- 总价段：`{"source_col": "dim_price", "target_col": "price_range", "method": "range", "step": 0.75, "format_str": "{}-{}M", "min": 0, "max": 10.5}`
+- 面积段：`{"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 20, "format_str": "{}-{}m²"}`
+- 总价段：`{"source_col": "dim_price", "target_col": "price_range", "method": "range", "step": 0.75, "format_str": "{}-{}M"}`
 
 规则：
-- `step/min/max` 必须从可见区间里抽取；不要随意编默认值。
-- `≥300m²` 这类尾段可以作为 `max=300`。
+- range 维度只需要抽取可见分箱步长 `step` 和标签模板 `format_str`。
 - `total` 行或列不是维度边界。
 
 ## 3. Metrics
@@ -178,7 +177,7 @@ Output:
 {
   "table_type": "field-constraint",
   "dimensions": [
-    {"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 20, "format_str": "{}-{}m²", "min": 0, "max": 20}
+    {"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 20, "format_str": "{}-{}m²"}
   ],
   "metrics": [
     {"name": "Supply Count", "source_col": "supply_sets", "agg_func": "count", "filter_condition": {"supply_sets": 1}},
@@ -200,8 +199,8 @@ Output:
 {
   "table_type": "cross-constraint",
   "dimensions": [
-    {"source_col": "dim_price", "target_col": "price_range", "method": "range", "step": 0.75, "format_str": "{}-{}M", "min": 0, "max": 1.5},
-    {"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 15, "format_str": "{}-{}m²", "min": 0, "max": 30}
+    {"source_col": "dim_price", "target_col": "price_range", "method": "range", "step": 0.75, "format_str": "{}-{}M"},
+    {"source_col": "dim_area", "target_col": "area_range", "method": "range", "step": 15, "format_str": "{}-{}m²"}
   ],
   "metrics": [
     {"name": "Count", "source_col": "dim_price", "agg_func": "count"}
