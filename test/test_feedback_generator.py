@@ -184,44 +184,15 @@ class FeedbackGeneratorTest(unittest.TestCase):
 
             episode = build_episode(root, record)
 
-            self.assertEqual(
-                episode,
-                {
-                    "feedback_items": [
-                        {
-                            "request_type": "calculation_logic_clarification",
-                            "table_index": 0,
-                            "error_types": ["logic_error"],
-                            "targets": ["st.header"],
-                            "fields": ["metrics"],
-                            "state_patch": {
-                                "tables": [
-                                    {
-                                        "index": 0,
-                                        "calculation_logic": {
-                                            "table_type": "field-constraint",
-                                            "metrics": [
-                                                {
-                                                    "name": "Supply Count",
-                                                    "source_col": "supply_sets",
-                                                    "agg_func": "count",
-                                                    "filter_condition": {"supply_sets": 1},
-                                                },
-                                                {
-                                                    "name": "Sales Count",
-                                                    "source_col": "trade_sets",
-                                                    "agg_func": "count",
-                                                    "filter_condition": {"trade_sets": 1},
-                                                },
-                                            ],
-                                        },
-                                    }
-                                ]
-                            },
-                        }
-                    ]
-                },
-            )
+            item = episode["feedback_items"][0]
+            self.assertEqual(item["request_type"], "calculation_logic_clarification")
+            self.assertEqual(item["error_type"], "logic_error")
+            self.assertEqual(item["target"], "st.header")
+            self.assertEqual(item["field"], "metrics")
+            self.assertIn("calculation_logic=", item["response"])
+            self.assertIn("Supply Count", item["response"])
+            self.assertIn("Sales Count", item["response"])
+            self.assertNotIn("state_patch", item)
 
     def test_build_episode_logic_for_table_st_header(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -251,36 +222,14 @@ class FeedbackGeneratorTest(unittest.TestCase):
 
             item = episode["feedback_items"][0]
             self.assertEqual(item["request_type"], "calculation_logic_clarification")
-            self.assertEqual(item["table_index"], 0)
-            self.assertEqual(item["error_types"], ["logic_error"])
-            self.assertEqual(item["targets"], ["st.header"])
-            self.assertEqual(item["fields"], ["metrics"])
-            self.assertEqual(
-                item["state_patch"]["tables"][0]["calculation_logic"],
-                {
-                    "table_type": "field-constraint",
-                    "metrics": [
-                        {
-                            "name": "trade_counts",
-                            "source_col": "trade_sets",
-                            "agg_func": "count",
-                            "filter_condition": {"trade_sets": 1},
-                        },
-                        {
-                            "name": "avg_unit_price",
-                            "source_col": "dim_unit_price",
-                            "agg_func": "mean",
-                            "filter_condition": {"trade_sets": 1},
-                        },
-                        {
-                            "name": "dim_area",
-                            "source_col": "dim_area",
-                            "agg_func": "sum",
-                            "filter_condition": {"trade_sets": 1},
-                        },
-                    ],
-                },
-            )
+            self.assertEqual(item["error_type"], "logic_error")
+            self.assertEqual(item["target"], "st.header")
+            self.assertEqual(item["field"], "metrics")
+            self.assertIn("calculation_logic=", item["response"])
+            self.assertIn("trade_counts", item["response"])
+            self.assertIn("avg_unit_price", item["response"])
+            self.assertIn("dim_area", item["response"])
+            self.assertNotIn("state_patch", item)
 
     def test_scope_and_value_errors_split_into_two_items(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -309,26 +258,21 @@ class FeedbackGeneratorTest(unittest.TestCase):
                     "feedback_items": [
                         {
                             "request_type": "data_source_slot_clarification",
-                            "table_index": 0,
-                            "error_types": ["scope_error"],
-                            "targets": ["summary"],
-                            "fields": ["time_range"],
-                            "state_patch": {
-                                "final_data_source": {
-                                    "filters": {
-                                        "start_date": "2020-01-01",
-                                        "end_date": "2024-12-31",
-                                    }
-                                }
-                            },
+                            "error_type": "scope_error",
+                            "scope_error_type": "error",
+                            "target": "summary",
+                            "field": "time_range",
+                            "response": (
+                                "Please use start_date=2020-01-01, "
+                                "end_date=2024-12-31."
+                            ),
                         },
                         {
                             "request_type": "content_update_confirmation",
-                            "table_index": 0,
-                            "error_types": ["value_error"],
-                            "targets": ["summary"],
-                            "fields": ["table_values"],
-                            "decision": "accept",
+                            "error_type": "value_error",
+                            "target": "summary",
+                            "field": "table_values",
+                            "response": "Yes, please apply the proposed update.",
                         },
                     ]
                 },
@@ -355,16 +299,21 @@ class FeedbackGeneratorTest(unittest.TestCase):
 
             episode = build_episode(root, record)
 
-            item = episode["feedback_items"][0]
-            self.assertEqual(item["fields"], ["city", "block"])
-            data_source_patch = item["state_patch"]["final_data_source"]
             self.assertEqual(
-                data_source_patch["connection"],
-                {"table": "beijing_new_house"},
+                [item["field"] for item in episode["feedback_items"]],
+                ["city", "block"],
             )
             self.assertEqual(
-                data_source_patch["filters"],
-                {"city": "Beijing", "block": "Liangxiang"},
+                [item["scope_error_type"] for item in episode["feedback_items"]],
+                ["unmatch", "unmatch"],
+            )
+            self.assertEqual(
+                episode["feedback_items"][0]["response"],
+                "Please use table=beijing_new_house, city=Beijing.",
+            )
+            self.assertEqual(
+                episode["feedback_items"][1]["response"],
+                "Please use block=Liangxiang.",
             )
 
     def test_title_topic_substitution_is_not_supported(self) -> None:
@@ -408,11 +357,10 @@ class FeedbackGeneratorTest(unittest.TestCase):
                 episode["feedback_items"][0],
                 {
                     "request_type": "content_update_confirmation",
-                    "table_index": 0,
-                    "error_types": ["claim_error"],
-                    "targets": ["st.caption"],
-                    "fields": ["presentation_type"],
-                    "decision": "accept",
+                    "error_type": "claim_error",
+                    "target": "st.caption",
+                    "field": "presentation_type",
+                    "response": "Yes, please apply the proposed update.",
                 },
             )
 
@@ -473,11 +421,10 @@ class FeedbackGeneratorTest(unittest.TestCase):
                     "feedback_items": [
                         {
                             "request_type": "content_update_confirmation",
-                            "table_index": 0,
-                            "error_types": ["value_error"],
-                            "targets": ["summary"],
-                            "fields": ["table_values"],
-                            "decision": "accept",
+                            "error_type": "value_error",
+                            "target": "summary",
+                            "field": "table_values",
+                            "response": "Yes, please apply the proposed update.",
                         }
                     ]
                 },

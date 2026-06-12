@@ -30,12 +30,11 @@ class ClientAgent:
         """响应 agent 发出的澄清或确认请求。
 
         Args:
-            request: 请求对象，包含 `request_type`，以及可选的 `table_index`、
-                `fields` 和 `targets`。
+            request: 请求对象，包含内部路由用的 `request_type`，以及用于
+                匹配 feedback item 的 `field` 和 `target`。
 
         Returns:
-            精简响应。`matched=false` 表示该请求没有命中 feedback episode 中的
-            injected error point。
+            client 回复。agent 可见的澄清和确认请求只返回客户式 `response`。
         """
         request_type = request.get("request_type")
         if not isinstance(request_type, str) or not request_type.strip():
@@ -43,41 +42,28 @@ class ClientAgent:
 
         item, key = self._find_feedback_item(request)
         if item is None or key is None:
-            return {
-                "matched": False,
-                "feedback_key": None,
-                "state_patch": {},
-            }
+            return {"response": "I do not have a confirmed correction for this request."}
 
         self._used_keys.add(key)
-        response: dict[str, Any] = {
-            "matched": True,
-            "feedback_key": key,
-            "state_patch": item.get("state_patch", {}),
-        }
-        if "decision" in item:
-            response["decision"] = item["decision"]
-        return response
+        return {"response": item["response"]}
 
     def _find_feedback_item(
         self,
         request: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, str | None]:
         request_type = str(request["request_type"])
-        request_fields = _normalize_fields(request.get("fields", []))
-        request_targets = _normalize_strings(request.get("targets", []))
-        request_table_index = request.get("table_index")
+        request_field = _normalize_string(request.get("field"))
+        request_target = _normalize_string(request.get("target"))
+        request_scope_error_type = _normalize_string(request.get("scope_error_type"))
 
         for index, item in enumerate(self.feedback_items):
             if item["request_type"] != request_type:
                 continue
-            if not _table_index_matches(item, request_table_index):
+            if item["field"] != request_field:
                 continue
-            if not item["fields"].issubset(request_fields):
+            if item["target"] != request_target:
                 continue
-            if item["targets"] and request_targets and not item["targets"].issubset(
-                request_targets
-            ):
+            if item["scope_error_type"] != request_scope_error_type:
                 continue
             key = _feedback_key(index, item)
             if key in self._used_keys:
@@ -92,37 +78,28 @@ def _normalize_feedback_item(item: dict[str, Any]) -> dict[str, Any]:
         raise ValueError(f"feedback item must include request_type: {item}")
     normalized = dict(item)
     normalized["request_type"] = request_type.strip()
-    normalized["fields"] = _normalize_fields(item.get("fields", []))
-    normalized["targets"] = _normalize_strings(item.get("targets", []))
+    normalized["field"] = _normalize_string(item.get("field"))
+    normalized["target"] = _normalize_string(item.get("target"))
+    normalized["scope_error_type"] = _normalize_string(item.get("scope_error_type"))
+    response = item.get("response")
+    if not isinstance(response, str) or not response.strip():
+        raise ValueError(f"feedback item must include non-empty response: {item}")
+    normalized["response"] = response.strip()
     return normalized
 
 
-def _normalize_fields(value: Any) -> set[str]:
-    fields = _normalize_strings(value)
-    if "start_date" in fields or "end_date" in fields:
-        fields.add("time_range")
-    return fields
-
-
-def _normalize_strings(value: Any) -> set[str]:
+def _normalize_string(value: Any) -> str:
     if value is None:
-        return set()
-    if isinstance(value, str):
-        return {value.strip()} if value.strip() else set()
-    if not isinstance(value, list):
-        raise ValueError(f"Expected string list, got {value}")
-    return {str(item).strip() for item in value if str(item).strip()}
-
-
-def _table_index_matches(item: dict[str, Any], request_table_index: Any) -> bool:
-    item_table_index = item.get("table_index")
-    if item_table_index is None or request_table_index is None:
-        return True
-    return item_table_index == request_table_index
+        return ""
+    if not isinstance(value, str):
+        raise ValueError(f"Expected string, got {value}")
+    return value.strip()
 
 
 def _feedback_key(index: int, item: dict[str, Any]) -> str:
-    table_index = item.get("table_index", "any")
-    fields = ",".join(sorted(item["fields"]))
-    targets = ",".join(sorted(item["targets"])) or "any"
-    return f"{index}:{item['request_type']}:table={table_index}:fields={fields}:targets={targets}"
+    target = item["target"] or "any"
+    scope_error_type = item["scope_error_type"] or "any"
+    return (
+        f"{index}:{item['request_type']}:field={item['field']}:"
+        f"target={target}:scope_error_type={scope_error_type}"
+    )

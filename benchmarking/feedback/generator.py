@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import copy
 import csv
 import json
 import os
@@ -24,6 +23,12 @@ DATA_SOURCE_FIELDS_BY_MUTATION = {
     "scope_time_range_shift": ["time_range"],
     "scope_city_substitution": ["city"],
     "scope_block_substitution": ["block"],
+}
+
+DATA_SOURCE_SCOPE_ERROR_TYPES_BY_MUTATION = {
+    "scope_time_range_shift": "error",
+    "scope_city_substitution": "unmatch",
+    "scope_block_substitution": "unmatch",
 }
 
 LOGIC_FIELDS_BY_MUTATION = {
@@ -101,22 +106,6 @@ def find_gt_element(gt_yaml: dict, element_id: str) -> dict | None:
     return None
 
 
-def get_gt_title(gt_yaml: dict) -> str:
-    """Return the GT slide title text."""
-    for element in gt_yaml.get("template_slide", {}).get("elements", []):
-        if element.get("role") == "slide-title":
-            return str(element.get("text", ""))
-    return ""
-
-
-def get_gt_summary(gt_yaml: dict) -> str:
-    """Return the GT slide summary/body text."""
-    for element in gt_yaml.get("template_slide", {}).get("elements", []):
-        if element.get("role") == "body-text":
-            return str(element.get("text", ""))
-    return ""
-
-
 def fields_for_mutation(mutation_type: str) -> list[str] | None:
     """Map a mutation type to the state fields a client can provide."""
     mutation_type = normalize_mutation_type(mutation_type)
@@ -146,12 +135,12 @@ def table_index_for_operation(gt_yaml: dict, operation: dict) -> int:
     return 0
 
 
-def build_data_source_state_patch(
+def build_data_source_response(
     gt_yaml: dict,
     table_index: int,
-    fields: list[str],
-) -> dict:
-    """Build a slide-level final data-source patch for requested slots only."""
+    field: str,
+) -> str:
+    """Build a client-like reply for one data-source slot."""
     slide_filters = gt_yaml.get("slide_filters")
     if not isinstance(slide_filters, list) or table_index >= len(slide_filters):
         raise ValueError(f"GT slide_filters missing table_index={table_index}")
@@ -159,37 +148,29 @@ def build_data_source_state_patch(
     source = slide_filters[table_index]
     filters = source.get("filters") or {}
     connection = source.get("connection") or {}
-    requested = set(fields)
-    del table_index
-    final_patch: dict[str, Any] = {}
-
-    if "city" in requested:
-        final_patch["connection"] = {"table": _normalize_table_name(connection.get("table"))}
-
-    filter_patch: dict[str, Any] = {}
-    if "city" in requested:
-        filter_patch["city"] = filters["city"]
-    if "block" in requested:
-        filter_patch["block"] = filters["block"]
-    if "time_range" in requested:
-        filter_patch["start_date"] = filters["start_date"]
-        filter_patch["end_date"] = filters["end_date"]
-    if filter_patch:
-        final_patch["filters"] = filter_patch
-
-    if not final_patch:
-        raise ValueError(f"No data-source patch can be built for fields={fields}")
-    return {"final_data_source": final_patch}
+    if field == "city":
+        return (
+            "Please use "
+            f"table={_normalize_table_name(connection.get('table'))}, "
+            f"city={filters['city']}."
+        )
+    if field == "block":
+        return f"Please use block={filters['block']}."
+    if field == "time_range":
+        return (
+            "Please use "
+            f"start_date={filters['start_date']}, "
+            f"end_date={filters['end_date']}."
+        )
+    raise ValueError(f"Unsupported data-source field={field}")
 
 
-def build_calculation_logic_state_patch(
+def build_calculation_logic_response(
     gt_yaml: dict,
     gt_yaml_path: Path,
     operation: dict,
-    fields: list[str],
-) -> dict:
-    """Build a table-indexed calculation-logic patch for requested fields only."""
-    table_index = table_index_for_operation(gt_yaml, operation)
+) -> str:
+    """Build a client-like reply with the GT function logic."""
     element = find_gt_element(gt_yaml, str(operation.get("element_id", "")))
     if element is None:
         raise ValueError(f"Cannot locate GT element for operation: {operation}")
@@ -197,18 +178,16 @@ def build_calculation_logic_state_patch(
     args = element.get("args") or {}
     if not args and element.get("role") == "table":
         args = build_table_args_from_csv(gt_yaml_path, element)
-    requested = set(fields)
-    logic: dict[str, Any] = {}
-    if "metrics" in requested or "agg_func" in requested or "metric_source" in requested:
-        logic["metrics"] = args.get("metrics", [])
-    if "dimensions" in requested:
-        logic["dimensions"] = args.get("dimensions", [])
+    logic = {}
     if "table_type" in args:
         logic["table_type"] = args["table_type"]
-
+    if "metrics" in args:
+        logic["metrics"] = args["metrics"]
+    if "dimensions" in args:
+        logic["dimensions"] = args["dimensions"]
     if not logic:
-        raise ValueError(f"No calculation-logic patch can be built for fields={fields}")
-    return {"tables": [{"index": table_index, "calculation_logic": logic}]}
+        raise ValueError(f"No calculation logic can be built for operation: {operation}")
+    return "Please use calculation_logic=" + json.dumps(logic, ensure_ascii=False) + "."
 
 
 def build_table_args_from_csv(gt_yaml_path: Path, element: dict) -> dict:
@@ -242,15 +221,6 @@ def build_table_args_from_csv(gt_yaml_path: Path, element: dict) -> dict:
     }
 
 
-def build_update_confirmation_state_patch(
-    gt_yaml: dict,
-    mutation_type: str,
-) -> dict:
-    """Build optional state patch for content confirmations that need user text."""
-    del gt_yaml, mutation_type
-    return {}
-
-
 def _normalize_table_name(value: Any) -> str:
     if isinstance(value, list):
         if not value:
@@ -260,54 +230,6 @@ def _normalize_table_name(value: Any) -> str:
     if not table:
         raise ValueError("connection.table is empty")
     return table
-
-
-def merge_patch(left: dict, right: dict) -> dict:
-    """Merge nested state patches, including table-indexed patches."""
-    merged = copy.deepcopy(left)
-    for key, value in right.items():
-        if key == "tables" and isinstance(value, list):
-            merged[key] = _merge_table_patches(merged.get(key, []), value)
-        elif isinstance(value, dict) and isinstance(merged.get(key), dict):
-            _deep_merge(merged[key], value)
-        else:
-            merged[key] = copy.deepcopy(value)
-    return merged
-
-
-def _merge_table_patches(left: Any, right: list[dict]) -> list[dict]:
-    if not isinstance(left, list):
-        left = []
-    merged = copy.deepcopy(left)
-    positions = {
-        item.get("index"): offset
-        for offset, item in enumerate(merged)
-        if isinstance(item, dict) and isinstance(item.get("index"), int)
-    }
-    for item in right:
-        index = item.get("index")
-        if isinstance(index, int) and index in positions:
-            _deep_merge(merged[positions[index]], item)
-        else:
-            merged.append(copy.deepcopy(item))
-    return merged
-
-
-def _deep_merge(target: dict[str, Any], patch: dict[str, Any]) -> None:
-    for key, value in patch.items():
-        if isinstance(value, dict) and isinstance(target.get(key), dict):
-            _deep_merge(target[key], value)
-        else:
-            target[key] = copy.deepcopy(value)
-
-
-def merge_fields(left: list[str], right: list[str]) -> list[str]:
-    """Merge field lists while preserving first-seen order."""
-    merged = list(left)
-    for field in right:
-        if field not in merged:
-            merged.append(field)
-    return merged
 
 
 def feedback_item_for_operation(
@@ -326,33 +248,29 @@ def feedback_item_for_operation(
     if not isinstance(error_types, list) or not error_types:
         error_types = error_types_for_mutation(mutation_type)
 
+    table_index = table_index_for_operation(gt_yaml, operation)
     item = {
         "request_type": request_type_for_mutation(mutation_type),
-        "table_index": table_index_for_operation(gt_yaml, operation),
-        "error_types": sorted(str(label) for label in error_types),
-        "targets": [str(operation["target"])],
-        "fields": list(fields),
+        "error_type": sorted(str(label) for label in error_types)[0],
+        "target": str(operation["target"]),
+        "field": fields[0],
     }
 
-    state_patch: dict = {}
     if mutation_type in DATA_SOURCE_FIELDS_BY_MUTATION:
-        state_patch = build_data_source_state_patch(
+        item["scope_error_type"] = DATA_SOURCE_SCOPE_ERROR_TYPES_BY_MUTATION[mutation_type]
+        item["response"] = build_data_source_response(
             gt_yaml,
-            table_index=item["table_index"],
-            fields=item["fields"],
+            table_index=table_index,
+            field=item["field"],
         )
     elif mutation_type in LOGIC_FIELDS_BY_MUTATION:
-        state_patch = build_calculation_logic_state_patch(
+        item["response"] = build_calculation_logic_response(
             gt_yaml,
             gt_yaml_path,
             operation,
-            fields=item["fields"],
         )
     elif mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
-        item["decision"] = "revise" if mutation_type == "title_topic_substitution" else "accept"
-        state_patch = build_update_confirmation_state_patch(gt_yaml, mutation_type)
-    if state_patch:
-        item["state_patch"] = state_patch
+        item["response"] = "Yes, please apply the proposed update."
     return item
 
 
@@ -364,46 +282,31 @@ def request_type_for_mutation(mutation_type: str) -> str:
         return "calculation_logic_clarification"
     if mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
         return "content_update_confirmation"
-    if mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
-        raise ValueError(f"Unhandled update confirmation mutation_type={mutation_type}")
     raise ValueError(f"Unsupported mutation_type={mutation_type}")
 
 
 def merge_feedback_items(items: list[dict]) -> list[dict]:
-    """Merge operation-level items by request type, table, target, and labels."""
-    merged: dict[tuple[str, int | None, tuple[str, ...], str], dict] = {}
+    """Merge duplicate operation-level items with the same request label."""
+    merged: dict[tuple[str, str, str, str, str], dict] = {}
     for item in items:
-        target = item["targets"][0]
         key = (
             item["request_type"],
-            item.get("table_index"),
-            tuple(item["error_types"]),
-            target,
+            item["error_type"],
+            str(item.get("scope_error_type", "")),
+            item["target"],
+            item["field"],
         )
         if key not in merged:
             merged[key] = {
                 "request_type": item["request_type"],
-                "table_index": item.get("table_index"),
-                "error_types": item["error_types"],
-                "targets": [target],
-                "fields": list(item.get("fields", [])),
+                "error_type": item["error_type"],
+                "target": item["target"],
+                "field": item["field"],
+                "response": item["response"],
             }
-            if item.get("decision"):
-                merged[key]["decision"] = item["decision"]
-            if item.get("state_patch"):
-                merged[key]["state_patch"] = item["state_patch"]
+            if "scope_error_type" in item:
+                merged[key]["scope_error_type"] = item["scope_error_type"]
             continue
-
-        existing = merged[key]
-        existing["fields"] = merge_fields(
-            existing.get("fields", []),
-            item.get("fields", []),
-        )
-        if item.get("state_patch"):
-            existing["state_patch"] = merge_patch(
-                existing.get("state_patch", {}),
-                item["state_patch"],
-            )
     return list(merged.values())
 
 

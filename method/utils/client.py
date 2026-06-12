@@ -97,3 +97,41 @@ class Client:
         if text is None:
             raise RuntimeError("Model returned empty content.")
         return text
+
+    async def achat(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        image_path: Path | None = None,
+        temperature: float = 0.0,
+        max_tokens: int = 8192,
+        response_format: Literal["json_object"] | None = None,
+    ) -> str:
+        if image_path is None:
+            user_content: list[dict[str, Any]] | str = user_prompt
+        else:
+            user_content = [
+                {"type": "text", "text": user_prompt},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": _image_data_url(image_path)},
+                },
+            ]
+
+        bind_kwargs: dict[str, Any] = {
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+        }
+        if response_format == "json_object":
+            bind_kwargs["response_format"] = {"type": "json_object"}
+
+        response = await self._model.bind(**bind_kwargs).ainvoke(
+            [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_content),
+            ]
+        )
+        text = _extract_message_text(response)
+        if text is None:
+            raise RuntimeError("Model returned empty content.")
+        return text

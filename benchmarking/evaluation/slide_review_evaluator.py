@@ -12,9 +12,10 @@ def _safe_div(numerator: int, denominator: int) -> float:
 def _issue_pairs(detected_issues: list[dict[str, Any]]) -> set[tuple[str, str]]:
     pairs = set()
     for issue in detected_issues:
-        for target in issue.get("targets", []):
-            for error_type in issue.get("error_types", []):
-                pairs.add((str(target), str(error_type)))
+        target = issue.get("target")
+        error_type = issue.get("error_type")
+        if target is not None and error_type is not None:
+            pairs.add((str(target), str(error_type)))
     return pairs
 
 

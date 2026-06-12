@@ -30,7 +30,7 @@
 3. `DataSourceValidationAgent`
    - 位置：`method/agents/data_source_validation/agent.py`
    - 工具：`method/agents/data_source_validation/tools.py`
-   - LangChain tool：`data_source_query_tool`
+   - LangChain tool：`slot_query`
    - 职责：聚合 `summary.data_source` 和 `caption.data_source`，维护
      `final_data_source`，调用数据库工具验证 scope slots，并在 Missing /
      Error / Unmatch / conflict 时向 `ClientAgent` 请求修正。
@@ -64,10 +64,10 @@
 它只响应显式 request：
 
 - `data_source_slot_clarification`
-  - 返回 `state_patch.final_data_source`
-  - 用于修正 scope slots。
+  - 返回客户式 `response`。
+  - 用于澄清或修正 scope slots。
 - `content_update_confirmation`
-  - 返回 `decision=accept` 或不匹配
+  - 返回客户式 `response`。
   - 用于确认 table/chart data、caption text、summary text 更新。
 
 `ClientAgent` 不主动修复，也不读取 agent 不该看到的 gold state。它只根据
@@ -75,7 +75,7 @@ case-local `feedback_episode.json` 匹配 agent request。
 
 ## 输出
 
-`SlideReviewWorkflow.run(...)` 返回 `SlideReviewResult`：
+`SlideReviewWorkflow.arun(...)` 返回 `SlideReviewResult`：
 
 - `observed_slide`
 - `ppt_representation`
@@ -84,7 +84,6 @@ case-local `feedback_episode.json` 匹配 agent request。
 - `content_validation_log`
 - `detected_issues`
 - `table_records`
-- `update_log`
 - `repaired_artifacts`
 
 `repaired_artifacts` 当前包含 repaired YAML 和确认更新后的 CSV。PPTX 真实重写

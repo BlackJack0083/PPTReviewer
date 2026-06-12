@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import sys
@@ -111,7 +112,7 @@ def load_case_assets(benchmark_root: Path, record: dict) -> dict | None:
     }
 
 
-def main() -> None:
+async def main() -> None:
     args = parse_args()
     benchmark_root = args.benchmark_root.resolve()
     manifest = read_jsonl(benchmark_root / "manifest" / "corruptions.jsonl")
@@ -146,7 +147,7 @@ def main() -> None:
             pptx_path=assets["pptx_path"],
             image_path=assets["image_path"],
         )
-        result = workflow.run(
+        result = await workflow.arun(
             slide_input,
             client_agent=ClientAgent.from_feedback_episode(assets["feedback_episode"]),
         )
@@ -203,4 +204,4 @@ def _unsupported_record(record: dict) -> bool:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
