@@ -64,13 +64,13 @@ def _slot_binding(name: str, value: Any) -> dict[str, Any]:
 def _slot_category(name: str) -> str:
     if name in SCOPE_FIELDS:
         return "scope"
-    if name.startswith(("Trend_", "Enum_")):
+    if name.startswith(("Trend_", "Enum_", "Text_")):
         return "claim"
     return "value"
 
 
 def _slot_value_type(name: str, value: Any) -> str:
-    if name.startswith(("Trend_", "Enum_")):
+    if name.startswith(("Trend_", "Enum_", "Text_")):
         return "trend"
     text = str(value).replace(",", "").replace("%", "").strip()
     try:

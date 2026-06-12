@@ -18,11 +18,13 @@ class TextBindingTest(unittest.TestCase):
         context.add_variable("Temporal_End_Year", "2024")
         context.add_variable("Metric_Volume_Total", "1,914")
         context.add_variable("Trend_Trajectory_Type", "increased")
+        context.add_variable("Text_Market_Balance_Assessment", "balanced")
         original = builder.resource_manager.get_summary_template
         builder.resource_manager.get_summary_template = lambda theme, func, variant_idx: (
             "{{ Geo_City_Name }} {{ Geo_Block_Name }} "
             "{{ Temporal_Start_Year }}-{{ Temporal_End_Year }} "
-            "{{ Metric_Volume_Total }} {{ Trend_Trajectory_Type }}"
+            "{{ Metric_Volume_Total }} {{ Trend_Trajectory_Type }} "
+            "{{ Text_Market_Balance_Assessment }}"
         )
         try:
             binding = SlideConfigBuilder()._build_text_binding(
@@ -47,6 +49,10 @@ class TextBindingTest(unittest.TestCase):
         self.assertEqual(binding["slots"]["Metric_Volume_Total"]["category"], "value")
         self.assertEqual(binding["slots"]["Metric_Volume_Total"]["value_type"], "number")
         self.assertEqual(binding["slots"]["Trend_Trajectory_Type"]["category"], "claim")
+        self.assertEqual(
+            binding["slots"]["Text_Market_Balance_Assessment"]["category"],
+            "claim",
+        )
 
     def test_caption_text_binding_adds_presentation_type_claim(self) -> None:
         context = PresentationContext()
