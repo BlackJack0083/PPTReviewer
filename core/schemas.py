@@ -397,6 +397,7 @@ class TextElement(BaseSlideElement):
 
     type: Literal[ElementType.TEXT] = ElementType.TEXT
     text: str
+    text_binding: dict[str, Any] | None = None
 
 
 class DataElement(BaseSlideElement):

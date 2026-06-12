@@ -211,6 +211,8 @@ class YAMLExporter:
                     },
                 }
             )
+            if element.text_binding:
+                elem["text_binding"] = element.text_binding
 
         elif isinstance(element, ChartElement | TableElement):
             is_chart = isinstance(element, ChartElement)

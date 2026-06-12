@@ -1,3 +1,6 @@
+import re
+from typing import Any
+
 from loguru import logger
 
 from core import (
@@ -18,14 +21,82 @@ from core.schemas import (
     TextSlotDefinition,
 )
 
+TEMPLATE_VARIABLE_RE = re.compile(r"{{\s*([A-Za-z_][A-Za-z0-9_]*)\s*}}")
+SCOPE_FIELDS = {
+    "Geo_City_Name": "city",
+    "Geo_Block_Name": "block",
+    "Temporal_Start_Year": "start_year",
+    "Temporal_End_Year": "end_year",
+}
+
+
+def _template_slots(template: str, variables: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    slots = {}
+    for name in _template_variables(template):
+        if name not in variables:
+            raise ValueError(f"Missing text binding variable: {name}")
+        slots[name] = _slot_binding(name, variables[name])
+    return slots
+
+
+def _template_variables(template: str) -> list[str]:
+    names = []
+    seen = set()
+    for name in TEMPLATE_VARIABLE_RE.findall(template):
+        if name in seen:
+            continue
+        seen.add(name)
+        names.append(name)
+    return names
+
+
+def _slot_binding(name: str, value: Any) -> dict[str, Any]:
+    binding = {
+        "category": _slot_category(name),
+        "value": str(value),
+        "value_type": _slot_value_type(name, value),
+    }
+    if name in SCOPE_FIELDS:
+        binding["field"] = SCOPE_FIELDS[name]
+    return binding
+
+
+def _slot_category(name: str) -> str:
+    if name in SCOPE_FIELDS:
+        return "scope"
+    if name.startswith(("Trend_", "Enum_")):
+        return "claim"
+    return "value"
+
+
+def _slot_value_type(name: str, value: Any) -> str:
+    if name.startswith(("Trend_", "Enum_")):
+        return "trend"
+    text = str(value).replace(",", "").replace("%", "").strip()
+    try:
+        float(text)
+    except ValueError:
+        return "string"
+    return "number"
+
 
 class SlideElementBuilder:
     """幻灯片元素构建器，负责构建不同类型的元素配置"""
 
     @staticmethod
-    def build_text_element(text: str, role: str, layout: LayoutModel) -> TextElement:
+    def build_text_element(
+        text: str,
+        role: str,
+        layout: LayoutModel,
+        text_binding: dict[str, Any] | None = None,
+    ) -> TextElement:
         """通用的文本元素构建方法"""
-        return TextElement(role=role, text=str(text), layout=layout)  # 强转确保类型安全
+        return TextElement(
+            role=role,
+            text=str(text),
+            layout=layout,
+            text_binding=text_binding,
+        )
 
     @staticmethod
     def build_data_element(
@@ -120,12 +191,14 @@ class SlideConfigBuilder:
         elements = []
         for slot in text_slots:
             text_content = self._render_text_for_slot(slot, meta, ctx)
+            text_binding = self._build_text_binding(slot, meta, ctx)
             layout_model = LayoutModel.model_validate(slot.model_dump(by_alias=True))
             elements.append(
                 SlideElementBuilder.build_text_element(
                     text_content,
                     slot.role,
                     layout_model,
+                    text_binding,
                 )
             )
         return elements
@@ -176,6 +249,56 @@ class SlideConfigBuilder:
 
         raise ValueError(f"Unsupported text slot part: {slot.part}")
 
+    def _build_text_binding(
+        self,
+        slot: TextSlotDefinition,
+        meta: TemplateMeta,
+        ctx: PresentationContext,
+    ) -> dict[str, Any] | None:
+        if slot.part == "slide_title":
+            return None
+        if slot.part == "summary":
+            function_key = meta.summary_function_key or meta.function_key[0]
+            template = resource_manager.get_summary_template(
+                meta.theme_key,
+                function_key,
+                meta.summary_item,
+            )
+            return {
+                "kind": "summary",
+                "render": {
+                    "theme_key": meta.theme_key,
+                    "function_key": function_key,
+                    "variant_idx": meta.summary_item,
+                },
+                "slots": _template_slots(template, ctx.variables),
+            }
+        if slot.part == "caption":
+            if slot.function_index is None:
+                raise ValueError(
+                    f"caption text slot missing function_index for template {meta.uid}"
+                )
+            function_key = meta.function_key[slot.function_index]
+            template = resource_manager.get_caption_template(meta.theme_key, function_key)
+            binding = {
+                "kind": "caption",
+                "render": {
+                    "theme_key": meta.theme_key,
+                    "function_key": function_key,
+                    "function_index": slot.function_index,
+                    "view_label": self._caption_view_label(meta, slot),
+                },
+                "slots": _template_slots(template, ctx.variables),
+            }
+            binding["slots"]["Chart_View_Label"] = {
+                "category": "claim",
+                "field": "presentation_type",
+                "value": binding["render"]["view_label"],
+                "value_type": "string",
+            }
+            return binding
+        raise ValueError(f"Unsupported text slot part: {slot.part}")
+
     def _add_caption_view_label(
         self,
         caption: str,
@@ -183,6 +306,13 @@ class SlideConfigBuilder:
         slot: TextSlotDefinition,
     ) -> str:
         """Make the ST rendering type visible in the generated PPT caption."""
+        return f"{caption} ({self._caption_view_label(meta, slot)})"
+
+    def _caption_view_label(
+        self,
+        meta: TemplateMeta,
+        slot: TextSlotDefinition,
+    ) -> str:
         if slot.function_index is None:
             raise ValueError(
                 f"caption text slot missing function_index for template {meta.uid}"
@@ -193,9 +323,7 @@ class SlideConfigBuilder:
                 f"caption text slot function_index={slot.function_index} "
                 f"has no matching data slot for template {meta.uid}"
             )
-
-        view_label = self._view_label_for_data_slot(data_slots[slot.function_index])
-        return f"{caption} ({view_label})"
+        return self._view_label_for_data_slot(data_slots[slot.function_index])
 
     @staticmethod
     def _view_label_for_data_slot(slot: SlotDefinition) -> str:

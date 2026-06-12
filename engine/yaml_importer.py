@@ -253,7 +253,14 @@ class YAMLImporter:
 
             if elem_type == "textBox":
                 text = elem_dict.get("text", "")
-                elements.append(TextElement(role=role, text=text, layout=layout))
+                elements.append(
+                    TextElement(
+                        role=role,
+                        text=text,
+                        layout=layout,
+                        text_binding=elem_dict.get("text_binding"),
+                    )
+                )
 
             elif elem_type == "chart":
                 # 根据索引获取对应的数据

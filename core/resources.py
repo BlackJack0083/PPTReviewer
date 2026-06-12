@@ -183,6 +183,14 @@ class ResourceManager:
             logger.error(f"Text pattern not found: {theme} -> {func}")
             raise ValueError(f"Invalid text pattern: {theme} -> {func}") from e
 
+    def get_caption_template(self, theme: str, func: str) -> str:
+        """获取原始 caption 模板字符串（未渲染）"""
+        try:
+            return self._text_patterns[theme][func]["raw_chart_caption"]
+        except KeyError as e:
+            logger.error(f"Text pattern not found: {theme} -> {func}")
+            raise ValueError(f"Invalid text pattern: {theme} -> {func}") from e
+
 
 # 全局单例
 resource_manager = ResourceManager.get_instance()
