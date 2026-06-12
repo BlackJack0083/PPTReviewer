@@ -23,18 +23,16 @@ class SlideReviewInput:
 
 @dataclass
 class DetectedIssue:
-    targets: list[str]
-    error_types: list[str]
+    target: str
+    error_type: str
     evidence: str
-    required_fields_guess: list[str] = field(default_factory=list)
     confidence: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
-            "targets": list(self.targets),
-            "error_types": list(self.error_types),
+            "target": self.target,
+            "error_type": self.error_type,
             "evidence": self.evidence,
-            "required_fields_guess": list(self.required_fields_guess),
         }
         if self.confidence is not None:
             payload["confidence"] = self.confidence
@@ -50,7 +48,6 @@ class SlideReviewResult:
     data_source_validation_log: list[dict[str, Any]] = field(default_factory=list)
     content_validation_log: list[dict[str, Any]] = field(default_factory=list)
     table_records: list[dict[str, Any]] = field(default_factory=list)
-    update_log: list[dict[str, Any]] = field(default_factory=list)
     repaired_artifacts: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -62,6 +59,5 @@ class SlideReviewResult:
             "content_validation_log": self.content_validation_log,
             "table_records": self.table_records,
             "detected_issues": self.detected_issues,
-            "update_log": self.update_log,
             "repaired_artifacts": self.repaired_artifacts,
         }

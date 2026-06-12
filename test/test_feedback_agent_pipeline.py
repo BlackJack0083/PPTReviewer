@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 import json
 import re
 import unittest
+from dataclasses import dataclass
 from pathlib import Path
+
+from langchain.tools import ToolRuntime
 
 from method.agents import (
     ClientAgent,
@@ -19,7 +24,7 @@ TREND_RE = re.compile(r"\b(increase|increased|decrease|decreased|growth|decline|
 
 
 class TestRoleClient:
-    def chat(
+    async def achat(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -95,7 +100,7 @@ class TestRoleClient:
 
 
 class TestAnalysisClient:
-    def chat(
+    async def achat(
         self,
         system_prompt: str,
         user_prompt: str,
@@ -105,22 +110,22 @@ class TestAnalysisClient:
         del image_path, response_format
         payload = json.loads(user_prompt)
         del system_prompt
-        if payload.get("source") in {"summary", "caption"}:
+        if "text" in payload and "table_data" not in payload:
             select_columns = []
-            if payload["source"] == "caption":
+            if "row_headers" in payload or "column_headers" in payload:
                 select_columns = ["date_code", "supply_sets", "trade_sets", "dim_area"]
-            return json.dumps(
-                {
-                    "connection": {"table": "beijing_new_house"},
-                    "select_columns": select_columns,
-                    "filters": {
-                        "city": "Beijing",
-                        "block": "Liangxiang",
-                        "start_date": "2020-01-01",
-                        "end_date": "2024-12-31",
-                    },
-                }
-            )
+            data_source = {
+                "connection": {"table": "beijing_new_house"},
+                "filters": {
+                    "city": "Beijing",
+                    "block": "Liangxiang",
+                    "start_date": "2020-01-01",
+                    "end_date": "2024-12-31",
+                },
+            }
+            if select_columns:
+                data_source["select_columns"] = select_columns
+            return json.dumps(data_source)
 
         metric_names = [
             name for name in payload["table_data"][0] if name not in {"category", "year", "month"}
@@ -171,11 +176,11 @@ class TestSummaryValidationClient:
 
 
 class PassThroughDataSourceValidationAgent:
-    def run_with_client(self, analysis_state, client):
+    async def arun(self, analysis_state, client):
         del client
         first_caption_source = analysis_state["tables"][0]["caption"]["data_source"]
         filters = first_caption_source["filters"]
-        analysis_state["final_data_source"] = {
+        return {
             "connection": first_caption_source["connection"],
             "filters": {
                 "city": filters["city"],
@@ -183,37 +188,186 @@ class PassThroughDataSourceValidationAgent:
                 "start_date": filters["start_date"],
                 "end_date": filters["end_date"],
             },
-        }
-        analysis_state["data_source_validation"] = {"status": "pass"}
-        return {
-            "analysis_state": analysis_state,
-            "validation_log": [],
-            "detected_issues": [],
-        }
+        }, []
+
+
+class ContentToolCallingFakeAgent:
+    def __init__(self, tools, state, context):
+        self.tools = {tool.name: tool for tool in tools}
+        self.state = state
+        self.context = context
+
+    def invoke_tool(self, name, args):
+        command = self.tools[name].func(
+            **args,
+            runtime=ToolRuntime(
+                state=self.state,
+                context=self.context,
+                config={},
+                stream_writer=lambda _: None,
+                tool_call_id=f"fake-{name}",
+                store=None,
+            ),
+        )
+        update = dict(command.update)
+        messages = update.pop("messages", [])
+        self.state.update(update)
+        return json.loads(messages[0].content) if messages else {}
+
+    async def ainvoke(self, payload):
+        user_payload = json.loads(payload["messages"][0].content)
+        for table in user_payload["tables"]:
+            table_index = table["table_index"]
+            raw = self.invoke_tool("sql_retrieve", {"table_index": table_index})
+            computed = self.invoke_tool(
+                "analysis_execute",
+                {
+                    "table_index": table_index,
+                    "raw_data_path": raw["raw_data_path"],
+                },
+            )
+            comparison = self.invoke_tool(
+                "compare_table",
+                {
+                    "table_index": table_index,
+                    "computed_data_path": computed["computed_data_path"],
+                },
+            )
+            if comparison["comparison"]["status"] == "different":
+                response = self.invoke_tool(
+                    "ask_client",
+                    {
+                        "error_type": "value_error",
+                        "target": "st.body",
+                        "field": "table_values",
+                        "description": comparison["comparison"]["diff_summary"],
+                    }
+                )
+                if _client_agrees(response["response"]):
+                    tool_name = (
+                        "modify_table"
+                        if table["body"]["type"] == "table"
+                        else "modify_chart"
+                    )
+                    self.invoke_tool(
+                        tool_name,
+                        {
+                            "table_index": table_index,
+                            "data_path": computed["computed_data_path"],
+                        }
+                    )
+
+        for table in user_payload["tables"]:
+            table_index = table["table_index"]
+            caption_text = table["caption"]["text"]
+            caption_label = _presentation_label(caption_text)
+            actual_type = _body_presentation_type(table["body"]["type"])
+            if caption_label and caption_label != actual_type:
+                evidence = f"caption says '{caption_label}' but body type is '{actual_type}'."
+                response = self.invoke_tool(
+                    "ask_client",
+                    {
+                        "error_type": "claim_error",
+                        "target": "st.caption",
+                        "field": "presentation_type",
+                        "description": evidence,
+                    }
+                )
+                if _client_agrees(response["response"]):
+                    self.invoke_tool(
+                        "modify_textbox",
+                        {
+                            "element_id": table["caption"]["element_id"],
+                            "text": PRESENTATION_LABEL_RE.sub(
+                                f"({actual_type.title()})",
+                                caption_text.strip(),
+                            ),
+                        }
+                    )
+        return {"messages": []}
+
+
+@dataclass
+class FakeMessage:
+    content: str
 
 
 class FakeContentValidationAgent:
     def __init__(self, issues=None):
         self.issues = list(issues or [])
 
-    def run_with_client(
+    async def arun(
         self,
         *,
-        ppt_representation,
         analysis_state,
         client,
         artifact_dir,
     ):
-        del ppt_representation, analysis_state, client
+        del client
         artifact_dir.mkdir(parents=True, exist_ok=True)
         yaml_path = artifact_dir / "repaired_slide.yaml"
         yaml_path.write_text("title: Example\n", encoding="utf-8")
         return {
+            "analysis_state": analysis_state,
             "table_records": [],
-            "content_validation_log": [],
+            "tool_log": [],
             "detected_issues": self.issues,
-            "update_log": [],
             "repaired_artifacts": {"yaml_path": str(yaml_path), "data_paths": {}, "pptx_path": None},
+        }
+
+
+class ToolCallingContentValidationAgent(ContentValidationAgent):
+    def __init__(self) -> None:
+        pass
+
+    async def arun(
+        self,
+        *,
+        analysis_state,
+        client,
+        artifact_dir,
+    ):
+        from method.agents.content_validation.agent import build_content_payload
+        from method.agents.content_validation.tools import (
+            CONTENT_VALIDATION_TOOLS,
+            ContentValidationContext,
+        )
+        from method.agents.content_validation.utils import write_content_artifacts
+
+        state = {
+            "messages": [],
+            "analysis_state": copy.deepcopy(analysis_state),
+            "table_records": [],
+            "tool_log": [],
+            "detected_issues": [],
+        }
+        context = ContentValidationContext(
+            client=client,
+            artifact_dir=artifact_dir,
+        )
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        await ContentToolCallingFakeAgent(CONTENT_VALIDATION_TOOLS, state, context).ainvoke(
+            {
+                "messages": [
+                    FakeMessage(
+                        json.dumps(
+                            build_content_payload(state["analysis_state"]),
+                            ensure_ascii=False,
+                        )
+                    )
+                ]
+            }
+        )
+        repaired_artifacts = write_content_artifacts(
+            analysis_state=state["analysis_state"],
+            artifact_dir=artifact_dir,
+        )
+        return {
+            "analysis_state": state["analysis_state"],
+            "table_records": state["table_records"],
+            "tool_log": state["tool_log"],
+            "detected_issues": state["detected_issues"],
+            "repaired_artifacts": repaired_artifacts,
         }
 
 
@@ -222,14 +376,27 @@ class FeedbackPipelineTest(unittest.TestCase):
         self.sample_dir = Path(
             "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected"
         )
-        self.case_dir = next(path for path in sorted(self.sample_dir.iterdir()) if path.is_dir())
+        self.case_dir = None
+        if self.sample_dir.exists():
+            self.case_dir = next(
+                (path for path in sorted(self.sample_dir.iterdir()) if path.is_dir()),
+                None,
+            )
+
+    def require_injected_case(self) -> Path:
+        if self.case_dir is None:
+            self.skipTest(f"Injected benchmark fixture not found: {self.sample_dir}")
+        return self.case_dir
 
     def test_slide_parser_agent_builds_ppt_representation_and_csv(self) -> None:
+        case_dir = self.require_injected_case()
         agent = SlideParserAgent(client=TestRoleClient())
-        result = agent.run(
-            SlideReviewInput(
-                pptx_path=self.case_dir / "slide.pptx",
-                image_path=self.case_dir / "slide.png",
+        result = asyncio.run(
+            agent.arun(
+                SlideReviewInput(
+                    pptx_path=case_dir / "slide.pptx",
+                    image_path=case_dir / "slide.png",
+                )
             )
         )
         self.assertIn("observed_slide", result)
@@ -244,12 +411,13 @@ class FeedbackPipelineTest(unittest.TestCase):
         self.assertIn("header", first_table)
         self.assertIn("body", first_table)
         self.assertIn("data_path", first_table["body"])
-        self.assertEqual(Path(first_table["body"]["data_path"]).parent, self.case_dir)
+        self.assertEqual(Path(first_table["body"]["data_path"]).parent, case_dir)
         self.assertTrue(Path(first_table["body"]["data_path"]).exists())
         self.assertIn("element_id", representation["summary"])
         self.assertNotIn("element_ids", representation["summary"])
 
     def test_pipeline_emits_detected_issues(self) -> None:
+        case_dir = self.require_injected_case()
         workflow = SlideReviewWorkflow(
             slide_parser_agent=SlideParserAgent(client=TestRoleClient()),
             slide_analysis_agent=SlideAnalysisAgent(client=TestAnalysisClient()),
@@ -257,72 +425,116 @@ class FeedbackPipelineTest(unittest.TestCase):
             content_validation_agent=FakeContentValidationAgent(
                 issues=[
                     {
-                        "targets": ["st.body"],
-                        "error_types": ["value_error"],
+                        "target": "st.body",
+                        "error_type": "value_error",
                         "evidence": "synthetic mismatch",
-                        "required_fields_guess": [],
                     }
                 ]
             ),
         )
-        result = workflow.run(
-            SlideReviewInput(
-                pptx_path=self.case_dir / "slide.pptx",
-                image_path=self.case_dir / "slide.png",
+        result = asyncio.run(
+            workflow.arun(
+                SlideReviewInput(
+                    pptx_path=case_dir / "slide.pptx",
+                    image_path=case_dir / "slide.png",
+                ),
+                client_agent=ClientAgent(feedback_items=[]),
             ),
-            client_agent=ClientAgent(feedback_items=[]),
         )
         self.assertTrue(result.detected_issues)
         self.assertIn("tables", result.analysis_state)
+        self.assertIn("final_data_source", result.analysis_state)
+        self.assertIn("body", result.analysis_state["tables"][0])
         first_issue = result.detected_issues[0]
-        self.assertIn("targets", first_issue)
-        self.assertIn("error_types", first_issue)
-        self.assertIn("required_fields_guess", first_issue)
+        self.assertIn("target", first_issue)
+        self.assertIn("error_type", first_issue)
 
-    def test_content_validation_flags_real_caption_presentation_mismatch(self) -> None:
+    def test_content_validation_updates_real_caption_presentation_mismatch(self) -> None:
         case_dir = Path(
             "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_caption-935ecdac"
         )
+        if not (case_dir / "slide.pptx").exists():
+            self.skipTest(f"Injected benchmark fixture not found: {case_dir}")
         workflow = SlideReviewWorkflow(
             slide_parser_agent=SlideParserAgent(client=TestRoleClient()),
             slide_analysis_agent=SlideAnalysisAgent(client=TestAnalysisClient()),
             data_source_validation_agent=PassThroughDataSourceValidationAgent(),
-            content_validation_agent=ContentValidationAgent(
-                client=TestSummaryValidationClient()
+            content_validation_agent=ToolCallingContentValidationAgent(),
+        )
+        result = asyncio.run(
+            workflow.arun(
+                SlideReviewInput(
+                    pptx_path=case_dir / "slide.pptx",
+                    image_path=case_dir / "slide.png",
+                ),
+                client_agent=ClientAgent(
+                    feedback_items=[
+                        {
+                            "request_type": "content_update_confirmation",
+                            "target": "st.caption",
+                            "field": "presentation_type",
+                            "response": "Yes, please apply the proposed update.",
+                        }
+                    ]
+                ),
             ),
         )
-        result = workflow.run(
-            SlideReviewInput(
-                pptx_path=case_dir / "slide.pptx",
-                image_path=case_dir / "slide.png",
-            ),
-            client_agent=ClientAgent(
-                feedback_items=[
-                    {
-                        "request_type": "content_update_confirmation",
-                        "table_index": 0,
-                        "targets": ["st.caption"],
-                        "fields": ["presentation_type"],
-                        "decision": "accept",
-                    }
-                ]
-            ),
-        )
-        caption_claim = [
+        caption_requests = [
+            item
+            for item in result.content_validation_log
+            if item["tool"] == "ask_client" and item["request"]["target"] == "st.caption"
+        ]
+        caption_updates = [
+            item
+            for item in result.content_validation_log
+            if item["tool"] == "modify_textbox" and item["target"] == "st.caption"
+        ]
+        caption_issues = [
             issue
             for issue in result.detected_issues
-            if issue["targets"] == ["st.caption"] and "claim_error" in issue["error_types"]
+            if issue["target"] == "st.caption"
+            and issue["error_type"] == "claim_error"
+            and issue["field"] == "presentation_type"
         ]
-        self.assertTrue(caption_claim)
+        self.assertTrue(caption_requests)
+        self.assertTrue(caption_updates)
+        self.assertTrue(caption_issues)
+
+    def test_client_matches_exact_caption_update_request(self) -> None:
+        client = ClientAgent(
+            feedback_items=[
+                {
+                    "request_type": "content_update_confirmation",
+                    "target": "st.caption",
+                    "field": "presentation_type",
+                    "response": "Yes, please apply the proposed update.",
+                }
+            ]
+        )
+
+        response = client.respond(
+            {
+                "request_type": "content_update_confirmation",
+                "target": "st.caption",
+                "field": "presentation_type",
+                "description": "Update caption text to match the chart type.",
+            }
+        )
+
+        self.assertEqual(response, {"response": "Yes, please apply the proposed update."})
 
     def test_ppt_representation_uses_csv_instead_of_nested_chart_payload(self) -> None:
         case_dir = Path(
             "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_header-22248c0e"
         )
-        parsed = SlideParserAgent(client=TestRoleClient()).run(
-            SlideReviewInput(
-                pptx_path=case_dir / "slide.pptx",
-                image_path=case_dir / "slide.png",
+        if not (case_dir / "slide.pptx").exists():
+            self.skipTest(f"Injected benchmark fixture not found: {case_dir}")
+        parsed = asyncio.run(
+            SlideParserAgent(client=TestRoleClient()).arun(
+                SlideReviewInput(
+                    pptx_path=case_dir / "slide.pptx",
+                    image_path=case_dir / "slide.png",
+                )
             )
         )
         representation = parsed["ppt_representation"]
@@ -338,3 +550,22 @@ class FeedbackPipelineTest(unittest.TestCase):
         self.assertNotIn("observed", first_table)
         self.assertNotIn("derived", first_table)
         self.assertIn("trade_counts", csv_path.read_text(encoding="utf-8"))
+
+
+def _client_agrees(response: str) -> bool:
+    return any(token in response.lower() for token in ("yes", "accept", "agree", "update"))
+
+
+def _presentation_label(text: str) -> str | None:
+    match = PRESENTATION_LABEL_RE.search(text.strip())
+    if match is None:
+        return None
+    return match.group(1).lower()
+
+
+def _body_presentation_type(body_type: str) -> str:
+    if body_type == "table":
+        return "table"
+    if body_type.startswith("chart-"):
+        return f"{body_type.removeprefix('chart-')} chart"
+    return body_type

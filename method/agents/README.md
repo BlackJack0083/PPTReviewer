@@ -21,23 +21,24 @@ agent 自己的目录里，避免形成难追踪的公共工具池。
 - `data_source_validation/`
   - 入口：`DataSourceValidationAgent`
   - 局部工具：`tools.py`
-  - Agent 调用的 LangChain tool：`data_source_query_tool`
+  - Agent 调用的 LangChain tool：`slot_query`
   - 职责：把可见 data-source 描述聚合成 `final_data_source`，用数据库工具
     验证 slots，并在需要时向共享 client 请求 scope 修正。
 
 - `content_validation/`
   - 入口：`ContentValidationAgent`
   - 局部工具：`tools.py`
-  - Agent/workflow 调用的确定性工具：`execute_table_state`、
-    `compare_display_dataframes`、`modify_textbox`、`modify_chart`、
-    `modify_table`、`write_content_artifacts`
-  - 职责：基于验证后的 state 重新计算表格/图表数据，与可见 CSV 比较，
-    在修复前请求 client 确认，并检查 summary claim。
+  - Agent 调用的 LangChain tool：`sql_retrieve`、`analysis_execute`、
+    `compare_table`、`ask_client`、`modify_chart`、`modify_table`、
+    `modify_textbox`
+  - 职责：基于验证后的 state 调用 SQL、function logic 和表格比较工具，
+    由 ReAct agent 判断 chart/table、caption、summary 是否需要修复，并在
+    修改前请求 client 确认。
 
 - `client/`
   - 入口：`ClientAgent`
   - 职责：benchmark client simulator。它把 agent 的显式请求和
-    `feedback_episode.json` 匹配，Returns精简确认或 state patch。
+    `feedback_episode.json` 匹配，并返回客户式 `response`。
 
 ## 共享文件
 
