@@ -592,7 +592,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         self.assertEqual(response, {"response": "Please use block=Miyun District."})
 
     def test_client_agent_llm_mode_rewrites_matched_response(self) -> None:
-        llm_client = FakeLLMClient()
+        simulator_client = FakeLLMClient()
         client = ClientAgent(
             feedback_items=[
                 {
@@ -603,7 +603,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 }
             ],
             mode="llm",
-            llm_client=llm_client,
+            client=simulator_client,
         )
 
         response = client.respond(
@@ -616,15 +616,15 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         )
 
         self.assertEqual(response, {"response": "Sure, please use city=Beijing."})
-        self.assertEqual(len(llm_client.calls), 1)
+        self.assertEqual(len(simulator_client.calls), 1)
         self.assertEqual(
-            llm_client.calls[0]["user_prompt"]["matched_feedback"],
+            simulator_client.calls[0]["user_prompt"]["matched_feedback"],
             {"response": "Please use city=Beijing."},
         )
 
     def test_client_agent_llm_mode_does_not_call_model_without_match(self) -> None:
-        llm_client = FakeLLMClient()
-        client = ClientAgent(feedback_items=[], mode="llm", llm_client=llm_client)
+        simulator_client = FakeLLMClient()
+        client = ClientAgent(feedback_items=[], mode="llm", client=simulator_client)
 
         response = client.respond(
             {
@@ -639,7 +639,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
             response,
             {"response": "I do not have a confirmed correction for this request."},
         )
-        self.assertEqual(llm_client.calls, [])
+        self.assertEqual(simulator_client.calls, [])
 
     def test_validation_payload_keeps_only_scope_slots(self) -> None:
         state = _analysis_state(city="Beijing", block="Liangxiang")

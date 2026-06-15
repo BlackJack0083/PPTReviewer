@@ -1,21 +1,13 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Any, Literal
 
 from method.utils import Client, parse_json_object
 
-DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
-CLIENT_SIMULATION_SYSTEM_PROMPT = """You are simulating a real PPT author's reply.
-
-You receive the reviewing agent's request and the private benchmark feedback item
-that matches this request. Reply like a concise client, preserving every factual
-correction from the feedback. Do not mention benchmark metadata, request_type,
-target, field, labels, JSON, or that you are simulating a client.
-
-Return a JSON object with exactly one key:
-{"response": "..."}
-"""
+PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
+DEFAULT_PROMPT_PATH = PROMPT_DIR / "client_simulation_prompt.txt"
 
 
 class ClientAgent:
@@ -25,8 +17,8 @@ class ClientAgent:
         feedback_items: 当前 case 的私有 feedback items。
         mode: `deterministic` 直接返回 feedback response；`llm` 先确定性匹配
             feedback item，再用 LLM 改写成更自然的客户回复。
-        llm_client: 可选的 project-local `.chat(...)` client，主要用于测试。
-        model: LLM client 使用的模型名。`mode="llm"` 且未传 `llm_client` 时必填。
+        client: 可选的 project-local `.chat(...)` client，主要用于测试。
+        model: LLM client 使用的模型名。`mode="llm"` 且未传 `client` 时必填。
         api_key: LLM API key。
         base_url: OpenAI-compatible API base URL。
         timeout_sec: LLM 请求超时时间。
@@ -37,10 +29,10 @@ class ClientAgent:
         *,
         feedback_items: list[dict[str, Any]],
         mode: Literal["deterministic", "llm"] = "deterministic",
-        llm_client: Any | None = None,
+        client: Any | None = None,
         model: str | None = None,
         api_key: str | None = None,
-        base_url: str = DEFAULT_BASE_URL,
+        base_url: str = "https://dashscope.aliyuncs.com/compatible-mode/v1",
         timeout_sec: int = 120,
     ):
         if mode not in {"deterministic", "llm"}:
@@ -48,11 +40,12 @@ class ClientAgent:
         self.feedback_items = [_normalize_feedback_item(item) for item in feedback_items]
         self._used_keys: set[str] = set()
         self.mode = mode
-        self.llm_client = llm_client
-        if self.mode == "llm" and self.llm_client is None:
+        self.prompt = DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
+        self.client = client
+        if self.mode == "llm" and self.client is None:
             if not model:
-                raise ValueError("ClientAgent mode='llm' requires model or llm_client.")
-            self.llm_client = Client(
+                raise ValueError("ClientAgent mode='llm' requires model when client is not provided.")
+            self.client = Client(
                 model=model,
                 api_key=api_key,
                 base_url=base_url,
@@ -134,8 +127,8 @@ class ClientAgent:
                 "response": item["response"],
             },
         }
-        content = self.llm_client.chat(
-            CLIENT_SIMULATION_SYSTEM_PROMPT,
+        content = self.client.chat(
+            self.prompt,
             json.dumps(payload, ensure_ascii=False, indent=2),
             temperature=0.3,
             max_tokens=512,
