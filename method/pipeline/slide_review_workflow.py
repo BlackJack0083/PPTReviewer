@@ -56,12 +56,16 @@ class SlideReviewWorkflow:
             }
         ]
         data_source_detected_issues = _issues_from_data_source_tool_log(data_source_tool_log)
+        confirmed_scope_corrections = [
+            issue for issue in data_source_detected_issues if issue["confirmed"]
+        ]
 
         artifact_dir = slide_input.pptx_path.parent / "review_artifacts"
         content_result = await self.content_validation_agent.arun(
             analysis_state=analysis_state,
             client=client_agent,
             artifact_dir=artifact_dir,
+            confirmed_scope_corrections=confirmed_scope_corrections,
         )
         analysis_state = content_result["analysis_state"]
 
@@ -111,6 +115,7 @@ def _issues_from_data_source_tool_log(tool_log: list[dict[str, Any]]) -> list[di
         if item.get("tool") != "ask_client":
             continue
         request = item["request"]
+        response_text = item["response"]["response"]
         issue = {
             "request_type": request["request_type"],
             "target": request.get("target", ""),
@@ -118,6 +123,9 @@ def _issues_from_data_source_tool_log(tool_log: list[dict[str, Any]]) -> list[di
             "error_type": request["error_type"],
             "scope_error_type": request["scope_error_type"],
             "evidence": request["description"],
+            "client_response": response_text,
+            "confirmed": response_text
+            != "I do not have a confirmed correction for this request.",
         }
         issues.append(issue)
     return issues

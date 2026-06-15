@@ -2,6 +2,7 @@
 
 你的任务是从 chart/table caption 及其可见行列头中提取“用于检索底层数据库并复现该可见表格/图表”的 data_source state。
 不要验证 slide 是否正确，不要判断数值是否匹配，也不要修正文本。你只需要根据输入生成当前 caption 声称的数据源。
+所有 scope slot 必须按输入文本逐字提取。即使 city、block 或时间看起来有拼写错误，也必须保留原始写法，不要改正、翻译、补全或归一化。
 
 输入 JSON：
 {
@@ -51,16 +52,17 @@
 1. 只根据输入中的 text、row_headers、column_headers 提取 state。
 2. 不要调用数据库，不要判断该 state 是否真实存在。
 3. 如果某个 required slot 无法从输入中确定，输出空字符串 ""，不要猜测。
-4. table 需要根据城市和房产类型组成；text 出现 Resale / Second-hand 时使用 resale_house，否则使用 new_house。
-5. block 必须保留完整专有名词，不要删除 Area、Zone、District、CBD、Railway Station、Creative Zone 等后缀。
-6. 时间范围优先从 text 提取；如果 text 没有明确时间，但 row_headers/column_headers 中有连续年份或月份，则从可见表头提取。
-7. select_columns 只包含复现该 chart/table 必须读取的原始列，不要加入无关列。
-8. 如果 visible table 展示年度或月度统计，select_columns 包含 date_code。
-9. 如果 visible table 展示面积区间或面积统计，select_columns 包含 dim_area。
-10. 如果 visible table 展示总价区间或总价统计，select_columns 包含 dim_price。
-11. 如果 visible table 展示均价、单价或 Price/m²，select_columns 包含 dim_unit_price。
-12. 如果 visible table 展示成交、交易、销售、Delivery、Deliv、Sold、Trade、Transaction 相关指标，select_columns 包含 trade_sets。
-13. 如果 visible table 展示供应、新增、Launch、Supply、Listing 相关指标，select_columns 包含 supply_sets。
+4. filters.city 必须保留 text 中的原始城市字符串。
+5. table 需要根据城市和房产类型组成；text 出现 Resale / Second-hand 时使用 resale_house，否则使用 new_house。
+6. block 必须保留完整专有名词，不要删除 Area、Zone、District、CBD、Railway Station、Creative Zone 等后缀。
+7. 时间范围优先从 text 提取；如果 text 没有明确时间，但 row_headers/column_headers 中有连续年份或月份，则从可见表头提取。
+8. select_columns 只包含复现该 chart/table 必须读取的原始列，不要加入无关列。
+9. 如果 visible table 展示年度或月度统计，select_columns 包含 date_code。
+10. 如果 visible table 展示面积区间或面积统计，select_columns 包含 dim_area。
+11. 如果 visible table 展示总价区间或总价统计，select_columns 包含 dim_price。
+12. 如果 visible table 展示均价、单价或 Price/m²，select_columns 包含 dim_unit_price。
+13. 如果 visible table 展示成交、交易、销售、Delivery、Deliv、Sold、Trade、Transaction 相关指标，select_columns 包含 trade_sets。
+14. 如果 visible table 展示供应、新增、Launch、Supply、Listing 相关指标，select_columns 包含 supply_sets。
 
 输出约束：
 - 只能输出 JSON，不要输出 Markdown。
@@ -123,5 +125,24 @@
     "block": "Beiqijia",
     "start_date": "2021-01-01",
     "end_date": "2023-12-31"
+  }
+}
+
+示例 4：
+输入：
+{
+  "text": "Bejiing Liangxiang Supply vs. Transactions by Area (2020-2024) (Line chart)",
+  "row_headers": ["Supply Count", "Sales Count"],
+  "column_headers": ["0-20m²", "20-40m²"]
+}
+输出：
+{
+  "connection": {"table": "beijing_new_house"},
+  "select_columns": ["dim_area", "supply_sets", "trade_sets"],
+  "filters": {
+    "city": "Bejiing",
+    "block": "Liangxiang",
+    "start_date": "2020-01-01",
+    "end_date": "2024-12-31"
   }
 }

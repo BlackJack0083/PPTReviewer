@@ -12,6 +12,7 @@ from langchain.tools import ToolRuntime
 from method.agents.content_validation.agent import build_content_payload
 from method.agents.content_validation.tools import (
     CONTENT_VALIDATION_TOOLS,
+    ContentValidationContext,
     align_visible_dataframe,
     compare_display_dataframes,
     execute_table_state,
@@ -60,6 +61,24 @@ class ContentValidationToolsTest(unittest.TestCase):
         self.assertEqual(payload["summary"]["element_id"], "2")
         self.assertEqual(payload["tables"][0]["caption"]["element_id"], "3")
         self.assertEqual(payload["tables"][0]["body"]["element_id"], "4")
+        self.assertNotIn("confirmed_scope_corrections", payload)
+
+    def test_content_context_carries_confirmed_scope_corrections(self) -> None:
+        correction = {
+            "target": "st.caption",
+            "field": "block",
+            "error_type": "scope_error",
+            "scope_error_type": "missing",
+            "client_response": "Please use block=Liangxiang.",
+        }
+
+        context = ContentValidationContext(
+            client=FakeClient(),
+            artifact_dir=Path("."),
+            confirmed_scope_corrections=[correction],
+        )
+
+        self.assertEqual(context.confirmed_scope_corrections, [correction])
 
     def test_compare_display_dataframes_allows_rounding_noise(self) -> None:
         visible = pd.DataFrame({"year": [2020], "value": [100.0]})
@@ -90,6 +109,26 @@ class ContentValidationToolsTest(unittest.TestCase):
             ],
         )
         self.assertIn("3 cell(s) differ", result["diff_summary"])
+
+    def test_compare_display_dataframes_ignores_top_left_header_cell(self) -> None:
+        visible = pd.DataFrame(
+            {
+                "__index__": ["Supply Count", "Sales Count"],
+                "0-20m²": [1004, 786],
+                "20-40m²": [212, 522],
+            }
+        )
+        expected = pd.DataFrame(
+            {
+                "metric": ["Supply Count", "Sales Count"],
+                "0-20m²": [1004, 786],
+                "20-40m²": [212, 522],
+            }
+        )
+
+        result = compare_display_dataframes(visible, expected)
+
+        self.assertEqual(result["status"], "equal")
 
     def test_align_visible_dataframe_maps_chart_category_to_dimension(self) -> None:
         visible = pd.DataFrame(
@@ -167,7 +206,6 @@ class ContentValidationToolsTest(unittest.TestCase):
             state,
             {
                 "error_type": "claim_error",
-                "field": "presentation_type",
                 "description": "Caption says table but body is a bar chart.",
                 "target": "st.caption",
             },
@@ -180,7 +218,6 @@ class ContentValidationToolsTest(unittest.TestCase):
                 {
                     "request_type": "content_update_confirmation",
                     "target": "st.caption",
-                    "field": "presentation_type",
                     "error_type": "claim_error",
                     "evidence": "Caption says table but body is a bar chart.",
                 }

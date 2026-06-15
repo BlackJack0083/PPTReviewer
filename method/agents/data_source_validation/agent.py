@@ -181,20 +181,21 @@ def build_validation_payload(
     Raises:
         KeyError: `summary`、`tables` 或 table caption 缺少必要字段时抛出。
     """
-    source_data = [("summary", analysis_state["summary"]["data_source"])]
+    source_data = [("summary", "summary", analysis_state["summary"]["data_source"])]
     source_data.extend(
-        (f"caption[{table_index}]", table["caption"]["data_source"])
+        (f"caption[{table_index}]", "st.caption", table["caption"]["data_source"])
         for table_index, table in enumerate(analysis_state["tables"])
     )
     return {
         "source_candidates": [
             {
                 "source": source,
+                "target": target,
                 "data_source": {
                     "connection": data_source["connection"],
                     "filters": data_source["filters"],
                 },
             }
-            for source, data_source in source_data
+            for source, target, data_source in source_data
         ]
     }

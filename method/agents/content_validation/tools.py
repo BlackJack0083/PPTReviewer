@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import copy
 import json
+import operator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 import pandas as pd
 from langchain.agents import AgentState
@@ -30,12 +31,15 @@ class ContentValidationContext:
     Args:
         client: benchmark client 或人工桥接对象。
         artifact_dir: raw/computed/repaired 文件输出目录。
+        confirmed_scope_corrections: Data-source validation 阶段已获得
+            client 确认的 scope 修正。
         transformer: function logic 执行器。
         query_func: 数据库查询函数，签名为 `query(sql, params=None)`。
     """
 
     client: Any
     artifact_dir: Path
+    confirmed_scope_corrections: list[dict[str, Any]] = field(default_factory=list)
     transformer: StatTransformer = field(default_factory=StatTransformer)
     query_func: Any = database_query
 
@@ -51,9 +55,9 @@ class ContentValidationState(AgentState):
     """
 
     analysis_state: dict[str, Any]
-    table_records: list[dict[str, Any]]
-    tool_log: list[dict[str, Any]]
-    detected_issues: list[dict[str, Any]]
+    table_records: Annotated[list[dict[str, Any]], operator.add]
+    tool_log: Annotated[list[dict[str, Any]], operator.add]
+    detected_issues: Annotated[list[dict[str, Any]], operator.add]
 
 
 @tool
@@ -94,7 +98,7 @@ def sql_retrieve(table_index: int, runtime: ToolRuntime) -> Command:
     return _tool_command(
         runtime,
         result,
-        {"tool_log": [*state["tool_log"], {"tool": "sql_retrieve", **result}]},
+        {"tool_log": [{"tool": "sql_retrieve", **result}]},
     )
 
 
@@ -126,20 +130,13 @@ def analysis_execute(table_index: int, raw_data_path: str, runtime: ToolRuntime)
         "row_count": int(computed_df.shape[0]),
         "columns": [str(column) for column in computed_df.columns],
     }
-    table_records = [
-        item for item in state["table_records"] if item["table_index"] != table_index
-    ]
-    table_records.append(record)
     result = {**record, "preview": _preview(computed_df)}
     return _tool_command(
         runtime,
         result,
         {
-            "table_records": table_records,
-            "tool_log": [
-                *state["tool_log"],
-                {"tool": "analysis_execute", **result},
-            ],
+            "table_records": [record],
+            "tool_log": [{"tool": "analysis_execute", **result}],
         },
     )
 
@@ -172,7 +169,7 @@ def compare_table(table_index: int, computed_data_path: str, runtime: ToolRuntim
     return _tool_command(
         runtime,
         result,
-        {"tool_log": [*state["tool_log"], {"tool": "compare_table", **result}]},
+        {"tool_log": [{"tool": "compare_table", **result}]},
     )
 
 
@@ -180,7 +177,6 @@ def compare_table(table_index: int, computed_data_path: str, runtime: ToolRuntim
 def ask_client(
     error_type: str,
     target: str,
-    field: str,
     description: str,
     runtime: ToolRuntime,
 ) -> Command:
@@ -191,18 +187,14 @@ def ask_client(
             `claim_error`。
         target: 请求涉及的单个 PPT 目标，例如 `st.body`、`st.caption` 或
             `summary`。
-        field: 需要确认或修改的单个字段，例如 `table_values`、
-            `presentation_type` 或 `summary`。
         description: agent 对当前问题和建议修改的说明。
 
     Returns:
         只包含 `response` 的客户式回复。
     """
-    state = runtime.state
     request: dict[str, Any] = {
         "request_type": "content_update_confirmation",
         "error_type": error_type,
-        "field": field,
         "description": description,
         "target": target,
     }
@@ -212,7 +204,6 @@ def ask_client(
     detected_issue: dict[str, Any] = {
         "request_type": request["request_type"],
         "target": target,
-        "field": field,
         "error_type": error_type,
         "evidence": description,
     }
@@ -220,9 +211,8 @@ def ask_client(
         runtime,
         response,
         {
-            "detected_issues": [*state["detected_issues"], detected_issue],
+            "detected_issues": [detected_issue],
             "tool_log": [
-                *state["tool_log"],
                 {"tool": "ask_client", "request": request, "response": response},
             ]
         },
@@ -255,7 +245,6 @@ def modify_chart_tool(table_index: int, data_path: str, runtime: ToolRuntime) ->
         {
             "analysis_state": analysis_state,
             "tool_log": [
-                *state["tool_log"],
                 {
                     "tool": "modify_chart",
                     "args": {"table_index": table_index, "data_path": data_path},
@@ -292,7 +281,6 @@ def modify_table_tool(table_index: int, data_path: str, runtime: ToolRuntime) ->
         {
             "analysis_state": analysis_state,
             "tool_log": [
-                *state["tool_log"],
                 {
                     "tool": "modify_table",
                     "args": {"table_index": table_index, "data_path": data_path},
@@ -330,7 +318,6 @@ def modify_textbox_tool(
         {
             "analysis_state": analysis_state,
             "tool_log": [
-                *state["tool_log"],
                 {
                     "tool": "modify_textbox",
                     "args": {"element_id": element_id, "text": text},
@@ -472,11 +459,15 @@ def compare_display_dataframes(
             "status": "different",
             "diff_summary": f"Visible shape {visible_norm.shape} differs from expected shape {expected_norm.shape}.",
         }
-    if list(visible_norm.columns) != list(expected_norm.columns):
+
+    visible_columns = list(visible_norm.columns)
+    expected_columns = list(expected_norm.columns)
+    if visible_columns[1:] != expected_columns[1:]:
         return {
             "status": "different",
             "diff_summary": "Visible columns differ from recomputed columns.",
         }
+    visible_norm = visible_norm.rename(columns={visible_columns[0]: expected_columns[0]})
     diff_count, diff_examples = _dataframe_value_differences(
         visible_norm,
         expected_norm,

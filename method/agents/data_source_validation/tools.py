@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import json
+import operator
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Annotated, Any
 
 import pandas as pd
 from langchain.agents import AgentState
@@ -201,7 +202,7 @@ class DataSourceValidationState(AgentState):
         tool_log: 本轮 ReAct 过程中所有 data-source validation 工具调用记录。
     """
 
-    tool_log: list[dict[str, Any]]
+    tool_log: Annotated[list[dict[str, Any]], operator.add]
 
 
 @tool
@@ -239,13 +240,11 @@ def slot_query(
         "start_date": start_date,
         "end_date": end_date,
     }
-    state = runtime.state
     return _command(
         runtime,
         result,
         {
             "tool_log": [
-                *state["tool_log"],
                 {"tool": "slot_query", "args": args, "result": result},
             ]
         },
@@ -268,7 +267,8 @@ def ask_client(
             `scope_error`。
         scope_error_type: scope 细分类型，例如 `missing`、`error`、
             `unmatch` 或 `conflict`。
-        field: 需要 client 澄清或修正的单个 slot 字段。
+        field: 需要 client 澄清或修正的单个 feedback 字段。时间范围问题
+            使用 `time_range`，不要拆成 `start_date` 或 `end_date`。
         description: agent 对当前问题的简短说明。
         target: 可选的单个目标元素标签。冲突或 slide-level 问题可以不传。
 
@@ -289,12 +289,11 @@ def ask_client(
     if set(response) != {"response"} or not isinstance(response["response"], str):
         raise ValueError(f"ask_client expects client to return only response: {response}")
 
-    state = runtime.state
     log_item = {"tool": "ask_client", "request": request, "response": response}
     return _command(
         runtime,
         response,
-        {"tool_log": [*state["tool_log"], log_item]},
+        {"tool_log": [log_item]},
     )
 
 

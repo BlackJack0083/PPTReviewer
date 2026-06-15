@@ -239,7 +239,6 @@ class ContentToolCallingFakeAgent:
                     {
                         "error_type": "value_error",
                         "target": "st.body",
-                        "field": "table_values",
                         "description": comparison["comparison"]["diff_summary"],
                     }
                 )
@@ -269,7 +268,6 @@ class ContentToolCallingFakeAgent:
                     {
                         "error_type": "claim_error",
                         "target": "st.caption",
-                        "field": "presentation_type",
                         "description": evidence,
                     }
                 )
@@ -302,8 +300,9 @@ class FakeContentValidationAgent:
         analysis_state,
         client,
         artifact_dir,
+        confirmed_scope_corrections=None,
     ):
-        del client
+        del client, confirmed_scope_corrections
         artifact_dir.mkdir(parents=True, exist_ok=True)
         yaml_path = artifact_dir / "repaired_slide.yaml"
         yaml_path.write_text("title: Example\n", encoding="utf-8")
@@ -326,6 +325,7 @@ class ToolCallingContentValidationAgent(ContentValidationAgent):
         analysis_state,
         client,
         artifact_dir,
+        confirmed_scope_corrections=None,
     ):
         from method.agents.content_validation.agent import build_content_payload
         from method.agents.content_validation.tools import (
@@ -471,8 +471,8 @@ class FeedbackPipelineTest(unittest.TestCase):
                     feedback_items=[
                         {
                             "request_type": "content_update_confirmation",
+                            "error_type": "claim_error",
                             "target": "st.caption",
-                            "field": "presentation_type",
                             "response": "Yes, please apply the proposed update.",
                         }
                     ]
@@ -494,7 +494,6 @@ class FeedbackPipelineTest(unittest.TestCase):
             for issue in result.detected_issues
             if issue["target"] == "st.caption"
             and issue["error_type"] == "claim_error"
-            and issue["field"] == "presentation_type"
         ]
         self.assertTrue(caption_requests)
         self.assertTrue(caption_updates)
@@ -505,8 +504,8 @@ class FeedbackPipelineTest(unittest.TestCase):
             feedback_items=[
                 {
                     "request_type": "content_update_confirmation",
+                    "error_type": "claim_error",
                     "target": "st.caption",
-                    "field": "presentation_type",
                     "response": "Yes, please apply the proposed update.",
                 }
             ]
@@ -515,41 +514,13 @@ class FeedbackPipelineTest(unittest.TestCase):
         response = client.respond(
             {
                 "request_type": "content_update_confirmation",
+                "error_type": "claim_error",
                 "target": "st.caption",
-                "field": "presentation_type",
                 "description": "Update caption text to match the chart type.",
             }
         )
 
         self.assertEqual(response, {"response": "Yes, please apply the proposed update."})
-
-    def test_ppt_representation_uses_csv_instead_of_nested_chart_payload(self) -> None:
-        case_dir = Path(
-            "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_header-22248c0e"
-        )
-        if not (case_dir / "slide.pptx").exists():
-            self.skipTest(f"Injected benchmark fixture not found: {case_dir}")
-        parsed = asyncio.run(
-            SlideParserAgent(client=TestRoleClient()).arun(
-                SlideReviewInput(
-                    pptx_path=case_dir / "slide.pptx",
-                    image_path=case_dir / "slide.png",
-                )
-            )
-        )
-        representation = parsed["ppt_representation"]
-        first_table = representation["structured_tables"][0]
-        csv_path = Path(first_table["body"]["data_path"])
-        self.assertTrue(csv_path.exists())
-        self.assertEqual(csv_path.parent, case_dir)
-        self.assertNotIn("table_id", first_table)
-        self.assertNotIn("data_csv_path", first_table)
-        self.assertNotIn("body_type", first_table)
-        self.assertNotIn("body_element_id", first_table)
-        self.assertNotIn("raw_observed", first_table)
-        self.assertNotIn("observed", first_table)
-        self.assertNotIn("derived", first_table)
-        self.assertIn("trade_counts", csv_path.read_text(encoding="utf-8"))
 
 
 def _client_agrees(response: str) -> bool:

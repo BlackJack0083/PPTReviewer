@@ -2,6 +2,7 @@
 
 你的任务是从 PPT summary 文本中提取“用于检索底层数据库”的 data_source state。
 不要验证 slide 是否正确，不要判断数值是否匹配，也不要修正文本。你只需要根据输入文本生成当前 summary 声称的数据源。
+所有 scope slot 必须按输入文本逐字提取。即使 city、block 或时间看起来有拼写错误，也必须保留原始写法，不要改正、翻译、补全或归一化。
 
 输入 JSON：
 {
@@ -39,10 +40,11 @@
 1. 只根据输入 text 提取 state。
 2. 不要调用数据库，不要判断该 state 是否真实存在。
 3. 如果某个 required slot 无法从输入中确定，输出空字符串 ""，不要猜测。
-4. table 需要根据城市和房产类型组成；text 出现 Resale / Second-hand 时使用 resale_house，否则使用 new_house。
-5. block 必须保留完整专有名词，不要删除 Area、Zone、District、CBD、Railway Station、Creative Zone 等后缀。
-6. 时间范围从 text 提取。
-7. 如果无法从 text 确定 city，则 connection.table 输出 ""，不要根据 block 猜测城市。
+4. filters.city 必须保留 text 中的原始城市字符串。例如 text 写成 Bejiing 时，filters.city 必须输出 "Bejiing"，不能修正为 "Beijing"。
+5. table 需要根据城市和房产类型组成；text 出现 Resale / Second-hand 时使用 resale_house，否则使用 new_house。
+6. block 必须保留完整专有名词，不要删除 Area、Zone、District、CBD、Railway Station、Creative Zone 等后缀。
+7. 时间范围从 text 提取。
+8. 如果无法从 text 确定 city，则 connection.table 输出 ""，不要根据 block 猜测城市。
 
 输出约束：
 - 只能输出 JSON，不要输出 Markdown。
@@ -73,7 +75,7 @@
 }
 输出：
 {
-  "connection": {"table": ""},
+  "connection": {"table": "beijing_new_house"},
   "filters": {
     "city": "",
     "block": "Miyun District",
@@ -114,3 +116,18 @@
   }
 }
 
+示例 5：
+输入：
+{
+  "text": "From 2020 to 2024, Bejiing Liangxiang supply and transaction area both increased."
+}
+输出：
+{
+  "connection": {"table": ""},
+  "filters": {
+    "city": "Bejiing",
+    "block": "Liangxiang",
+    "start_date": "2020-01-01",
+    "end_date": "2024-12-31"
+  }
+}

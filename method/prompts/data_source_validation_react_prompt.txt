@@ -6,9 +6,13 @@
 
 你需要做的事情：
 - 阅读 `source_candidates`：这些是上一步 analysis 从 summary 和 table caption 中抽取出的 data source。
+- 每个 candidate 都包含 `source` 和标准 `target`。`target` 用于向 client
+  指明出错文本位置，例如 `summary` 或 `st.caption`。
 - 核对不同 source candidate 对同一个 slot 的描述是否一致。
 - 在内部整理 candidate `final_data_source`。
-- 如果 slot 冲突或缺失，先调用 `ask_client` 请求 client 澄清，不要调用数据库工具。
+- 如果某个 source candidate 自身的 slot 冲突或缺失，即使其他 candidate
+  提供了可用于 slide-level final data source 的值，也必须先调用
+  `ask_client` 请求 client 对该 `target` 的 scope 修正给出确认，不要静默补全。
 - 如果 slot 完整且无冲突，调用 `slot_query` 验证数据库中是否存在对应数据。
 - 如果数据库验证显示 Error 或 Unmatch，继续调用 `ask_client` 请求 client 修正。
 - 根据 client 回复文本中明确给出的 slot 取值在你的后续 reasoning 中更新 candidate `final_data_source`，然后继续验证。
@@ -35,8 +39,10 @@
 - end_date
 
 中间判断要求：
-- reasoning 和 client request 中都使用真实 data-source slot 名：
+- reasoning 和最终 `final_data_source` 中使用真实 data-source slot 名：
   table、city、block、start_date、end_date。
+- `ask_client.field` 使用 benchmark feedback 字段：table、city、block、
+  time_range。所有 start_date/end_date 相关问题都用 `field="time_range"`。
 
 可用工具：
 - `slot_query(table, city, block, start_date, end_date)`
@@ -56,7 +62,8 @@
 - 你需要从 `response` 文本中读取客户明确说出的 slot 取值，例如
   `Please use city=Beijing.` 表示 city 应更新为 `Beijing`。
 - 如果 `response` 明确给出了 slot 取值，你必须只根据这些取值更新 candidate
-  `final_data_source`。
+  `final_data_source`。`time_range` 的 client 回复会明确给出 start_date 和
+  end_date。
 - 如果 `response` 没有明确给出任何 slot 取值，说明 client 没有提供可确认修正；
   此时不要猜测最终 data source，也不要输出结构化最终结果。
 
@@ -75,15 +82,30 @@
    - 不要调用 `slot_query`。
    - 只把空 slot 标为 `Missing`。
    - 非空 slot 不要标为 `Missing`。
-   - 如果 start_date 或 end_date 为空，只请求缺失的真实字段。
+   - 如果 start_date 或 end_date 为空，调用 `ask_client` 时使用
+     `field="time_range"`。
    - 每次 `ask_client` 只请求一个字段。
    - 调用 `ask_client` 请求缺失字段。
+   - `target` 使用缺失字段所在 source candidate 的 `target`。
    - 如果 client 回复文本中明确给出 slot 取值，根据这些取值更新 candidate `final_data_source` 后继续验证。
    - 如果 client 没有明确给出任何 slot 取值，不要猜测最终 data source。
-4. 如果所有必填 slot 都非空且没有冲突：
+4. 如果 slide-level candidate `final_data_source` 已经完整，但某个 source
+   candidate 对同一 slot 为空、明显 typo 或与最终候选不一致：
+   - 这仍然是该 source candidate 的 scope issue。
+   - 先调用 `ask_client`。
+   - `field` 使用对应 feedback 字段；start_date/end_date 对应
+     `time_range`。
+   - `target` 使用该 source candidate 的 `target`。
+   - `scope_error_type` 根据该 source candidate 的问题使用 `missing`、
+     `error`、`unmatch` 或 `conflict`。
+   - client 明确确认后，继续 slide-level 数据库验证。
+5. 如果所有必填 slot 都非空且没有冲突：
    - 必须调用 `slot_query`。
    - 对同一个 candidate `final_data_source` 只调用一次；如果 client 后续修正了 slots，可以对修正后的 candidate 再调用一次。
-5. 根据工具结果判断：
+6. 根据工具结果判断：
+   - 如果 `slot_query` 返回 `date_range_error` -> time_range 是 `Error`。
+     必须调用 `ask_client(error_type="scope_error", scope_error_type="error",
+     field="time_range", ...)`。
    - `table_exists == false` -> table 是 `Error`。
    - `city_exists == false` -> city 是 `Error`。
    - `block_exists == false` -> block 是 `Error`。
@@ -91,17 +113,18 @@
    - 单个 slots 存在，但 `city_block_matches == false` -> city 和 block 是 `Unmatch`。
    - 单个 slots 存在，但 `full_scope_has_data == false` -> table/city/block/start_date/end_date 是 `Unmatch`。
    - `full_scope_has_data == true` -> 所有 slots 是 `Correct`。
-6. 只要存在 `Missing`、`Error`、`Unmatch` 或 `Conflict`，就在中间过程中调用 `ask_client`。
-   - `field` 只包含一个需要 client 补充或纠正的字段。
+7. 只要存在 `Missing`、`Error`、`Unmatch` 或 `Conflict`，就在中间过程中调用 `ask_client`。
+   - `field` 只包含一个需要 client 补充或纠正的 feedback 字段；时间问题
+     一律使用 `time_range`，不要使用 `start_date` 或 `end_date`。
    - 不要请求无关字段。
    - `error_type` 使用 `"scope_error"`。
    - `scope_error_type` 使用 `"missing"`、`"error"`、`"unmatch"` 或 `"conflict"`。
-7. 最终结构化输出只在确认成功后返回 data source。
+8. 最终结构化输出只在确认成功后返回 data source。
    - 不要输出 check_result。
    - 不要输出 error_type。
    - 不要输出 client_request。
    - 不要输出 tool trace。
-8. 最终结构化输出使用 `ValidationOutput` schema。
+9. 最终结构化输出使用 `ValidationOutput` schema。
    - 只包含 `connection` 和 `filters`。
    - 不包含 `status`、`reason` 或任何中间过程字段。
 

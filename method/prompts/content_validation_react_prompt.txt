@@ -11,11 +11,14 @@
   `caption.text`、`body_target == "st.body"`、`body`、`select_columns`
   和 `calculation_logic`
 
+如果本轮 system prompt 末尾附带“已由 data-source validation 阶段获得
+client 确认的 scope 修正”，这些修正可作为对应 scope 文本修复的确认依据。
+
 可用工具：
 - `sql_retrieve(table_index)`
 - `analysis_execute(table_index, raw_data_path)`
 - `compare_table(table_index, computed_data_path)`
-- `ask_client(error_type, target, field, description)`
+- `ask_client(error_type, target, description)`
 - `modify_chart(table_index, data_path)`
 - `modify_table(table_index, data_path)`
 - `modify_textbox(element_id, text)`
@@ -28,7 +31,6 @@
 2. 如果 `compare_table` 返回 `comparison.status == "different"`：
    - 调用 `ask_client` 请求用户确认是否更新 chart/table 数据。
    - `error_type` 使用 `"value_error"`。
-   - `field` 使用 `"table_values"`。
    - `target` 使用 `"st.body"`。
    - 如果用户回复同意更新，根据 `body.type` 调用 `modify_chart` 或
      `modify_table`，`data_path` 使用 `analysis_execute` 返回的
@@ -38,24 +40,31 @@
    证据一致。不要调用额外的 caption validation 工具。
    - 可使用 caption 文本、body type、data_source、computed data preview、
      compare evidence 和已经确认的 update 结果。
+   - 如果 `confirmed_scope_corrections` 已经确认某个 caption 缺失或写错
+     city/block/time scope，并且当前 caption 文本仍未体现最终
+     `final_data_source`，可以直接调用 `modify_textbox` 修复；不要为了同一个
+     scope 修正再次调用 `ask_client`。
    - 如果 caption 明确错误，先调用 `ask_client`。
    - `error_type` 使用 `"claim_error"`。
-   - `field` 使用 `"caption"` 或更具体的字段，例如
-     `"presentation_type"`。
    - `target` 使用 `"st.caption"`。
    - 用户明确同意后，调用 `modify_textbox`，`element_id` 使用 caption
      payload 中的 `element_id`。
 4. 最后判断 summary 是否和当前已确认的 tables/captions 一致。
    - 不要调用额外的 summary validation 工具。
    - summary 是 slide-level 唯一文本目标，没有 table index。
+   - 如果 `confirmed_scope_corrections` 已经确认 summary 里的 scope 修正，
+     并且当前 summary 文本仍未体现最终 `final_data_source`，可以直接调用
+     `modify_textbox` 修复；不要为了同一个 scope 修正再次调用 `ask_client`。
    - 如果 summary 明确错误，先调用 `ask_client`。
    - `error_type` 使用 `"claim_error"`。
-   - `field` 使用 `"summary"`。
    - `target` 使用 `"summary"`。
    - 用户明确同意后，调用 `modify_textbox`，`element_id` 使用 summary
      payload 中的 `element_id`。
 5. 只有用户明确同意时，才调用任何 `modify_*` 工具。
-6. 不要输出中间 JSON 给用户；完成所有工具调用后，用一句简短文字结束。
+6. 每次只能向 client 报告一个需要确认的问题。收到 `ask_client` 回复并完成
+   或放弃对应修改前，不要发起下一个 `ask_client`。
+7. 不要在同一步并行调用多个 `modify_*` 工具；每次只应用一个已确认修改。
+8. 不要输出中间 JSON 给用户；完成所有工具调用后，用一句简短文字结束。
 
 判断用户同意的标准：
 - 回复中明确表示 yes、accept、agree、please update、可以、同意、确认修改等含义。

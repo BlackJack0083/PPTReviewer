@@ -1,22 +1,77 @@
 from __future__ import annotations
 
-from typing import Any
+import json
+from typing import Any, Literal
+
+from method.utils import Client, parse_json_object
+
+DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+CLIENT_SIMULATION_SYSTEM_PROMPT = """You are simulating a real PPT author's reply.
+
+You receive the reviewing agent's request and the private benchmark feedback item
+that matches this request. Reply like a concise client, preserving every factual
+correction from the feedback. Do not mention benchmark metadata, request_type,
+target, field, labels, JSON, or that you are simulating a client.
+
+Return a JSON object with exactly one key:
+{"response": "..."}
+"""
 
 
 class ClientAgent:
-    """由 case-local feedback items 驱动的共享 benchmark client。"""
+    """由 case-local feedback items 驱动的共享 benchmark client。
 
-    def __init__(self, *, feedback_items: list[dict[str, Any]]):
+    Args:
+        feedback_items: 当前 case 的私有 feedback items。
+        mode: `deterministic` 直接返回 feedback response；`llm` 先确定性匹配
+            feedback item，再用 LLM 改写成更自然的客户回复。
+        llm_client: 可选的 project-local `.chat(...)` client，主要用于测试。
+        model: LLM client 使用的模型名。`mode="llm"` 且未传 `llm_client` 时必填。
+        api_key: LLM API key。
+        base_url: OpenAI-compatible API base URL。
+        timeout_sec: LLM 请求超时时间。
+    """
+
+    def __init__(
+        self,
+        *,
+        feedback_items: list[dict[str, Any]],
+        mode: Literal["deterministic", "llm"] = "deterministic",
+        llm_client: Any | None = None,
+        model: str | None = None,
+        api_key: str | None = None,
+        base_url: str = DEFAULT_BASE_URL,
+        timeout_sec: int = 120,
+    ):
+        if mode not in {"deterministic", "llm"}:
+            raise ValueError(f"Unsupported client mode: {mode}")
         self.feedback_items = [_normalize_feedback_item(item) for item in feedback_items]
         self._used_keys: set[str] = set()
+        self.mode = mode
+        self.llm_client = llm_client
+        if self.mode == "llm" and self.llm_client is None:
+            if not model:
+                raise ValueError("ClientAgent mode='llm' requires model or llm_client.")
+            self.llm_client = Client(
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
+                timeout_sec=timeout_sec,
+            )
 
     @classmethod
-    def from_feedback_episode(cls, episode: dict[str, Any]) -> ClientAgent:
+    def from_feedback_episode(
+        cls,
+        episode: dict[str, Any],
+        **kwargs: Any,
+    ) -> ClientAgent:
         """从单个 `feedback_episode.json` payload 构造 client。
 
         Args:
             episode: case-local feedback episode。它只对 simulated client
                 可见，不对 reviewing agents 可见。
+            **kwargs: 透传给 `ClientAgent(...)`，用于配置 deterministic/llm
+                client 模式。
 
         Returns:
             只响应 injected error points 显式澄清/确认请求的共享 client。
@@ -24,14 +79,15 @@ class ClientAgent:
         items = episode.get("feedback_items")
         if not isinstance(items, list):
             raise ValueError(f"feedback_episode must contain feedback_items list: {episode}")
-        return cls(feedback_items=items)
+        return cls(feedback_items=items, **kwargs)
 
     def respond(self, request: dict[str, Any]) -> dict[str, Any]:
         """响应 agent 发出的澄清或确认请求。
 
         Args:
-            request: 请求对象，包含内部路由用的 `request_type`，以及用于
-                匹配 feedback item 的 `field` 和 `target`。
+            request: 请求对象，包含内部路由用的 `request_type`。Data-source
+                请求按 `field` 和 `scope_error_type` 匹配；content update 请求
+                按 `error_type` 和 `target` 匹配。
 
         Returns:
             client 回复。agent 可见的澄清和确认请求只返回客户式 `response`。
@@ -45,31 +101,53 @@ class ClientAgent:
             return {"response": "I do not have a confirmed correction for this request."}
 
         self._used_keys.add(key)
-        return {"response": item["response"]}
+        if self.mode == "deterministic":
+            return {"response": item["response"]}
+        return self._llm_response(request=request, item=item)
 
     def _find_feedback_item(
         self,
         request: dict[str, Any],
     ) -> tuple[dict[str, Any] | None, str | None]:
         request_type = str(request["request_type"])
-        request_field = _normalize_string(request.get("field"))
-        request_target = _normalize_string(request.get("target"))
-        request_scope_error_type = _normalize_string(request.get("scope_error_type"))
 
         for index, item in enumerate(self.feedback_items):
             if item["request_type"] != request_type:
                 continue
-            if item["field"] != request_field:
-                continue
-            if item["target"] != request_target:
-                continue
-            if item["scope_error_type"] != request_scope_error_type:
+            if not _matches_feedback_item(item, request):
                 continue
             key = _feedback_key(index, item)
             if key in self._used_keys:
                 continue
             return item, key
         return None, None
+
+    def _llm_response(
+        self,
+        *,
+        request: dict[str, Any],
+        item: dict[str, Any],
+    ) -> dict[str, str]:
+        payload = {
+            "request": request,
+            "matched_feedback": {
+                "response": item["response"],
+            },
+        }
+        content = self.llm_client.chat(
+            CLIENT_SIMULATION_SYSTEM_PROMPT,
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            temperature=0.3,
+            max_tokens=512,
+            response_format="json_object",
+        )
+        parsed = parse_json_object(content)
+        if set(parsed) != {"response"} or not isinstance(parsed["response"], str):
+            raise ValueError(f"Client simulator must return only response: {parsed}")
+        response = parsed["response"].strip()
+        if not response:
+            raise ValueError(f"Client simulator returned empty response: {parsed}")
+        return {"response": response}
 
 
 def _normalize_feedback_item(item: dict[str, Any]) -> dict[str, Any]:
@@ -80,12 +158,30 @@ def _normalize_feedback_item(item: dict[str, Any]) -> dict[str, Any]:
     normalized["request_type"] = request_type.strip()
     normalized["field"] = _normalize_string(item.get("field"))
     normalized["target"] = _normalize_string(item.get("target"))
+    normalized["error_type"] = _normalize_string(item.get("error_type"))
     normalized["scope_error_type"] = _normalize_string(item.get("scope_error_type"))
     response = item.get("response")
     if not isinstance(response, str) or not response.strip():
         raise ValueError(f"feedback item must include non-empty response: {item}")
     normalized["response"] = response.strip()
     return normalized
+
+
+def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> bool:
+    request_type = item["request_type"]
+    request_target = _normalize_string(request.get("target"))
+    if request_type == "data_source_slot_clarification":
+        return (
+            item["field"] == _normalize_string(request.get("field"))
+            and item["scope_error_type"] == _normalize_string(request.get("scope_error_type"))
+            and (not item["target"] or item["target"] == request_target)
+        )
+    if request_type == "content_update_confirmation":
+        return (
+            item["error_type"] == _normalize_string(request.get("error_type"))
+            and item["target"] == request_target
+        )
+    return False
 
 
 def _normalize_string(value: Any) -> str:
@@ -98,8 +194,9 @@ def _normalize_string(value: Any) -> str:
 
 def _feedback_key(index: int, item: dict[str, Any]) -> str:
     target = item["target"] or "any"
+    field = item["field"] or "any"
     scope_error_type = item["scope_error_type"] or "any"
     return (
-        f"{index}:{item['request_type']}:field={item['field']}:"
-        f"target={target}:scope_error_type={scope_error_type}"
+        f"{index}:{item['request_type']}:error_type={item['error_type'] or 'any'}:"
+        f"field={field}:target={target}:scope_error_type={scope_error_type}"
     )
