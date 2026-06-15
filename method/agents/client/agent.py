@@ -37,8 +37,8 @@ class ClientAgent:
     ):
         if mode not in {"deterministic", "llm"}:
             raise ValueError(f"Unsupported client mode: {mode}")
-        self.feedback_items = [_normalize_feedback_item(item) for item in feedback_items]
-        self._used_keys: set[str] = set()
+        self.feedback_items = list(feedback_items)
+        self._used_indices: set[int] = set()
         self.mode = mode
         self.prompt = DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
         self.client = client
@@ -89,11 +89,11 @@ class ClientAgent:
         if not isinstance(request_type, str) or not request_type.strip():
             raise ValueError(f"Client request must include request_type: {request}")
 
-        item, key = self._find_feedback_item(request)
-        if item is None or key is None:
+        item, index = self._find_feedback_item(request)
+        if item is None or index is None:
             return {"response": "I do not have a confirmed correction for this request."}
 
-        self._used_keys.add(key)
+        self._used_indices.add(index)
         if self.mode == "deterministic":
             return {"response": item["response"]}
         return self._llm_response(request=request, item=item)
@@ -101,18 +101,17 @@ class ClientAgent:
     def _find_feedback_item(
         self,
         request: dict[str, Any],
-    ) -> tuple[dict[str, Any] | None, str | None]:
+    ) -> tuple[dict[str, Any] | None, int | None]:
         request_type = str(request["request_type"])
 
         for index, item in enumerate(self.feedback_items):
+            if index in self._used_indices:
+                continue
             if item["request_type"] != request_type:
                 continue
             if not _matches_feedback_item(item, request):
                 continue
-            key = _feedback_key(index, item)
-            if key in self._used_keys:
-                continue
-            return item, key
+            return item, index
         return None, None
 
     def _llm_response(
@@ -143,31 +142,13 @@ class ClientAgent:
         return {"response": response}
 
 
-def _normalize_feedback_item(item: dict[str, Any]) -> dict[str, Any]:
-    request_type = _required_text(item, "request_type")
-    normalized = {
-        "request_type": request_type,
-        "response": _required_text(item, "response"),
-    }
-    if request_type == "data_source_slot_clarification":
-        normalized["field"] = _required_text(item, "field")
-        normalized["scope_error_type"] = _required_text(item, "scope_error_type")
-        normalized["target"] = _optional_text(item, "target")
-        return normalized
-    if request_type == "content_update_confirmation":
-        normalized["error_type"] = _required_text(item, "error_type")
-        normalized["target"] = _required_text(item, "target")
-        return normalized
-    raise ValueError(f"Unsupported feedback request_type: {item}")
-
-
 def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> bool:
     request_type = item["request_type"]
     if request_type == "data_source_slot_clarification":
         return (
             item["field"] == request.get("field")
             and item["scope_error_type"] == request.get("scope_error_type")
-            and (not item["target"] or item["target"] == request.get("target"))
+            and (not item.get("target") or item["target"] == request.get("target"))
         )
     if request_type == "content_update_confirmation":
         return (
@@ -175,30 +156,3 @@ def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> boo
             and item["target"] == request.get("target")
         )
     return False
-
-
-def _required_text(item: dict[str, Any], key: str) -> str:
-    value = item.get(key)
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"feedback item must include non-empty {key}: {item}")
-    return value.strip()
-
-
-def _optional_text(item: dict[str, Any], key: str) -> str:
-    value = item.get(key, "")
-    if value == "":
-        return ""
-    if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"feedback item {key} must be a string when provided: {item}")
-    return value.strip()
-
-
-def _feedback_key(index: int, item: dict[str, Any]) -> str:
-    target = item.get("target") or "any"
-    field = item.get("field") or "any"
-    error_type = item.get("error_type") or "any"
-    scope_error_type = item.get("scope_error_type") or "any"
-    return (
-        f"{index}:{item['request_type']}:error_type={error_type}:"
-        f"field={field}:target={target}:scope_error_type={scope_error_type}"
-    )
