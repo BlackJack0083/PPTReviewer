@@ -136,10 +136,10 @@ class ClientAgent:
         parsed = parse_json_object(content)
         if set(parsed) != {"response"} or not isinstance(parsed["response"], str):
             raise ValueError(f"Client simulator must return only response: {parsed}")
-        response = parsed["response"].strip()
-        if not response:
+        parsed["response"] = parsed["response"].strip()
+        if not parsed["response"]:
             raise ValueError(f"Client simulator returned empty response: {parsed}")
-        return {"response": response}
+        return parsed
 
 
 def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> bool:
