@@ -2,11 +2,13 @@ from __future__ import annotations
 
 import argparse
 import copy
-import shutil
 import random
+import shutil
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from core import resource_manager
 from engine.data_files import (
@@ -18,21 +20,27 @@ from engine.yaml_importer import rebuild_ppt_from_yaml
 from utils.pptx_image_utils import convert_pptx_first_page_to_png
 
 from .common import (
-    DEFAULT_FAMILIES,
     SCHEMA_VERSION,
     append_jsonl,
-    load_yaml,
     now_iso,
     read_jsonl,
     rel,
     save_yaml,
     write_json,
 )
-from .mutations import build_corruption, mutation_signature
+from .mutations import (
+    build_recipe_corruption,
+    mutation_signature,
+    recipe_label,
+    recipe_steps,
+)
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+DEFAULT_RECIPE_CONFIG = PROJECT_ROOT / "config" / "benchmark" / "error_recipes.yaml"
 
 
 def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, Any]]:
-    """读取指定 split 的 GT 样本记录；manifest 缺失时回退为扫描文件。"""
+    """读取指定 split 的 GT 样本记录。"""
     manifest_rows = read_jsonl(dataset_root / "manifest" / "samples.jsonl")
     rows = []
     for row in manifest_rows:
@@ -41,26 +49,6 @@ def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, An
         gt_yaml = dataset_root / row.get("gt_yaml", "")
         if gt_yaml.exists():
             rows.append(row)
-    if rows:
-        return rows
-
-    for split in splits:
-        for gt_yaml in sorted(
-            (dataset_root / "split" / split).glob("s_*/gt/slide.yaml")
-        ):
-            sample_dir = gt_yaml.parents[1]
-            rows.append(
-                {
-                    "sample_id": sample_dir.name.removeprefix("s_"),
-                    "split": split,
-                    "sample_dir": rel(sample_dir, dataset_root),
-                    "gt_yaml": rel(gt_yaml, dataset_root),
-                    "gt_ppt": rel(gt_yaml.with_suffix(".pptx"), dataset_root),
-                    "template_id": load_yaml(gt_yaml)
-                    .get("meta", {})
-                    .get("template_id", ""),
-                }
-            )
     return rows
 
 
@@ -80,14 +68,41 @@ def prioritized_rows(
     return first_pass + rest
 
 
+def load_recipes(path: Path) -> list[dict[str, Any]]:
+    """Read and validate benchmark error recipes."""
+    if not path.exists():
+        raise FileNotFoundError(f"Recipe config not found: {path}")
+    payload = yaml.safe_load(path.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict) or not isinstance(payload.get("recipes"), list):
+        raise ValueError(f"Recipe config must contain a recipes list: {path}")
+
+    recipes: list[dict[str, Any]] = []
+    for recipe in payload["recipes"]:
+        if not isinstance(recipe, dict):
+            raise ValueError(f"Recipe must be an object: {recipe}")
+        samples_per_split = recipe.get("samples_per_split")
+        max_variants_per_gt = recipe.get("max_variants_per_gt")
+        max_variants_per_type = recipe.get("max_variants_per_type")
+        for key, value in (
+            ("samples_per_split", samples_per_split),
+            ("max_variants_per_gt", max_variants_per_gt),
+            ("max_variants_per_type", max_variants_per_type),
+        ):
+            if not isinstance(value, int) or value <= 0:
+                raise ValueError(f"Recipe requires positive {key}: {recipe}")
+        recipe_steps(recipe)
+        recipes.append(recipe)
+    return recipes
+
+
 def write_corruption_outputs(
     dataset_root: Path,
     sample_row: dict[str, Any],
     yaml_data: dict[str, Any],
     corruption: dict[str, Any],
     artifact_id: str,
+    render_ppt: bool,
     render_png: bool,
-    skip_ppt: bool,
 ) -> dict[str, Any]:
     """写入 injected YAML/PPT/PNG 产物，并返回对应 manifest 记录。"""
     sample_dir = dataset_root / sample_row["sample_dir"]
@@ -103,10 +118,14 @@ def write_corruption_outputs(
         output_yaml=output_yaml,
     )
     save_yaml(output_yaml, output_data)
-    if not skip_ppt:
+    if render_ppt or render_png:
+        if output_ppt.exists():
+            output_ppt.unlink()
         rebuild_ppt_from_yaml(str(output_yaml), str(output_ppt))
         if render_png:
             convert_pptx_first_page_to_png(output_ppt, output_png)
+        if render_png and not render_ppt and output_ppt.exists():
+            output_ppt.unlink()
 
     record = {
         **corruption,
@@ -160,46 +179,40 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--benchmark-root", default="output/benchmark/dataset_v1")
     parser.add_argument("--splits", nargs="+", default=["train", "val", "test"])
     parser.add_argument(
-        "--families", nargs="+", choices=DEFAULT_FAMILIES, default=DEFAULT_FAMILIES
+        "--recipe-config",
+        type=Path,
+        default=DEFAULT_RECIPE_CONFIG,
+        help="YAML file defining error recipes and generation counts.",
     )
-    parser.add_argument("--samples-per-family-per-split", type=int, default=200)
-    parser.add_argument("--max-variants-per-gt-family", type=int, default=1)
-    parser.add_argument("--max-variants-per-gt-type", type=int, default=1)
-    parser.add_argument("--max-slots-per-sample", type=int, default=1)
     parser.add_argument("--seed", type=int, default=20260425)
+    parser.add_argument("--render-ppt", action="store_true")
     parser.add_argument("--render-png", action="store_true")
-    parser.add_argument("--skip-ppt", action="store_true")
     return parser.parse_args()
 
 
 def main() -> None:
     """执行细粒度错误注入，并写入 coverage 汇总。"""
     args = parse_args()
-    if args.samples_per_family_per_split <= 0:
-        raise ValueError("--samples-per-family-per-split must be positive")
-    if args.max_variants_per_gt_family <= 0:
-        raise ValueError("--max-variants-per-gt-family must be positive")
-    if args.max_variants_per_gt_type <= 0:
-        raise ValueError("--max-variants-per-gt-type must be positive")
-    if args.max_slots_per_sample <= 0:
-        raise ValueError("--max-slots-per-sample must be positive")
 
     dataset_root = Path(args.benchmark_root).resolve()
     rows = load_sample_rows(dataset_root, args.splits)
     if not rows:
         raise FileNotFoundError(f"No GT samples found under {dataset_root}")
+    recipes = load_recipes(args.recipe_config.resolve())
 
     resource_manager.load_all()
     manifest_path = dataset_root / "manifest" / "corruptions.jsonl"
+    if manifest_path.exists():
+        manifest_path.unlink()
     coverage: dict[str, Any] = {
         "schema_version": SCHEMA_VERSION,
         "dataset_root": str(dataset_root),
         "created_at": now_iso(),
-        "families": {},
+        "recipes": {},
     }
     produced_total = 0
     seed_gen = random.Random(args.seed)  # noqa: S311
-    variants_per_gt_family: Counter[tuple[str, str, str]] = Counter()
+    variants_per_gt_recipe: Counter[tuple[str, str, str]] = Counter()
     variants_per_gt_type: Counter[tuple[str, str, str, tuple[str, ...]]] = Counter()
 
     rows_by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -210,53 +223,48 @@ def main() -> None:
         split_rows = rows_by_split.get(split, [])
         if not split_rows:
             continue
-        for family in args.families:
+        for recipe in recipes:
+            current_recipe_label = recipe_label(recipe)
+            samples_per_split = int(recipe["samples_per_split"])
+            max_variants_per_gt = int(recipe["max_variants_per_gt"])
+            max_variants_per_type = int(recipe["max_variants_per_type"])
             produced = 0
             skips = Counter()
             template_hits = Counter()
             order_rng = random.Random(seed_gen.randint(1, 10**9))  # noqa: S311
-            order = prioritized_rows(
-                split_rows, order_rng
-            )
+            order = prioritized_rows(split_rows, order_rng)
 
             for row in order:
-                sample_key = (split, str(row["sample_id"]), family)
-                if (
-                    variants_per_gt_family[sample_key]
-                    >= args.max_variants_per_gt_family
-                ):
+                sample_key = (split, str(row["sample_id"]), current_recipe_label)
+                if variants_per_gt_recipe[sample_key] >= max_variants_per_gt:
                     continue
-                if produced >= args.samples_per_family_per_split:
+                if produced >= samples_per_split:
                     break
-                attempt_limit = max(8, args.max_variants_per_gt_family * 8)
+                attempt_limit = max(8, max_variants_per_gt * 8)
                 row_produced = False
                 for _ in range(attempt_limit):
-                    if produced >= args.samples_per_family_per_split:
+                    if produced >= samples_per_split:
                         break
-                    if (
-                        variants_per_gt_family[sample_key]
-                        >= args.max_variants_per_gt_family
-                    ):
+                    if variants_per_gt_recipe[sample_key] >= max_variants_per_gt:
                         break
                     blocked_signatures = {
                         signature
-                        for key_split, key_sample, key_family, signature in variants_per_gt_type
+                        for key_split, key_sample, key_recipe, signature in variants_per_gt_type
                         if key_split == split
                         and key_sample == str(row["sample_id"])
-                        and key_family == family
+                        and key_recipe == current_recipe_label
                         and variants_per_gt_type[
-                            (key_split, key_sample, key_family, signature)
+                            (key_split, key_sample, key_recipe, signature)
                         ]
-                        >= args.max_variants_per_gt_type
+                        >= max_variants_per_type
                     }
                     variant_seed = seed_gen.randint(1, 10**9)
                     try:
-                        result = build_corruption(
+                        result = build_recipe_corruption(
                             dataset_root,
                             row,
-                            family,
+                            recipe,
                             variant_seed,
-                            max_slots_per_sample=args.max_slots_per_sample,
                             disallow_signatures=blocked_signatures,
                         )
                         if result is None:
@@ -268,7 +276,7 @@ def main() -> None:
                         signature_key = (*sample_key, signature)
                         if (
                             variants_per_gt_type[signature_key]
-                            >= args.max_variants_per_gt_type
+                            >= max_variants_per_type
                         ):
                             continue
 
@@ -278,27 +286,27 @@ def main() -> None:
                             yaml_data=yaml_data,
                             corruption=corruption,
                             artifact_id=artifact_id,
+                            render_ppt=args.render_ppt,
                             render_png=args.render_png,
-                            skip_ppt=args.skip_ppt,
                         )
                         append_jsonl(manifest_path, record)
                         produced += 1
                         produced_total += 1
                         row_produced = True
                         template_hits[str(row.get("template_id", ""))] += 1
-                        variants_per_gt_family[sample_key] += 1
+                        variants_per_gt_recipe[sample_key] += 1
                         variants_per_gt_type[signature_key] += 1
                     except Exception as exc:  # noqa: BLE001
                         skips[type(exc).__name__] += 1
                         break
 
-            coverage["families"][f"{split}:{family}"] = {
+            coverage["recipes"][f"{split}:{current_recipe_label}"] = {
                 "produced": produced,
                 "template_count": len(template_hits),
                 "skips": dict(skips),
             }
             print(
-                f"{split}/{family}: produced={produced}, "
+                f"{split}/{current_recipe_label}: produced={produced}, "
                 f"templates={len(template_hits)}, skips={dict(skips)}"
             )
 

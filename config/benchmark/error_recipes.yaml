@@ -1,0 +1,80 @@
+recipes:
+  - samples_per_split: 200
+    max_variants_per_gt: 1
+    max_variants_per_type: 1
+    recipe:
+      - family: scope
+        num_errors: 1
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: scope
+        num_errors: 2
+
+  - samples_per_split: 200
+    max_variants_per_gt: 1
+    max_variants_per_type: 1
+    recipe:
+      - family: value
+        num_errors: 1
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: value
+        num_errors: 2
+
+  - samples_per_split: 200
+    max_variants_per_gt: 1
+    max_variants_per_type: 1
+    recipe:
+      - family: claim
+        num_errors: 1
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: claim
+        num_errors: 2
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: scope
+        num_errors: 1
+      - family: value
+        num_errors: 1
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: scope
+        num_errors: 1
+      - family: claim
+        num_errors: 1
+
+  - samples_per_split: 200
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: value
+        num_errors: 1
+      - family: claim
+        num_errors: 1
+
+  - samples_per_split: 100
+    max_variants_per_gt: 2
+    max_variants_per_type: 1
+    recipe:
+      - family: scope
+        num_errors: 1
+      - family: value
+        num_errors: 1
+      - family: claim
+        num_errors: 1

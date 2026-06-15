@@ -5,18 +5,20 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
-from .common import (
-    DEFAULT_FAMILIES,
-    SCHEMA_VERSION,
-    load_yaml,
-    now_iso,
-    read_jsonl,
-    write_json,
-)
 from engine.data_files import (
     data_elements,
     read_dataframe_csv,
     resolve_element_data_path,
+)
+
+from .common import (
+    DEFAULT_FAMILIES,
+    SCHEMA_VERSION,
+    error_types_for_mutation,
+    load_yaml,
+    now_iso,
+    read_jsonl,
+    write_json,
 )
 
 REQUIRED_RECORD_FIELDS = {
@@ -31,7 +33,28 @@ REQUIRED_OPERATION_FIELDS = {
     "element_id",
     "mutation_type",
 }
-VALID_TARGETS = {"st.caption", "st.header", "st.body", "summary", "title"}
+VALID_TARGETS = {"st.caption", "st.body", "summary"}
+SCOPE_FAMILY_MUTATIONS = {
+    "scope_city_missing",
+    "scope_city_error",
+    "scope_city_unmatch",
+    "scope_city_conflict",
+    "scope_block_missing",
+    "scope_block_error",
+    "scope_block_unmatch",
+    "scope_block_conflict",
+    "scope_time_range_missing",
+    "scope_time_range_error",
+    "scope_time_range_conflict",
+}
+VALUE_FAMILY_MUTATIONS = {
+    "value_table_cell",
+    "value_summary_slot",
+}
+CLAIM_FAMILY_MUTATIONS = {
+    "claim_caption_presentation",
+    "claim_summary_slot",
+}
 
 
 def validate_benchmark(dataset_root: Path) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -255,15 +278,13 @@ def _validate_operations(
         target = op.get("target")
         if target not in VALID_TARGETS:
             _add_error(errors, "invalid_operation_target", op_context, target=target)
-        if target == "st.body":
-            for field in ("data_key", "cell"):
-                if field not in op:
-                    _add_error(
-                        errors,
-                        "missing_st_body_operation_field",
-                        op_context,
-                        field=field,
-                    )
+        if target == "st.body" and "cell" not in op:
+            _add_error(
+                errors,
+                "missing_st_body_operation_field",
+                op_context,
+                field="cell",
+            )
 
 
 def _validate_sidecar_json(
@@ -370,34 +391,26 @@ def _validate_element_data_files(
 
 
 def infer_error_family(record: dict[str, Any]) -> str:
-    """从 operation targets 推导错误 family，用于 coverage 统计。"""
-    targets = {
-        op.get("target") for op in record.get("operations", []) if isinstance(op, dict)
-    }
-    if targets == {"st.caption"}:
-        return "st_caption"
-    if targets == {"st.body"}:
-        return "st_body"
-    if targets == {"summary"}:
-        return "summary"
-    if targets == {"title"}:
-        return "title"
-    mutation_types = {
-        op.get("mutation_type")
-        for op in record.get("operations", [])
-        if isinstance(op, dict)
-    }
-    if targets == {"st.header"} and mutation_types <= {
-        "series_metric_swap",
-        "table_metric_swap",
-    }:
-        return "metric_label"
-    if targets == {"st.body", "summary"}:
-        return "st_summary"
-    if targets == {"summary", "title"}:
-        return "summary_title"
-    if targets == {"st.body", "summary", "title"}:
-        return "three_element"
+    """Infer the benchmark family for coverage statistics."""
+    families: set[str] = set()
+    for operation in record.get("operations", []):
+        if not isinstance(operation, dict):
+            continue
+        mutation_type = str(operation.get("mutation_type", ""))
+        try:
+            error_types_for_mutation(mutation_type)
+        except ValueError:
+            return "unknown"
+        if mutation_type in SCOPE_FAMILY_MUTATIONS:
+            families.add("scope")
+        elif mutation_type in VALUE_FAMILY_MUTATIONS:
+            families.add("value")
+        elif mutation_type in CLAIM_FAMILY_MUTATIONS:
+            families.add("claim")
+    if len(families) == 1:
+        return next(iter(families))
+    if len(families) > 1:
+        return "mixed"
     return "unknown"
 
 

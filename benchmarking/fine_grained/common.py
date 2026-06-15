@@ -14,71 +14,29 @@ import yaml
 
 SCHEMA_VERSION = "fine-grained-v1"
 DEFAULT_FAMILIES = [
-    "st_caption",
-    "st_body",
-    "summary",
-    "title",
-    "st_header",
-    "st_summary",
-    "summary_title",
-    "three_element",
+    "scope",
+    "value",
+    "claim",
 ]
-VALID_ERROR_TYPES = {"scope_error", "logic_error", "value_error", "claim_error"}
+VALID_ERROR_TYPES = {"scope_error", "value_error", "claim_error"}
 MUTATION_ERROR_TYPES = {
-    "scope_time_range_shift": ("scope_error",),
-    "scope_city_substitution": ("scope_error",),
-    "scope_block_substitution": ("scope_error",),
-    "chart_metric_label_swap": ("logic_error",),
-    "table_metric_label_swap": ("logic_error",),
-    "agg_func_swap": ("logic_error",),
-    "metric_source_swap": ("logic_error",),
-    "binning_step_swap": ("logic_error",),
-    "numeric_value_perturbation": ("value_error",),
-    "range_value_shift": ("value_error",),
-    "trend_direction_flip": ("claim_error",),
-    "title_topic_substitution": ("scope_error",),
-    "presentation_type_substitution": ("claim_error",),
-}
-MUTATION_TYPE_ALIASES = {
-    "caption_scope_year": "scope_time_range_shift",
-    "summary_scope_year": "scope_time_range_shift",
-    "caption_scope_city": "scope_city_substitution",
-    "summary_scope_city": "scope_city_substitution",
-    "caption_scope_block": "scope_block_substitution",
-    "summary_scope_block": "scope_block_substitution",
-    "caption_scope_object": "scope_block_substitution",
-    "summary_scope_object": "scope_block_substitution",
-    "series_metric_swap": "chart_metric_label_swap",
-    "table_metric_swap": "table_metric_label_swap",
-    "data_numeric_delta": "numeric_value_perturbation",
-    "numeric_delta": "numeric_value_perturbation",
-    "linked_numeric_delta": "numeric_value_perturbation",
-    "range_delta": "range_value_shift",
-    "trend_flip": "trend_direction_flip",
-    "title_theme_drift": "title_topic_substitution",
-    "caption_chart_type_mismatch": "presentation_type_substitution",
-}
-TITLE_DONORS = [
-    "New-House Market Capacity Analysis",
-    "New-House Cross-Structure Analysis",
-    "Resale-House Cross-Structure Analysis",
-    "Resale-House Capacity & Structure",
-    "Annual Avg Price Growth",
-    "Monthly Supply Analysis",
-    "Area Segment Annual Trend Analysis",
-]
-TREND_FLIPS = {
-    "increase": "decrease",
-    "decrease": "increase",
-    "increased": "decreased",
-    "decreased": "increased",
-    "upward": "downward",
-    "downward": "upward",
-    "growth": "decline",
-    "decline": "growth",
+    "scope_city_missing": ("scope_error",),
+    "scope_city_error": ("scope_error",),
+    "scope_city_unmatch": ("scope_error",),
+    "scope_city_conflict": ("scope_error",),
+    "scope_block_missing": ("scope_error",),
+    "scope_block_error": ("scope_error",),
+    "scope_block_unmatch": ("scope_error",),
+    "scope_block_conflict": ("scope_error",),
+    "scope_time_range_missing": ("scope_error",),
+    "scope_time_range_error": ("scope_error",),
+    "scope_time_range_conflict": ("scope_error",),
+    "value_table_cell": ("value_error",),
+    "value_summary_slot": ("value_error",),
+    "claim_caption_presentation": ("claim_error",),
+    "claim_summary_slot": ("claim_error",),
 }
 NUMBER_RE = re.compile(r"[-+]?\d[\d,]*(?:\.\d+)?")
-YEAR_RE = re.compile(r"\b(20\d{2})\b")
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 GROUND_TRUTH_INPUT_DIR = PROJECT_ROOT / "config" / "benchmark" / "ground_truth_inputs"
 
@@ -90,47 +48,10 @@ def now_iso() -> str:
 
 def error_types_for_mutation(mutation_type: str) -> list[str]:
     """Return benchmark error labels for a mutation type."""
-    labels = MUTATION_ERROR_TYPES.get(normalize_mutation_type(mutation_type))
+    labels = MUTATION_ERROR_TYPES.get(str(mutation_type))
     if labels is None:
         raise ValueError(f"Unknown mutation_type for error labels: {mutation_type}")
     return list(labels)
-
-
-def normalize_mutation_type(mutation_type: str) -> str:
-    """Normalize legacy mutation names to the public benchmark vocabulary."""
-    raw = str(mutation_type)
-    return MUTATION_TYPE_ALIASES.get(raw, raw)
-
-
-def annotate_operations(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Attach operation-level error labels without changing other fields."""
-    annotated = []
-    for operation in operations:
-        op = dict(operation)
-        op["mutation_type"] = normalize_mutation_type(str(op.get("mutation_type", "")))
-        op["error_types"] = error_types_for_mutation(str(op.get("mutation_type", "")))
-        annotated.append(op)
-    return annotated
-
-
-def collect_error_types(operations: list[dict[str, Any]]) -> list[str]:
-    """Collect sorted case-level error labels from operation labels."""
-    labels: set[str] = set()
-    for operation in operations:
-        for label in operation.get("error_types", []):
-            labels.add(str(label))
-    return sorted(labels)
-
-
-def collect_affected_targets(operations: list[dict[str, Any]]) -> list[str]:
-    """Collect sorted case-level affected targets from operations."""
-    return sorted(
-        {
-            str(operation.get("target"))
-            for operation in operations
-            if operation.get("target")
-        }
-    )
 
 
 def read_jsonl(path: Path) -> list[dict[str, Any]]:
@@ -228,14 +149,6 @@ def parse_number(value: Any) -> float | None:
         return None
 
 
-def number_key(value: Any) -> str | None:
-    """构造归一化数值键，用于将 ST 单元格和 summary slot 对齐。"""
-    parsed = parse_number(value)
-    if parsed is None:
-        return None
-    return f"{parsed:.6f}".rstrip("0").rstrip(".")
-
-
 def format_like_number(value: float, sample: Any) -> str | int | float:
     """按源值的类型和文本格式输出扰动后的数值。"""
     if isinstance(sample, Integral) and not isinstance(sample, bool):
@@ -259,16 +172,22 @@ def format_like_number(value: float, sample: Any) -> str | int | float:
 
 
 def mutate_number(value: Any, rng) -> Any:
-    """对数值施加通用小幅扰动，并尽量保留原始格式。"""
+    """对数值施加 seed-controlled 多样扰动，并尽量保留原始格式。"""
     parsed = parse_number(value)
     if parsed is None:
         return value
-    delta = rng.choice([5, 20])
-    if abs(parsed) < 20:
-        delta = 5
-    candidate = parsed + rng.choice([-delta, delta])
-    if parsed >= 0 and candidate < 0:
-        candidate = parsed + delta
-    if candidate == parsed:
-        candidate = parsed + delta
+    magnitude = max(abs(parsed), 1.0)
+    candidates = [
+        parsed + rng.choice([-1, 1]) * magnitude * rng.choice([0.05, 0.1, 0.2, 0.35]),
+        parsed * rng.choice([0.5, 0.75, 1.25, 1.5, 2.0]),
+        parsed + rng.choice([-1, 1]) * rng.choice([1, 3, 5, 10, 20, 50]),
+    ]
+    if float(parsed).is_integer():
+        candidates.append(parsed + rng.choice([-1, 1]) * rng.randint(1, max(2, int(magnitude // 5) + 2)))
+    candidates = [
+        candidate
+        for candidate in candidates
+        if candidate != parsed and not (parsed >= 0 and candidate < 0)
+    ]
+    candidate = rng.choice(candidates) if candidates else parsed + 1
     return format_like_number(candidate, value)

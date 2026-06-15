@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -14,54 +13,41 @@ from typing import Any
 import yaml
 from tqdm.auto import tqdm
 
-from benchmarking.fine_grained.common import (
-    error_types_for_mutation,
-    normalize_mutation_type,
-)
+from benchmarking.fine_grained.common import error_types_for_mutation
 
-DATA_SOURCE_FIELDS_BY_MUTATION = {
-    "scope_time_range_shift": ["time_range"],
-    "scope_city_substitution": ["city"],
-    "scope_block_substitution": ["block"],
+DATA_SOURCE_FIELD_BY_MUTATION = {
+    "scope_city_missing": "city",
+    "scope_city_error": "city",
+    "scope_city_unmatch": "city",
+    "scope_city_conflict": "city",
+    "scope_block_missing": "block",
+    "scope_block_error": "block",
+    "scope_block_unmatch": "block",
+    "scope_block_conflict": "block",
+    "scope_time_range_missing": "time_range",
+    "scope_time_range_error": "time_range",
+    "scope_time_range_conflict": "time_range",
 }
 
-DATA_SOURCE_SCOPE_ERROR_TYPES_BY_MUTATION = {
-    "scope_time_range_shift": "error",
-    "scope_city_substitution": "unmatch",
-    "scope_block_substitution": "unmatch",
+SCOPE_ERROR_TYPE_BY_MUTATION = {
+    "scope_city_missing": "missing",
+    "scope_city_error": "error",
+    "scope_city_unmatch": "unmatch",
+    "scope_city_conflict": "conflict",
+    "scope_block_missing": "missing",
+    "scope_block_error": "error",
+    "scope_block_unmatch": "unmatch",
+    "scope_block_conflict": "conflict",
+    "scope_time_range_missing": "missing",
+    "scope_time_range_error": "error",
+    "scope_time_range_conflict": "conflict",
 }
 
-LOGIC_FIELDS_BY_MUTATION = {
-    "chart_metric_label_swap": ["metrics"],
-    "table_metric_label_swap": ["metrics"],
-    "agg_func_swap": ["agg_func"],
-    "metric_source_swap": ["metric_source"],
-    "binning_step_swap": ["dimensions"],
-}
-
-UPDATE_CONFIRMATION_FIELDS_BY_MUTATION = {
-    "numeric_value_perturbation": ["table_values"],
-    "range_value_shift": ["table_values"],
-    "trend_direction_flip": ["summary"],
-    "presentation_type_substitution": ["presentation_type"],
-}
-
-TABLE_METRIC_RULES = {
-    "trade_counts": {
-        "source_col": "trade_sets",
-        "agg_func": "count",
-        "filter_condition": {"trade_sets": 1},
-    },
-    "avg_unit_price": {
-        "source_col": "dim_unit_price",
-        "agg_func": "mean",
-        "filter_condition": {"trade_sets": 1},
-    },
-    "dim_area": {
-        "source_col": "dim_area",
-        "agg_func": "sum",
-        "filter_condition": {"trade_sets": 1},
-    },
+UPDATE_CONFIRMATION_MUTATIONS = {
+    "value_table_cell",
+    "value_summary_slot",
+    "claim_caption_presentation",
+    "claim_summary_slot",
 }
 
 
@@ -91,48 +77,14 @@ def load_yaml(path: Path) -> dict:
     return yaml.safe_load(path.read_text(encoding="utf-8"))
 
 
-@cache
-def load_csv_rows(path: Path) -> list[dict[str, str]]:
-    """Load CSV rows as dictionaries."""
-    with path.open("r", encoding="utf-8", newline="") as handle:
-        return list(csv.DictReader(handle))
-
-
-def find_gt_element(gt_yaml: dict, element_id: str) -> dict | None:
-    """Find a GT slide element by element id."""
-    for element in gt_yaml.get("template_slide", {}).get("elements", []):
-        if str(element.get("id")) == str(element_id):
-            return element
-    return None
-
-
-def fields_for_mutation(mutation_type: str) -> list[str] | None:
-    """Map a mutation type to the state fields a client can provide."""
-    mutation_type = normalize_mutation_type(mutation_type)
-    if mutation_type in DATA_SOURCE_FIELDS_BY_MUTATION:
-        return DATA_SOURCE_FIELDS_BY_MUTATION[mutation_type]
-    if mutation_type in LOGIC_FIELDS_BY_MUTATION:
-        return LOGIC_FIELDS_BY_MUTATION[mutation_type]
-    if mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
-        return UPDATE_CONFIRMATION_FIELDS_BY_MUTATION[mutation_type]
-    return None
-
-
-def table_index_for_operation(gt_yaml: dict, operation: dict) -> int:
-    """Map an operation to the corresponding table in `analysis_state["tables"]`."""
-    element_id = operation.get("element_id")
-    structured_elements = [
-        element
-        for element in gt_yaml.get("template_slide", {}).get("elements", [])
-        if str(element.get("role", "")).startswith("chart")
-        or str(element.get("role", "")) == "table"
-    ]
-    if element_id is None:
+def table_index_for_scope_operation(operation: dict) -> int:
+    """Return the datasource index for a scope operation."""
+    source = str(operation.get("source", ""))
+    if source == "summary":
         return 0
-    for index, element in enumerate(structured_elements):
-        if str(element.get("id")) == str(element_id):
-            return index
-    return 0
+    if source.startswith("caption[") and source.endswith("]"):
+        return int(source.removeprefix("caption[").removesuffix("]"))
+    raise ValueError(f"Scope operation must include source=summary|caption[i]: {operation}")
 
 
 def build_data_source_response(
@@ -165,62 +117,6 @@ def build_data_source_response(
     raise ValueError(f"Unsupported data-source field={field}")
 
 
-def build_calculation_logic_response(
-    gt_yaml: dict,
-    gt_yaml_path: Path,
-    operation: dict,
-) -> str:
-    """Build a client-like reply with the GT function logic."""
-    element = find_gt_element(gt_yaml, str(operation.get("element_id", "")))
-    if element is None:
-        raise ValueError(f"Cannot locate GT element for operation: {operation}")
-
-    args = element.get("args") or {}
-    if not args and element.get("role") == "table":
-        args = build_table_args_from_csv(gt_yaml_path, element)
-    logic = {}
-    if "table_type" in args:
-        logic["table_type"] = args["table_type"]
-    if "metrics" in args:
-        logic["metrics"] = args["metrics"]
-    if "dimensions" in args:
-        logic["dimensions"] = args["dimensions"]
-    if not logic:
-        raise ValueError(f"No calculation logic can be built for operation: {operation}")
-    return "Please use calculation_logic=" + json.dumps(logic, ensure_ascii=False) + "."
-
-
-def build_table_args_from_csv(gt_yaml_path: Path, element: dict) -> dict:
-    """Build static table logic for GT table slides that store rows as CSV."""
-    data_ref = element.get("data")
-    if not data_ref:
-        raise ValueError(f"GT table element missing data path: {element}")
-
-    rows = load_csv_rows((gt_yaml_path.parent / str(data_ref)).resolve())
-    metrics = []
-    for row in rows:
-        metric_name = str(row.get("metric", "")).strip()
-        if not metric_name:
-            continue
-        rule = TABLE_METRIC_RULES.get(metric_name)
-        if rule is None:
-            raise ValueError(f"Unsupported GT table metric={metric_name}")
-        metrics.append({"name": metric_name, **rule})
-
-    return {
-        "table_type": "constraint-field",
-        "metrics": metrics,
-        "dimensions": [
-            {
-                "source_col": "date_code",
-                "target_col": "year",
-                "method": "period",
-                "time_granularity": "year",
-            }
-        ],
-    }
-
-
 def _normalize_table_name(value: Any) -> str:
     if isinstance(value, list):
         if not value:
@@ -234,53 +130,45 @@ def _normalize_table_name(value: Any) -> str:
 
 def feedback_item_for_operation(
     gt_yaml: dict,
-    gt_yaml_path: Path,
     operation: dict,
 ) -> dict | None:
     """Build one feedback item from one corruption operation."""
     mutation_type = str(operation.get("mutation_type", ""))
-    mutation_type = normalize_mutation_type(mutation_type)
-    fields = fields_for_mutation(mutation_type)
-    if fields is None:
+    if (
+        mutation_type not in DATA_SOURCE_FIELD_BY_MUTATION
+        and mutation_type not in UPDATE_CONFIRMATION_MUTATIONS
+    ):
         return None
 
     error_types = operation.get("error_types")
     if not isinstance(error_types, list) or not error_types:
         error_types = error_types_for_mutation(mutation_type)
 
-    table_index = table_index_for_operation(gt_yaml, operation)
-    item = {
+    item: dict[str, Any] = {
         "request_type": request_type_for_mutation(mutation_type),
         "error_type": sorted(str(label) for label in error_types)[0],
         "target": str(operation["target"]),
-        "field": fields[0],
     }
 
-    if mutation_type in DATA_SOURCE_FIELDS_BY_MUTATION:
-        item["scope_error_type"] = DATA_SOURCE_SCOPE_ERROR_TYPES_BY_MUTATION[mutation_type]
+    if mutation_type in DATA_SOURCE_FIELD_BY_MUTATION:
+        item["field"] = DATA_SOURCE_FIELD_BY_MUTATION[mutation_type]
+        item["scope_error_type"] = SCOPE_ERROR_TYPE_BY_MUTATION[mutation_type]
+        item.pop("target")
         item["response"] = build_data_source_response(
             gt_yaml,
-            table_index=table_index,
+            table_index=table_index_for_scope_operation(operation),
             field=item["field"],
         )
-    elif mutation_type in LOGIC_FIELDS_BY_MUTATION:
-        item["response"] = build_calculation_logic_response(
-            gt_yaml,
-            gt_yaml_path,
-            operation,
-        )
-    elif mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
+    elif mutation_type in UPDATE_CONFIRMATION_MUTATIONS:
         item["response"] = "Yes, please apply the proposed update."
     return item
 
 
 def request_type_for_mutation(mutation_type: str) -> str:
     """Return the client request type expected for one injected mutation."""
-    if mutation_type in DATA_SOURCE_FIELDS_BY_MUTATION:
+    if mutation_type in DATA_SOURCE_FIELD_BY_MUTATION:
         return "data_source_slot_clarification"
-    if mutation_type in LOGIC_FIELDS_BY_MUTATION:
-        return "calculation_logic_clarification"
-    if mutation_type in UPDATE_CONFIRMATION_FIELDS_BY_MUTATION:
+    if mutation_type in UPDATE_CONFIRMATION_MUTATIONS:
         return "content_update_confirmation"
     raise ValueError(f"Unsupported mutation_type={mutation_type}")
 
@@ -293,17 +181,19 @@ def merge_feedback_items(items: list[dict]) -> list[dict]:
             item["request_type"],
             item["error_type"],
             str(item.get("scope_error_type", "")),
-            item["target"],
-            item["field"],
+            str(item.get("target", "")),
+            str(item.get("field", "")),
         )
         if key not in merged:
             merged[key] = {
                 "request_type": item["request_type"],
                 "error_type": item["error_type"],
-                "target": item["target"],
-                "field": item["field"],
                 "response": item["response"],
             }
+            if "field" in item:
+                merged[key]["field"] = item["field"]
+            if "target" in item:
+                merged[key]["target"] = item["target"]
             if "scope_error_type" in item:
                 merged[key]["scope_error_type"] = item["scope_error_type"]
             continue
@@ -322,7 +212,7 @@ def build_episode(
     items = [
         item
         for operation in operations
-        if (item := feedback_item_for_operation(gt_yaml, gt_yaml_path, operation))
+        if (item := feedback_item_for_operation(gt_yaml, operation))
         is not None
     ]
     if len(items) != len(operations):
