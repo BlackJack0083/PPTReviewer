@@ -144,52 +144,61 @@ class ClientAgent:
 
 
 def _normalize_feedback_item(item: dict[str, Any]) -> dict[str, Any]:
-    request_type = item.get("request_type")
-    if not isinstance(request_type, str) or not request_type.strip():
-        raise ValueError(f"feedback item must include request_type: {item}")
-    normalized = dict(item)
-    normalized["request_type"] = request_type.strip()
-    normalized["field"] = _normalize_string(item.get("field"))
-    normalized["target"] = _normalize_string(item.get("target"))
-    normalized["error_type"] = _normalize_string(item.get("error_type"))
-    normalized["scope_error_type"] = _normalize_string(item.get("scope_error_type"))
-    response = item.get("response")
-    if not isinstance(response, str) or not response.strip():
-        raise ValueError(f"feedback item must include non-empty response: {item}")
-    normalized["response"] = response.strip()
-    return normalized
+    request_type = _required_text(item, "request_type")
+    normalized = {
+        "request_type": request_type,
+        "response": _required_text(item, "response"),
+    }
+    if request_type == "data_source_slot_clarification":
+        normalized["field"] = _required_text(item, "field")
+        normalized["scope_error_type"] = _required_text(item, "scope_error_type")
+        normalized["target"] = _optional_text(item, "target")
+        return normalized
+    if request_type == "content_update_confirmation":
+        normalized["error_type"] = _required_text(item, "error_type")
+        normalized["target"] = _required_text(item, "target")
+        return normalized
+    raise ValueError(f"Unsupported feedback request_type: {item}")
 
 
 def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> bool:
     request_type = item["request_type"]
-    request_target = _normalize_string(request.get("target"))
     if request_type == "data_source_slot_clarification":
         return (
-            item["field"] == _normalize_string(request.get("field"))
-            and item["scope_error_type"] == _normalize_string(request.get("scope_error_type"))
-            and (not item["target"] or item["target"] == request_target)
+            item["field"] == request.get("field")
+            and item["scope_error_type"] == request.get("scope_error_type")
+            and (not item["target"] or item["target"] == request.get("target"))
         )
     if request_type == "content_update_confirmation":
         return (
-            item["error_type"] == _normalize_string(request.get("error_type"))
-            and item["target"] == request_target
+            item["error_type"] == request.get("error_type")
+            and item["target"] == request.get("target")
         )
     return False
 
 
-def _normalize_string(value: Any) -> str:
-    if value is None:
+def _required_text(item: dict[str, Any], key: str) -> str:
+    value = item.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"feedback item must include non-empty {key}: {item}")
+    return value.strip()
+
+
+def _optional_text(item: dict[str, Any], key: str) -> str:
+    value = item.get(key, "")
+    if value == "":
         return ""
-    if not isinstance(value, str):
-        raise ValueError(f"Expected string, got {value}")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"feedback item {key} must be a string when provided: {item}")
     return value.strip()
 
 
 def _feedback_key(index: int, item: dict[str, Any]) -> str:
-    target = item["target"] or "any"
-    field = item["field"] or "any"
-    scope_error_type = item["scope_error_type"] or "any"
+    target = item.get("target") or "any"
+    field = item.get("field") or "any"
+    error_type = item.get("error_type") or "any"
+    scope_error_type = item.get("scope_error_type") or "any"
     return (
-        f"{index}:{item['request_type']}:error_type={item['error_type'] or 'any'}:"
+        f"{index}:{item['request_type']}:error_type={error_type}:"
         f"field={field}:target={target}:scope_error_type={scope_error_type}"
     )
