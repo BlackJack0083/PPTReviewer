@@ -38,7 +38,6 @@ class ClientAgent:
         if mode not in {"deterministic", "llm"}:
             raise ValueError(f"Unsupported client mode: {mode}")
         self.feedback_items = list(feedback_items)
-        self._used_indices: set[int] = set()
         self.mode = mode
         self.prompt = DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
         self.client = client
@@ -89,11 +88,10 @@ class ClientAgent:
         if not isinstance(request_type, str) or not request_type.strip():
             raise ValueError(f"Client request must include request_type: {request}")
 
-        item, index = self._find_feedback_item(request)
-        if item is None or index is None:
+        item = self._find_feedback_item(request)
+        if item is None:
             return {"response": "I do not have a confirmed correction for this request."}
 
-        self._used_indices.add(index)
         if self.mode == "deterministic":
             return {"response": item["response"]}
         return self._llm_response(request=request, item=item)
@@ -101,18 +99,16 @@ class ClientAgent:
     def _find_feedback_item(
         self,
         request: dict[str, Any],
-    ) -> tuple[dict[str, Any] | None, int | None]:
+    ) -> dict[str, Any] | None:
         request_type = str(request["request_type"])
 
-        for index, item in enumerate(self.feedback_items):
-            if index in self._used_indices:
-                continue
+        for item in self.feedback_items:
             if item["request_type"] != request_type:
                 continue
             if not _matches_feedback_item(item, request):
                 continue
-            return item, index
-        return None, None
+            return item
+        return None
 
     def _llm_response(
         self,
@@ -134,9 +130,6 @@ class ClientAgent:
             response_format="json_object",
         )
         parsed = parse_json_object(content)
-        if set(parsed) != {"response"} or not isinstance(parsed["response"], str):
-            raise ValueError(f"Client simulator must return only response: {parsed}")
-        parsed["response"] = parsed["response"].strip()
         if not parsed["response"]:
             raise ValueError(f"Client simulator returned empty response: {parsed}")
         return parsed
