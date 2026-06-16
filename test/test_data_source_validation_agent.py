@@ -658,6 +658,26 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         self.assertNotIn("select_columns", caption_candidate)
         self.assertEqual(caption_candidate["filters"]["block"], "Liangxiang")
 
+    def test_validation_payload_skips_summary_without_scope_claim(self) -> None:
+        state = _analysis_state(city="Beijing", block="Liangxiang")
+        state["summary"]["data_source"] = {
+            "connection": {"table": ""},
+            "filters": {
+                "city": "",
+                "block": "",
+                "start_date": "",
+                "end_date": "",
+            },
+        }
+
+        payload = build_validation_payload(state)
+
+        self.assertEqual(
+            [candidate["source"] for candidate in payload["source_candidates"]],
+            ["caption[0]"],
+        )
+        self.assertEqual(payload["source_candidates"][0]["target"], "st.caption")
+
     def test_tool_calling_agent_records_missing_slot_interaction(self) -> None:
         state = _analysis_state(city="", block="Liangxiang")
         query_tool = ScenarioQueryTool()

@@ -24,6 +24,8 @@ caption 和 summary。所有 SQL、function logic 执行和表格比较都必须
 
 执行顺序：
 1. 对每个 table 依次调用 `sql_retrieve` -> `analysis_execute` -> `compare_table`。
+   输入中只要存在 table，就必须先从 `sql_retrieve(table_index)` 开始；不能在
+   调用这些工具之前直接结束。
 2. 如果 body 数据不同，先调用 `ask_client(error_type="value_error",
    target="st.body", description=...)`。用户明确同意后，按 body 类型调用
    `modify_chart` 或 `modify_table`，`data_path` 使用 computed CSV。
@@ -41,6 +43,9 @@ caption 和 summary。所有 SQL、function logic 执行和表格比较都必须
 - 只有用户明确同意时，才调用 `modify_chart`、`modify_table` 或
   非 scope-confirmed 的 `modify_textbox`。
 - 每次只向 client 报告一个问题；处理完该回复后再继续。
+- 同一个 `target + error_type` 如果没有得到明确同意，不要换个说法重复询问。
+- 只有文本与工具证据明确矛盾时才请求 claim 修正；不要因为措辞无法完全证明
+  就要求 client 确认。
 - 不要在同一步并行调用多个 `modify_*` 工具。
 - 不要编造文件路径、数据行或用户确认。
 - 完成工具调用后，用一句简短文字结束，不要输出中间 JSON。

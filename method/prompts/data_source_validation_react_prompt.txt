@@ -8,6 +8,8 @@
 - `source_candidates`: summary 和 caption 中抽取出的候选 data source。
 - 每个 candidate 包含 `source`、`target` 和 `data_source`。
 - `target` 是 client request 的文本位置，例如 `summary` 或 `st.caption`。
+- 如果 summary 没有表达任何 data-source slot，它不会出现在候选中；不要把
+  summary 未提及 scope 当成缺失错误。
 
 最终 data source schema：
 - `connection.table`

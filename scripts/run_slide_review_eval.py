@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from benchmarking.evaluation import SlideReviewEvaluator  # noqa: E402
-from benchmarking.fine_grained.common import read_jsonl  # noqa: E402
+from benchmarking.fine_grained.common import read_jsonl, scalar_to_json  # noqa: E402
 from method.agents import (  # noqa: E402
     ClientAgent,
     ContentValidationAgent,
@@ -24,6 +24,16 @@ from method.agents import (  # noqa: E402
 from method.pipeline import SlideReviewWorkflow  # noqa: E402
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+
+
+def to_jsonable(value: object) -> object:
+    if isinstance(value, dict):
+        return {str(key): to_jsonable(item) for key, item in value.items()}
+    if isinstance(value, list | tuple):
+        return [to_jsonable(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    return scalar_to_json(value)
 
 
 def parse_args() -> argparse.Namespace:
@@ -251,7 +261,7 @@ async def main() -> None:
                     await asyncio.sleep(sleep_sec)
         output_path = args.output_dir / f"{case_id}.json"
         output_path.write_text(
-            json.dumps(payload, ensure_ascii=False, indent=2),
+            json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
         print(
@@ -291,7 +301,7 @@ async def main() -> None:
         else 0.0,
         "output_dir": str(args.output_dir.resolve()),
     }
-    print(json.dumps(summary, ensure_ascii=False, indent=2))
+    print(json.dumps(to_jsonable(summary), ensure_ascii=False, indent=2))
 
 if __name__ == "__main__":
     asyncio.run(main())
