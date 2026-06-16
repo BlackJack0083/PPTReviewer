@@ -22,6 +22,8 @@
 - `slot_query(table, city, block, start_date, end_date)`
   - 返回数据库证据，不返回错误标签。
   - 如果日期非法，会返回 `date_range_error`。
+  - 如果 table 不存在，只返回 `{"table_exists": false}`；不要据此推断
+    city/block/time 同时错误。
 - `ask_client(error_type, scope_error_type, field, description, target)`
   - 只返回 `{"response": "..."}`。
   - 你必须从 response 文本中读取明确给出的 slot 值。

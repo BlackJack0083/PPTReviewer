@@ -169,7 +169,16 @@ class ToolCallingFakeAgent:
                 raise ValueError("Data source validation requires client input: invalid date range")
             evidence = self.invoke_tool("slot_query", _slots(data_source))
 
-        if not evidence["full_scope_has_data"]:
+        if not evidence.get("table_exists", True):
+            response = self._ask_client(
+                fields=["table"],
+                scope_error_type="error",
+                description="Current table does not exist.",
+            )
+            if not _merge_client_reply(data_source, response):
+                raise ValueError("Data source validation requires client input: table error")
+            self.invoke_tool("slot_query", _slots(data_source))
+        elif not evidence["full_scope_has_data"]:
             response = self._ask_client(
                 fields=["city", "block"],
                 scope_error_type="unmatch",
@@ -882,6 +891,27 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         self.assertTrue(evidence["table_exists"])
         self.assertFalse(evidence["full_scope_has_data"])
         self.assertEqual(len(calls), 3)
+
+    def test_slot_query_returns_only_table_evidence_when_table_missing(self) -> None:
+        calls: list[tuple[str, dict[str, str] | None]] = []
+
+        def query_func(sql: str, params: dict[str, str] | None = None) -> pd.DataFrame:
+            calls.append((sql, params))
+            if "information_schema.tables" in sql:
+                return pd.DataFrame([{"table_name": "guangzhou_new_house"}])
+            raise AssertionError(f"Missing table should not query table scope: {sql}")
+
+        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+            evidence = DataSourceQueryTool().run(
+                table="beijing_new_house",
+                city="Beijing",
+                block="Liangxiang",
+                start_date="2020-01-01",
+                end_date="2024-12-31",
+            )
+
+        self.assertEqual(evidence, {"table_exists": False})
+        self.assertEqual(len(calls), 1)
 
     def test_slot_query_skips_full_scope_when_date_range_invalid(self) -> None:
         calls: list[tuple[str, dict[str, str] | None]] = []

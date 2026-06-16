@@ -83,48 +83,43 @@ class DataSourceQueryTool:
             }
 
         table_exists = table in self._existing_tables_cache
+        if not table_exists:
+            return {"table_exists": False}
 
-        scope_checks = {
-            "table_city": False,
-            "table_block": False,
-            "table_city_block": False,
-            "full_scope": False,
-        }
-        if table_exists:
-            scope_checks = self._query_table_scope(
-                table=table,
-                city=city,
-                block=block,
-            )
-            full_scope_result = database_query(
-                f"""
-                SELECT EXISTS (
-                    SELECT 1
-                    FROM public.{table}
-                    WHERE city = :city
-                      AND block = :block
-                      AND date_code >= :start_date
-                      AND date_code <= :end_date
-                    LIMIT 1
-                ) AS full_scope
-                """,  # nosec - table name comes from the static allowlist.
-                {
-                    "city": city,
-                    "block": block,
-                    "start_date": start_date,
-                    "end_date": end_date,
-                },
-            )
-            scope_checks["full_scope"] = bool(full_scope_result.iloc[0]["full_scope"])
+        scope_checks = self._query_table_scope(
+            table=table,
+            city=city,
+            block=block,
+        )
+        full_scope_result = database_query(
+            f"""
+            SELECT EXISTS (
+                SELECT 1
+                FROM public.{table}
+                WHERE city = :city
+                  AND block = :block
+                  AND date_code >= :start_date
+                  AND date_code <= :end_date
+                LIMIT 1
+            ) AS full_scope
+            """,  # nosec - table name comes from the static allowlist.
+            {
+                "city": city,
+                "block": block,
+                "start_date": start_date,
+                "end_date": end_date,
+            },
+        )
+        full_scope = bool(full_scope_result.iloc[0]["full_scope"])
 
         return {
-            "table_exists": table_exists,
+            "table_exists": True,
             "city_exists": scope_checks["table_city"],
             "block_exists": scope_checks["table_block"],
             "table_city_matches": scope_checks["table_city"],
             "city_block_matches": scope_checks["table_city_block"],
             "table_city_block_matches": scope_checks["table_city_block"],
-            "full_scope_has_data": scope_checks["full_scope"],
+            "full_scope_has_data": full_scope,
         }
 
     def _query_table_scope(
