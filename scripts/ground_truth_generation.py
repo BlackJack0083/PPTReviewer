@@ -47,17 +47,20 @@ GROUND_TRUTH_INPUT_DIR = PROJECT_ROOT / "config" / "benchmark" / "ground_truth_i
 CITY_CONFIGS = {
     "beijing": {
         "city": "Beijing",
-        "table": "Beijing_new_house",
+        "new_house_table": "Beijing_new_house",
+        "resale_house_table": None,
         "csv_file": GROUND_TRUTH_INPUT_DIR / "beijing.csv",
     },
     "guangzhou": {
         "city": "Guangzhou",
-        "table": "Guangzhou_new_house",
+        "new_house_table": "Guangzhou_new_house",
+        "resale_house_table": "Guangzhou_resale_house",
         "csv_file": GROUND_TRUTH_INPUT_DIR / "guangzhou.csv",
     },
     "shenzhen": {
         "city": "Shenzhen",
-        "table": "Shenzhen_new_house",
+        "new_house_table": "Shenzhen_new_house",
+        "resale_house_table": "Shenzhen_resale_house",
         "csv_file": GROUND_TRUTH_INPUT_DIR / "shenzhen.csv",
     },
 }
@@ -244,11 +247,19 @@ def build_tasks(
 
         for block in blocks:
             for template_id in templates:
+                table_name = table_name_for_template(city_key, template_id)
+                if table_name is None:
+                    logger.info(
+                        "跳过缺少数据表的组合: city={} template={}",
+                        config["city"],
+                        template_id,
+                    )
+                    continue
                 tasks.append(
                     {
                         "city_key": city_key,
                         "city_name": config["city"],
-                        "table_name": config["table"],
+                        "table_name": table_name,
                         "block": block,
                         "template_id": template_id,
                     }
@@ -257,6 +268,20 @@ def build_tasks(
                     return tasks
 
     return tasks
+
+
+def table_name_for_template(city_key: str, template_id: str) -> str | None:
+    config = CITY_CONFIGS[city_key]
+    template_meta = resource_manager.get_template(template_id)
+    if template_meta is None:
+        raise ValueError(f"模板不存在: {template_id}")
+    if template_requires_resale_table(template_meta.data_keys):
+        return config["resale_house_table"]
+    return config["new_house_table"]
+
+
+def template_requires_resale_table(data_keys: dict[str, str]) -> bool:
+    return any(data_key.startswith("resale_") for data_key in data_keys.values())
 
 
 def generate_one_sample(
