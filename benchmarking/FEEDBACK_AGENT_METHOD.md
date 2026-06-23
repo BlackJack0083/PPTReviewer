@@ -21,7 +21,8 @@
 
 2. `SlideAnalysisAgent`
    - 位置：`method/agents/slide_analysis/agent.py`
-   - Prompt：`method/prompts/data_source_extraction_prompt.txt`
+   - Prompt：`method/prompts/summary_data_source_extraction_prompt.txt`
+   - Prompt：`method/prompts/caption_data_source_extraction_prompt.txt`
    - Prompt：`method/prompts/function_logic_extraction_prompt.txt`
    - 输出：`analysis_state`
    - 职责：从 summary/caption 抽 data source，从 visible table data 抽
@@ -38,7 +39,7 @@
 4. `ContentValidationAgent`
    - 位置：`method/agents/content_validation/agent.py`
    - 工具：`method/agents/content_validation/tools.py`
-   - Prompt：`method/prompts/summary_claim_validation_prompt.txt`
+   - Prompt：`method/prompts/content_validation_react_prompt.txt`
    - 职责：用 `final_data_source`、每个 caption 的 `select_columns` 和
      `calculation_logic` 重新计算表格；与 PPT 可见 CSV 比较；经 client
      确认后记录 `modify_chart`、`modify_table` 或 `modify_textbox` 更新；
@@ -86,8 +87,8 @@ case-local `feedback_episode.json` 匹配 agent request。
 - `table_records`
 - `repaired_artifacts`
 
-`repaired_artifacts` 当前包含 repaired YAML 和确认更新后的 CSV。PPTX 真实重写
-还没有接入，因此 `pptx_path` 目前为 `null`。
+`repaired_artifacts` 包含 repaired PPTX、semantic YAML 和确认更新后的 CSV。
+PPTX 会按 parser `element_id` 写回文本框、chart 数据和 table 单元格。
 
 ## 运行边界
 

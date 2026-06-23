@@ -153,7 +153,6 @@ def feedback_item_for_operation(
     if mutation_type in DATA_SOURCE_FIELD_BY_MUTATION:
         item["field"] = DATA_SOURCE_FIELD_BY_MUTATION[mutation_type]
         item["scope_error_type"] = SCOPE_ERROR_TYPE_BY_MUTATION[mutation_type]
-        item.pop("target")
         item["response"] = build_data_source_response(
             gt_yaml,
             table_index=table_index_for_scope_operation(operation),

@@ -2,7 +2,7 @@ env -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u al
 PYTHONPATH=.
 
 uv run scripts/ground_truth_generation.py \
-  --dataset-root output/benchmark/dataset_v2 \
+  --dataset-root output/benchmark/dataset_v3 \
   --split test \
   --cities beijing guangzhou shenzhen \
   --start-year 2020 \

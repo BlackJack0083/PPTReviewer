@@ -38,6 +38,7 @@ class FeedbackGeneratorTest(unittest.TestCase):
                             "request_type": "data_source_slot_clarification",
                             "error_type": "scope_error",
                             "field": "block",
+                            "target": "st.caption",
                             "response": "Please use block=Liangxiang.",
                             "scope_error_type": "unmatch",
                         }
@@ -90,6 +91,7 @@ class FeedbackGeneratorTest(unittest.TestCase):
                             "request_type": "data_source_slot_clarification",
                             "error_type": "scope_error",
                             "field": "city",
+                            "target": "st.caption",
                             "response": "Please use table=shenzhen_new_house, city=Shenzhen.",
                             "scope_error_type": "conflict",
                         }

@@ -89,11 +89,12 @@ def allocate_counts(size: int, ratios: dict[str, float]) -> dict[str, int]:
 def assign_splits(
     sample_rows: list[dict[str, Any]],
     seed: int,
+    ratios: dict[str, float],
+    stratify_fields: list[str],
 ) -> dict[str, str]:
-    ratios = normalize_ratios(0.6, 0.2, 0.2)
-    grouped: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    grouped: dict[tuple[Any, ...], list[dict[str, Any]]] = defaultdict(list)
     for row in sample_rows:
-        grouped[(row["city_key"], row["template_id"])].append(row)
+        grouped[tuple(row[field] for field in stratify_fields)].append(row)
 
     rng = random.Random(seed)  # noqa: S311 - deterministic dataset split
     assignments: dict[str, str] = {}
@@ -249,9 +250,28 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Random seed for deterministic stratified split.",
     )
     parser.add_argument(
+        "--ratios",
+        type=float,
+        nargs=3,
+        metavar=("TRAIN", "VAL", "TEST"),
+        default=(0.6, 0.2, 0.2),
+        help="Train/val/test ratios. Values are normalized automatically.",
+    )
+    parser.add_argument(
+        "--stratify-fields",
+        nargs="+",
+        default=["city_key", "template_id"],
+        help="Manifest fields used as stratification keys.",
+    )
+    parser.add_argument(
         "--apply",
         action="store_true",
         help="Apply changes in place. Without this flag the script only prints the plan.",
+    )
+    parser.add_argument(
+        "--remove-eval",
+        action="store_true",
+        help="Remove per-sample eval directories while applying the split.",
     )
     return parser.parse_args(argv)
 
@@ -266,7 +286,13 @@ def main(argv: list[str] | None = None) -> None:
     if not sample_rows:
         raise ValueError(f"No sample rows found in {samples_manifest}")
 
-    assignments = assign_splits(sample_rows, seed=args.seed)
+    ratios = normalize_ratios(*args.ratios)
+    assignments = assign_splits(
+        sample_rows,
+        seed=args.seed,
+        ratios=ratios,
+        stratify_fields=args.stratify_fields,
+    )
     injection_rows = read_jsonl(injections_manifest)
     print_summary(sample_rows, assignments, injection_rows)
 
@@ -292,7 +318,7 @@ def main(argv: list[str] | None = None) -> None:
             apply=True,
         )
 
-        if remove_eval_dir(new_sample_dir, apply=True):
+        if args.remove_eval and remove_eval_dir(new_sample_dir, apply=True):
             eval_removed += 1
 
         updated_row = update_sample_record(row, new_split=new_split)
@@ -321,7 +347,8 @@ def main(argv: list[str] | None = None) -> None:
         )
 
     write_jsonl(samples_manifest, updated_samples)
-    write_jsonl(injections_manifest, updated_injections)
+    if injections_manifest.exists():
+        write_jsonl(injections_manifest, updated_injections)
 
     print("\nApplied changes:")
     print(f"  samples updated: {len(updated_samples)}")
