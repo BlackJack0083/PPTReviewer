@@ -237,7 +237,7 @@ def build_analysis_input(ppt_representation: dict[str, Any]) -> dict[str, Any]:
         header, rows, table_data = _read_csv_for_analysis(data_path)
         tables.append(
             {
-                "caption": _required_text(table["caption"], "structured_tables.caption"),
+                "caption": table["caption"]["text"],
                 "caption_element_id": table["caption"]["element_id"],
                 "body": body,
                 "data_path": str(data_path),
@@ -248,9 +248,9 @@ def build_analysis_input(ppt_representation: dict[str, Any]) -> dict[str, Any]:
         )
 
     return {
-        "title": _required_text(ppt_representation["title"], "title"),
+        "title": ppt_representation["title"]["text"],
         "title_element_id": ppt_representation["title"]["element_id"],
-        "summary": _required_text(ppt_representation["summary"], "summary"),
+        "summary": ppt_representation["summary"]["text"],
         "summary_element_id": ppt_representation["summary"]["element_id"],
         "tables": tables,
     }
@@ -299,13 +299,6 @@ def _validate_caption_data_source(
         raise ValueError(f"Analysis {context} select_columns must be string list.")
     validated["select_columns"] = list(select_columns)
     return validated
-
-
-def _required_text(element: Any, field_name: str) -> str:
-    """验证 element 是否为包含 text 字段的 dict，并返回 text。"""
-    if not isinstance(element, dict) or not isinstance(element.get("text"), str):
-        raise ValueError(f"ppt_representation.{field_name} must contain text.")
-    return element["text"]
 
 
 def _read_csv_for_analysis(path: Path) -> tuple[list[str], list[list[str]], list[dict[str, str]]]:

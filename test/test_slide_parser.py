@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -31,11 +33,18 @@ class SequentialRoleClient:
 
 class TestSlideParser(unittest.TestCase):
     def setUp(self) -> None:
-        self.sample_dir = Path(
-            "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/gt"
+        source_dir = Path(
+            "output/benchmark/dataset_v3/split/test/s_000c4d3e0165879e/gt"
         )
+        self._tmpdir = tempfile.TemporaryDirectory()
+        self.sample_dir = Path(self._tmpdir.name)
+        shutil.copyfile(source_dir / "slide.pptx", self.sample_dir / "slide.pptx")
         self.pptx_path = self.sample_dir / "slide.pptx"
         self.image_path = self.sample_dir / "slide.png"
+        self.image_path.write_bytes(b"")
+
+    def tearDown(self) -> None:
+        self._tmpdir.cleanup()
 
     def test_extract_pptx_elements_keeps_template_slide_shape_without_roles(self):
         observed_slide = extract_pptx_elements(self.pptx_path)
@@ -46,7 +55,9 @@ class TestSlideParser(unittest.TestCase):
             [element["type"] for element in observed_slide["elements"]],
             ["textBox", "textBox", "textBox", "chart"],
         )
-        self.assertTrue(all("role" not in element for element in observed_slide["elements"]))
+        self.assertTrue(
+            all("role" not in element for element in observed_slide["elements"])
+        )
         self.assertNotIn("data", observed_slide["elements"][-1])
 
     def test_slide_parser_agent_merges_roles_and_exports_csv(self):
@@ -67,7 +78,7 @@ class TestSlideParser(unittest.TestCase):
         self.assertNotIn("role_assignments", result)
         self.assertNotIn("case_id", result["ppt_representation"])
         self.assertNotIn("data", elements[-1])
-        self.assertNotIn("_shape_kind", elements[-1])
+        self.assertNotIn("shape_kind", elements[-1])
         table = result["ppt_representation"]["structured_tables"][0]
         self.assertEqual(Path(table["body"]["data_path"]).name, "data.csv")
         self.assertTrue(Path(table["body"]["data_path"]).exists())

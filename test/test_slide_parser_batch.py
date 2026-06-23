@@ -34,8 +34,8 @@ class BatchRoleClient:
         for element in elements:
             if element.get("type") == "textBox":
                 continue
-            shape_kind = str(element.get("shape_kind") or element.get("type") or "")
-            roles[str(element["id"])] = shape_kind
+            shape = str(element.get("shape") or element.get("type") or "")
+            roles[str(element["id"])] = shape
 
         caption_ids = set()
         summary_ids = set()

@@ -16,23 +16,6 @@ def _image_data_url(image_path: Path) -> str:
     return f"data:{mime_type};base64,{encoded}"
 
 
-def _extract_message_text(message: Any) -> str | None:
-    content = getattr(message, "content", None)
-    if isinstance(content, str):
-        text = content.strip()
-        return text or None
-
-    if isinstance(content, list):
-        texts = [
-            str(item.get("text", "")).strip()
-            for item in content
-            if isinstance(item, dict) and item.get("type") == "text"
-        ]
-        merged = "\n".join(t for t in texts if t).strip()
-        return merged or None
-    return None
-
-
 class Client:
     """LangChain ChatOpenAI client with the project-local `.chat(...)` interface."""
 
@@ -93,8 +76,8 @@ class Client:
                 HumanMessage(content=user_content),
             ]
         )
-        text = _extract_message_text(response)
-        if text is None:
+        text = str(response.text).strip()
+        if not text:
             raise RuntimeError("Model returned empty content.")
         return text
 
@@ -131,7 +114,7 @@ class Client:
                 HumanMessage(content=user_content),
             ]
         )
-        text = _extract_message_text(response)
-        if text is None:
+        text = str(response.text).strip()
+        if not text:
             raise RuntimeError("Model returned empty content.")
         return text

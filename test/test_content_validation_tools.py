@@ -8,11 +8,14 @@ from typing import Any
 import pandas as pd
 import yaml
 from langchain.tools import ToolRuntime
+from pptx import Presentation
+from pptx.chart.data import ChartData
+from pptx.enum.chart import XL_CHART_TYPE
+from pptx.util import Inches
 
 from method.agents.content_validation.agent import build_content_payload
 from method.agents.content_validation.tools import (
     CONTENT_VALIDATION_TOOLS,
-    ContentValidationContext,
     align_visible_dataframe,
     compare_display_dataframes,
     execute_table_state,
@@ -61,24 +64,7 @@ class ContentValidationToolsTest(unittest.TestCase):
         self.assertEqual(payload["summary"]["element_id"], "2")
         self.assertEqual(payload["tables"][0]["caption"]["element_id"], "3")
         self.assertEqual(payload["tables"][0]["body"]["element_id"], "4")
-        self.assertNotIn("confirmed_scope_corrections", payload)
-
-    def test_content_context_carries_confirmed_scope_corrections(self) -> None:
-        correction = {
-            "target": "st.caption",
-            "field": "block",
-            "error_type": "scope_error",
-            "scope_error_type": "missing",
-            "client_response": "Please use block=Liangxiang.",
-        }
-
-        context = ContentValidationContext(
-            client=FakeClient(),
-            artifact_dir=Path("."),
-            confirmed_scope_corrections=[correction],
-        )
-
-        self.assertEqual(context.confirmed_scope_corrections, [correction])
+        self.assertNotIn("scope_dialogue", payload)
 
     def test_compare_display_dataframes_allows_rounding_noise(self) -> None:
         visible = pd.DataFrame({"year": [2020], "value": [100.0]})
@@ -220,6 +206,8 @@ class ContentValidationToolsTest(unittest.TestCase):
                     "target": "st.caption",
                     "error_type": "claim_error",
                     "evidence": "Caption says table but body is a bar chart.",
+                    "client_response": "Yes, please apply the proposed update.",
+                    "confirmed": False,
                 }
             ],
         )
@@ -294,8 +282,28 @@ class ContentValidationToolsTest(unittest.TestCase):
                 visible_path,
                 index=False,
             )
+            source_pptx = root / "slide.pptx"
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            for text in ("Old title", "Old summary", "Old caption"):
+                slide.shapes.add_textbox(
+                    Inches(1), Inches(1), Inches(3), Inches(0.5)
+                ).text = text
+            chart_data = ChartData()
+            chart_data.categories = [2020]
+            chart_data.add_series("trade_counts", [1])
+            slide.shapes.add_chart(
+                XL_CHART_TYPE.COLUMN_CLUSTERED,
+                Inches(1),
+                Inches(2),
+                Inches(5),
+                Inches(3),
+                chart_data,
+            )
+            presentation.save(source_pptx)
 
             artifacts = write_content_artifacts(
+                source_pptx=source_pptx,
                 analysis_state=_analysis_state(data_path=str(expected_path)),
                 artifact_dir=root / "review_artifacts",
             )
@@ -308,6 +316,55 @@ class ContentValidationToolsTest(unittest.TestCase):
             self.assertEqual(
                 pd.read_csv(repaired_data_path)["trade_counts"].tolist(),
                 [2],
+            )
+            repaired_pptx = Presentation(artifacts["pptx_path"])
+            repaired_slide = repaired_pptx.slides[0]
+            self.assertEqual(repaired_slide.shapes[0].text, "Example")
+            self.assertEqual(repaired_slide.shapes[1].text, "Example summary")
+            self.assertEqual(repaired_slide.shapes[2].text, "Example caption")
+            self.assertEqual(list(repaired_slide.shapes[3].chart.series[0].values), [2.0])
+
+    def test_write_content_artifacts_updates_ppt_table(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            data_path = root / "expected.csv"
+            pd.DataFrame(
+                {"year": [2020, 2021], "trade_counts": [2, 3]}
+            ).to_csv(data_path, index=False)
+
+            source_pptx = root / "slide.pptx"
+            presentation = Presentation()
+            slide = presentation.slides.add_slide(presentation.slide_layouts[6])
+            for text in ("Old title", "Old summary", "Old caption"):
+                slide.shapes.add_textbox(
+                    Inches(1), Inches(1), Inches(3), Inches(0.5)
+                ).text = text
+            slide.shapes.add_table(
+                3,
+                2,
+                Inches(1),
+                Inches(2),
+                Inches(5),
+                Inches(3),
+            )
+            presentation.save(source_pptx)
+
+            state = _analysis_state(data_path=str(data_path))
+            state["tables"][0]["body"]["type"] = "table"
+            artifacts = write_content_artifacts(
+                source_pptx=source_pptx,
+                analysis_state=state,
+                artifact_dir=root / "review_artifacts",
+            )
+
+            repaired_table = Presentation(artifacts["pptx_path"]).slides[0].shapes[3].table
+            values = [
+                [repaired_table.cell(row, column).text for column in range(2)]
+                for row in range(3)
+            ]
+            self.assertEqual(
+                values,
+                [["year", "trade_counts"], ["2020", "2"], ["2021", "3"]],
             )
 
 

@@ -27,7 +27,7 @@ ROLE_SET = {
 }
 
 
-def get_shape_kind(shape) -> str:
+def get_shape(shape) -> str:
     """判断 PPTX shape 的粗粒度类型。
 
     Args:
@@ -98,8 +98,8 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
     elements: list[dict[str, Any]] = []
 
     for shape_idx, shape in enumerate(slide.shapes, 1):
-        shape_kind = get_shape_kind(shape)
-        if shape_kind == "other":
+        shape_type = get_shape(shape)
+        if shape_type == "other":
             continue
 
         element_id = str(shape_idx)
@@ -113,18 +113,18 @@ def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]
             },
         }
 
-        if shape_kind == "text":
+        if shape_type == "text":
             element.update(
                 {
                     "type": "textBox",
                     "text": shape.text.strip(),
                 }
             )
-        elif shape_kind == "table":
+        elif shape_type == "table":
             element["type"] = "table"
         else:
             element["type"] = "chart"
-            element["_shape_kind"] = shape_kind
+            element["shape"] = shape_type
 
         elements.append(element)
 
@@ -151,30 +151,22 @@ def validate_role_labels(
         规范化后的 role 标注列表，每项为 `{"id": ..., "role": ...}`。
 
     Raises:
-        ValueError: 当 role 项格式错误、id 未知、id 重复、role 不在允许集合、
-            或存在未标注元素时抛出。
+        ValueError: role 标注未覆盖全部元素、包含重复元素或使用非法 role 时抛出。
     """
-    expected_ids = {str(element.get("id")) for element in observed_slide.get("elements", [])}
-    assignments: list[dict[str, str]] = []
-    seen: set[str] = set()
-
-    for item in roles:
-        if not isinstance(item, dict):
-            raise ValueError(f"Role assignment must be an object: {item}")
-        element_id = str(item.get("id", "")).strip()
-        role = str(item.get("role", "")).strip()
-        if element_id not in expected_ids:
-            raise ValueError(f"Unknown element id in role assignment: {element_id}")
-        if element_id in seen:
-            raise ValueError(f"Duplicate role assignment for element id: {element_id}")
-        if role not in ROLE_SET:
-            raise ValueError(f"Unsupported role '{role}' for element id {element_id}")
-        assignments.append({"id": element_id, "role": role})
-        seen.add(element_id)
-
-    missing = expected_ids - seen
-    if missing:
-        raise ValueError(f"Missing role assignments for element ids: {sorted(missing)}")
+    expected_ids = {str(element["id"]) for element in observed_slide["elements"]}
+    assignments = [
+        {"id": str(item["id"]), "role": str(item["role"])}
+        for item in roles
+    ]
+    assigned_ids = [item["id"] for item in assignments]
+    if len(assigned_ids) != len(set(assigned_ids)) or set(assigned_ids) != expected_ids:
+        raise ValueError(
+            f"Role assignment ids must match slide element ids: "
+            f"expected={sorted(expected_ids)}, actual={sorted(assigned_ids)}"
+        )
+    invalid_roles = sorted({item["role"] for item in assignments} - ROLE_SET)
+    if invalid_roles:
+        raise ValueError(f"Unsupported roles: {invalid_roles}")
     return assignments
 
 
@@ -251,7 +243,7 @@ class SlideParserAgent:
                         **(
                             {"text": element["text"]}
                             if element["type"] == "textBox"
-                            else {"shape_kind": element.get("_shape_kind", element["type"])}
+                            else {"shape": element.get("shape", element["type"])}
                         ),
                     }
                     for element in raw_elements["elements"]
@@ -318,18 +310,22 @@ def build_ppt_representation(
     Returns:
         `ppt_representation` 字典，包含 `title`、`summary` 和
         `structured_tables`。每个 table body 通过 `data_path` 指向 CSV。
+
+    Raises:
+        ValueError: 未找到 chart/table body 时抛出。
     """
     presentation = Presentation(pptx_path)
     slide = presentation.slides[slide_idx]
-    elements = list(observed_slide.get("elements", []))
-    title = _single_role(elements, "title")
-    summary = _single_role(elements, "summary")
-    captions = [element for element in elements if element.get("role") == "caption"]
+    elements = observed_slide["elements"]
+    title = next(element for element in elements if element["role"] == "title")
+    summary = next(element for element in elements if element["role"] == "summary")
+    captions = [element for element in elements if element["role"] == "caption"]
     bodies = [
         element
         for element in elements
-        if element.get("role") in {"chart-bar", "chart-line", "chart-pie", "table"}
+        if element["role"] in {"chart-bar", "chart-line", "chart-pie", "table"}
     ]
+
     if not bodies:
         raise ValueError("Parser found no chart/table body elements.")
 
@@ -338,7 +334,7 @@ def build_ppt_representation(
     for table_idx, body_element in enumerate(bodies, 1):
         shape = slide.shapes[int(body_element["id"]) - 1]
         caption = _nearest_caption(body_element, captions)
-        header, rows = _extract_body_table(shape=shape, role=str(body_element.get("role")))
+        header, rows = _extract_body_table(shape=shape, role=body_element["role"])
         csv_path = output_dir / ("data.csv" if len(bodies) == 1 else f"data_{table_idx}.csv")
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
@@ -346,62 +342,23 @@ def build_ppt_representation(
             writer.writerows(rows)
         structured_tables.append(
             {
-                "caption": _compact_text_element(caption, "caption"),
+                "caption": {
+                    "element_id": str(caption["id"]),
+                    "text": caption["text"],
+                },
                 "header": header,
                 "body": {
-                    "element_id": str(body_element.get("id")),
-                    "type": body_element.get("role"),
+                    "element_id": str(body_element["id"]),
+                    "type": body_element["role"],
                     "data_path": str(csv_path),
                 },
             }
         )
 
     return {
-        "title": _compact_text_element(title, "title"),
-        "summary": _compact_text_element(summary, "summary"),
+        "title": {"element_id": str(title["id"]), "text": title["text"]},
+        "summary": {"element_id": str(summary["id"]), "text": summary["text"]},
         "structured_tables": structured_tables,
-    }
-
-
-def _single_role(elements: list[dict[str, Any]], role: str) -> dict[str, Any]:
-    """读取唯一的 slide-level 文本元素。
-
-    Args:
-        elements: 已标注 role 的 PPT 元素列表。
-        role: 要读取的 role 名称。
-
-    Returns:
-        唯一匹配该 role 的元素。
-
-    Raises:
-        ValueError: 没有匹配元素或匹配元素超过一个时抛出。
-    """
-    matches = [element for element in elements if element.get("role") == role]
-    if len(matches) != 1:
-        raise ValueError(f"Parser expected exactly one {role}, got {len(matches)}.")
-    return matches[0]
-
-
-def _compact_text_element(element: dict[str, Any], context: str) -> dict[str, Any]:
-    """压缩文本元素，只保留后续需要的字段。
-
-    Args:
-        element: 带文本的元素。
-        context: 用于错误消息的字段名。
-
-    Returns:
-        包含 `element_id` 和 `text` 的字典。
-
-    Raises:
-        ValueError: 文本元素缺少 id 或 text 时抛出。
-    """
-    text = str(element.get("text", "")).strip()
-    element_id = str(element.get("id", "")).strip()
-    if not element_id or not text:
-        raise ValueError(f"Parser {context} must contain non-empty id and text.")
-    return {
-        "element_id": element_id,
-        "text": text,
     }
 
 

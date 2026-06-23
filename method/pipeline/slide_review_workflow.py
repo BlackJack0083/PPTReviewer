@@ -13,6 +13,22 @@ from method.agents import (
 from method.agents.types import SlideReviewInput
 
 
+class WorkflowStageError(RuntimeError):
+    """Workflow stage failure with partial trace for evaluation/debugging."""
+
+    def __init__(
+        self,
+        *,
+        stage: str,
+        partial_result: dict[str, Any],
+        original_error: Exception,
+    ) -> None:
+        super().__init__(str(original_error))
+        self.stage = stage
+        self.partial_result = partial_result
+        self.original_error = original_error
+
+
 class SlideReviewWorkflow:
     """Run slide parsing, state extraction, source repair, and content validation."""
 
@@ -35,48 +51,96 @@ class SlideReviewWorkflow:
         *,
         client_agent,
     ) -> SlideReviewResult:
-        parsed = await self.slide_parser_agent.arun(slide_input)
+        partial: dict[str, Any] = {}
+        try:
+            parsed = await self.slide_parser_agent.arun(slide_input)
+        except Exception as exc:
+            raise WorkflowStageError(
+                stage="parser",
+                partial_result=partial,
+                original_error=exc,
+            ) from exc
         observed_slide = parsed["observed_slide"]
         ppt_representation = parsed["ppt_representation"]
-        analysis_state = await self.slide_analysis_agent.arun(
-            ppt_representation=ppt_representation,
-        )
-        final_data_source, data_source_tool_log = await self.data_source_validation_agent.arun(
-            analysis_state=analysis_state,
-            client=client_agent,
-        )
-        analysis_state = apply_source(
-            analysis_state,
-            final_data_source,
-        )
-        data_source_validation_log = [
+        partial.update(
             {
-                "final_data_source": final_data_source,
-                "tool_log": data_source_tool_log,
+                "observed_slide": observed_slide,
+                "ppt_representation": ppt_representation,
             }
-        ]
-        data_source_detected_issues = _issues_from_data_source_tool_log(data_source_tool_log)
-        confirmed_scope_corrections = [
-            issue for issue in data_source_detected_issues if issue["confirmed"]
+        )
+        try:
+            analysis_state = await self.slide_analysis_agent.arun(
+                ppt_representation=ppt_representation,
+            )
+        except Exception as exc:
+            raise WorkflowStageError(
+                stage="slide_analysis",
+                partial_result=partial,
+                original_error=exc,
+            ) from exc
+        slide_analysis_state = analysis_state
+        partial["slide_analysis_state"] = slide_analysis_state
+        try:
+            data_source_result = await self.data_source_validation_agent.arun(
+                analysis_state=analysis_state,
+                client=client_agent,
+            )
+        except Exception as exc:
+            raise WorkflowStageError(
+                stage="data_source_validation",
+                partial_result=partial,
+                original_error=exc,
+            ) from exc
+        final_data_source = data_source_result["final_data_source"]
+        data_source_tool_log = data_source_result["tool_log"]
+        data_source_issues = data_source_result["detected_issues"]
+        analysis_state = update_data_source(analysis_state, final_data_source)
+        data_source_validation_log = {
+            "final_data_source": final_data_source,
+            "tool_log": data_source_tool_log,
+        }
+        partial.update(
+            {
+                "analysis_state": analysis_state,
+                "data_source_validation_log": data_source_validation_log,
+                "detected_issues": list(data_source_issues),
+            }
+        )
+        scope_dialogue = [
+            {
+                "assistant": issue["evidence"],
+                "human": issue["client_response"],
+            }
+            for issue in data_source_issues
+            if issue["confirmed"]
         ]
 
         artifact_dir = slide_input.pptx_path.parent / "review_artifacts"
-        content_result = await self.content_validation_agent.arun(
-            analysis_state=analysis_state,
-            client=client_agent,
-            artifact_dir=artifact_dir,
-            confirmed_scope_corrections=confirmed_scope_corrections,
-        )
+        try:
+            content_result = await self.content_validation_agent.arun(
+                analysis_state=analysis_state,
+                client=client_agent,
+                pptx_path=slide_input.pptx_path,
+                artifact_dir=artifact_dir,
+                scope_dialogue=scope_dialogue,
+            )
+        except Exception as exc:
+            raise WorkflowStageError(
+                stage="content_validation",
+                partial_result=partial,
+                original_error=exc,
+            ) from exc
         analysis_state = content_result["analysis_state"]
 
         return SlideReviewResult(
             observed_slide=observed_slide,
             ppt_representation=ppt_representation,
+            slide_analysis_state=slide_analysis_state,
             analysis_state=analysis_state,
             data_source_validation_log=data_source_validation_log,
             content_validation_log=content_result["tool_log"],
             detected_issues=[
-                *data_source_detected_issues,
+                *data_source_issues,
                 *content_result["detected_issues"],
             ],
             table_records=content_result["table_records"],
@@ -84,48 +148,25 @@ class SlideReviewWorkflow:
         )
 
 
-def apply_source(
+def update_data_source(
     analysis_state: dict[str, Any],
-    final_source: dict[str, Any],
+    data_source: dict[str, Any],
 ) -> dict[str, Any]:
     """把确认后的 slide-level datasource 写回 analysis state。
 
     Args:
         analysis_state: Slide analysis 输出的 state。
-        final_source: Data source validation 确认后的 slide-level source。
+        data_source: Data source validation 确认后的 slide-level source。
 
     Returns:
         datasource 已归一化的 state。
     """
     state = copy.deepcopy(analysis_state)
-    state["final_data_source"] = copy.deepcopy(final_source)
-
-    state["summary"]["data_source"]["connection"] = copy.deepcopy(final_source["connection"])
-    state["summary"]["data_source"]["filters"] = copy.deepcopy(final_source["filters"])
-    for table_state in state["tables"]:
-        caption_source = table_state["caption"]["data_source"]
-        caption_source["connection"] = copy.deepcopy(final_source["connection"])
-        caption_source["filters"] = copy.deepcopy(final_source["filters"])
+    state["final_data_source"] = data_source
+    sources = [
+        state["summary"]["data_source"],
+        *(table["caption"]["data_source"] for table in state["tables"]),
+    ]
+    for source in sources:
+        source.update(copy.deepcopy(data_source))
     return state
-
-
-def _issues_from_data_source_tool_log(tool_log: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    for item in tool_log:
-        if item.get("tool") != "ask_client":
-            continue
-        request = item["request"]
-        response_text = item["response"]["response"]
-        issue = {
-            "request_type": request["request_type"],
-            "target": request.get("target", ""),
-            "field": request["field"],
-            "error_type": request["error_type"],
-            "scope_error_type": request["scope_error_type"],
-            "evidence": request["description"],
-            "client_response": response_text,
-            "confirmed": response_text
-            != "I do not have a confirmed correction for this request.",
-        }
-        issues.append(issue)
-    return issues

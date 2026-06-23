@@ -16,7 +16,7 @@ from langchain.agents import create_agent
 from langchain.agents.structured_output import ToolStrategy
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 from .tools import (
     DATA_SOURCE_VALIDATION_TOOLS,
@@ -28,42 +28,32 @@ PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_PROMPT_PATH = PROMPT_DIR / "data_source_validation_react_prompt.txt"
 
 
-class SourceConnection(BaseModel):
-    """最终 data source 的数据库连接字段。
+class Connection(BaseModel):
+    """数据库连接。"""
 
-    Args:
-        table: 已确认的数据库表名。
-    """
+    model_config = ConfigDict(extra="forbid")
 
-    table: str
+    table: str = Field(min_length=1)
 
 
-class SourceFilters(BaseModel):
-    """最终 data source 的 scope 过滤字段。
+class Filters(BaseModel):
+    """Data source 过滤条件。"""
 
-    Args:
-        city: 已确认的城市 slot。
-        block: 已确认的板块或区域 slot。
-        start_date: 已确认的开始日期，格式为 `YYYY-MM-DD`。
-        end_date: 已确认的结束日期，格式为 `YYYY-MM-DD`。
-    """
+    model_config = ConfigDict(extra="forbid")
 
-    city: str
-    block: str
-    start_date: str
-    end_date: str
+    city: str = Field(min_length=1)
+    block: str = Field(min_length=1)
+    start_date: str = Field(min_length=1)
+    end_date: str = Field(min_length=1)
 
 
-class ValidationOutput(BaseModel):
-    """Data source validation ReAct agent 的结构化最终输出。
+class DataSource(BaseModel):
+    """Data source validation agent 的最终输出。"""
 
-    Args:
-        connection: 已确认的数据库连接字段。
-        filters: 已确认的 scope 过滤字段。
-    """
+    model_config = ConfigDict(extra="forbid")
 
-    connection: SourceConnection
-    filters: SourceFilters
+    connection: Connection
+    filters: Filters
 
 
 class DataSourceValidationAgent:
@@ -101,7 +91,9 @@ class DataSourceValidationAgent:
             ValueError: 未提供 `model` 时抛出。
         """
         if model is None:
-            raise ValueError("DataSourceValidationAgent requires model when using create_agent.")
+            raise ValueError(
+                "DataSourceValidationAgent requires model when using create_agent."
+            )
 
         self.prompt = DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
         self.llm = ChatOpenAI(
@@ -119,7 +111,7 @@ class DataSourceValidationAgent:
         self,
         analysis_state: dict[str, Any],
         client: Any,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    ) -> dict[str, Any]:
         """让 ReAct agent 合成并验证 slide 级 data-source slots。
 
         Args:
@@ -127,7 +119,7 @@ class DataSourceValidationAgent:
             client: 具备 `respond(request)` 的 client simulator 或人工桥接对象。
 
         Returns:
-            `(final_data_source, tool_log)`。
+            包含 `final_data_source`、`tool_log` 和 `detected_issues` 的结果。
         """
         user_payload = build_validation_payload(analysis_state)
         state: DataSourceValidationState = {
@@ -141,13 +133,14 @@ class DataSourceValidationAgent:
                 )
             ],
             "tool_log": [],
+            "detected_issues": [],
         }
         agent = create_agent(
             model=self.llm,
             tools=DATA_SOURCE_VALIDATION_TOOLS,
             system_prompt=self.prompt,
             response_format=ToolStrategy(
-                ValidationOutput,
+                DataSource,
                 handle_errors=True,
             ),
             state_schema=DataSourceValidationState,
@@ -157,20 +150,18 @@ class DataSourceValidationAgent:
             state,
             context=DataSourceValidationContext(client=client),
         )
-        structured_response = result.get("structured_response")
-        if structured_response is None:
-            raise ValueError("ReAct agent returned no structured_response.")
-        output = ValidationOutput.model_validate(structured_response)
-        return output.model_dump(), result["tool_log"]
+        output: DataSource = result["structured_response"]
+        return {
+            "final_data_source": output.model_dump(),
+            "tool_log": result["tool_log"],
+            "detected_issues": result["detected_issues"],
+        }
 
 
 def build_validation_payload(
     analysis_state: dict[str, Any],
 ) -> dict[str, Any]:
     """把 analysis state 转成 ReAct prompt payload。
-
-    该函数只做 schema 收窄，不合成最终 data source。slot 冲突、缺失和
-    最终取值选择必须留给 ReAct agent 结合工具证据完成。
 
     Args:
         analysis_state: 当前 analysis state，包含 summary/caption 抽取结果。
@@ -181,37 +172,28 @@ def build_validation_payload(
     Raises:
         KeyError: `summary`、`tables` 或 table caption 缺少必要字段时抛出。
     """
-    source_data = []
+    candidates = []
     summary_source = analysis_state["summary"]["data_source"]
-    if _has_scope_claim(summary_source):
-        source_data.append(("summary", "summary", summary_source))
-    source_data.extend(
-        (f"caption[{table_index}]", "st.caption", table["caption"]["data_source"])
-        for table_index, table in enumerate(analysis_state["tables"])
-    )
-    return {
-        "source_candidates": [
+    if summary_source["connection"]["table"] or any(summary_source["filters"].values()):
+        candidates.append(
             {
-                "source": source,
-                "target": target,
+                "target": "summary",
+                "data_source": {
+                    "connection": summary_source["connection"],
+                    "filters": summary_source["filters"],
+                },
+            }
+        )
+    for table in analysis_state["tables"]:
+        caption = table["caption"]
+        data_source = caption["data_source"]
+        candidates.append(
+            {
+                "target": "st.caption",
                 "data_source": {
                     "connection": data_source["connection"],
                     "filters": data_source["filters"],
                 },
             }
-            for source, target, data_source in source_data
-        ]
-    }
-
-
-def _has_scope_claim(data_source: dict[str, Any]) -> bool:
-    connection = data_source["connection"]
-    filters = data_source["filters"]
-    values = [
-        connection["table"],
-        filters["city"],
-        filters["block"],
-        filters["start_date"],
-        filters["end_date"],
-    ]
-    return any(str(value).strip() for value in values)
+        )
+    return {"source_candidates": candidates}

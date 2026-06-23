@@ -70,7 +70,9 @@ class DataSourceQueryTool:
             }
 
         if self._existing_tables_cache is None:
-            allowed_tables = ", ".join(f"'{table_name}'" for table_name in REAL_ESTATE_TABLES)
+            allowed_tables = ", ".join(
+                f"'{table_name}'" for table_name in REAL_ESTATE_TABLES
+            )
             result = database_query(
                 f"""
                 SELECT table_name
@@ -195,9 +197,11 @@ class DataSourceValidationState(AgentState):
 
     Args:
         tool_log: 本轮 ReAct 过程中所有 data-source validation 工具调用记录。
+        detected_issues: 本轮 ReAct 过程中显式向 client 澄清的 data-source 问题。
     """
 
     tool_log: Annotated[list[dict[str, Any]], operator.add]
+    detected_issues: Annotated[list[dict[str, Any]], operator.add]
 
 
 @tool
@@ -265,7 +269,7 @@ def ask_client(
         field: 需要 client 澄清或修正的单个 feedback 字段。时间范围问题
             使用 `time_range`，不要拆成 `start_date` 或 `end_date`。
         description: agent 对当前问题的简短说明。
-        target: 可选的单个目标元素标签。冲突或 slide-level 问题可以不传。
+        target: 可选的目标元素类型。跨元素冲突或 slide-level 问题不传。
 
     Returns:
         面向 ReAct agent 的客户式回复，只包含 `response`。
@@ -277,18 +281,37 @@ def ask_client(
         "field": field,
         "description": description,
     }
-    if target:
+    if target is not None:
         request["target"] = target
     response = runtime.context.client.respond(request)
 
-    if set(response) != {"response"} or not isinstance(response["response"], str):
-        raise ValueError(f"ask_client expects client to return only response: {response}")
+    if "response" not in response or not isinstance(response["response"], str):
+        raise ValueError(
+            f"ask_client expects client to return only response: {response}"
+        )
+    visible_response = {"response": response["response"]}
 
-    log_item = {"tool": "ask_client", "request": request, "response": response}
+    log_item = {
+        "tool": "ask_client",
+        "request": request,
+        "response": visible_response,
+        "confirmed": bool(response.get("confirmed", False)),
+    }
+    detected_issue = {
+        **request,
+        "target": request.get("target", ""),
+        "evidence": description,
+        "client_response": response["response"],
+        "confirmed": bool(response.get("confirmed", False)),
+    }
+    detected_issue.pop("description")
     return _command(
         runtime,
-        response,
-        {"tool_log": [log_item]},
+        visible_response,
+        {
+            "tool_log": [log_item],
+            "detected_issues": [detected_issue],
+        },
     )
 
 

@@ -9,7 +9,6 @@ from pathlib import Path
 from typing import Any
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import ModelRequest, dynamic_prompt
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
@@ -71,18 +70,20 @@ class ContentValidationAgent:
         *,
         analysis_state: dict[str, Any],
         client: Any,
+        pptx_path: Path,
         artifact_dir: Path,
-        confirmed_scope_corrections: list[dict[str, Any]] | None = None,
+        scope_dialogue: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         """验证并按 client 确认结果更新 content state。
 
         Args:
-            analysis_state: 已经通过 `apply_source` 写入 final datasource 和
+            analysis_state: 已经通过 `update_data_source` 写入 final datasource 和
                 parser metadata 的 slide state。
             client: 共享的 benchmark client 或人工桥接对象。
+            pptx_path: 待修复的源 PPTX 路径。
             artifact_dir: raw/computed/repaired 文件输出目录。
-            confirmed_scope_corrections: Data-source validation 阶段已经获得
-                client 确认的 scope 修正，可作为文本修复授权依据。
+            scope_dialogue: Data-source validation 阶段已经获得 client 确认的
+                scope 问答，可作为文本修复授权依据。
 
         Returns:
             最终 analysis state、工具调用日志、检测到的问题和 repaired artifact 路径。
@@ -103,10 +104,17 @@ class ContentValidationAgent:
             "tool_log": [],
             "detected_issues": [],
         }
+        system_prompt = self.prompt
+        if scope_dialogue:
+            system_prompt += (
+                "\n\nData-source validation 阶段已完成以下 client 对话：\n"
+                + json.dumps(scope_dialogue, ensure_ascii=False, indent=2)
+                + "\n这些回复可作为 scope 文本修复的确认依据；不要为同一修正再次调用 ask_client。"
+            )
         agent = create_agent(
             model=self.llm,
             tools=CONTENT_VALIDATION_TOOLS,
-            middleware=[_content_prompt(self.prompt)],
+            system_prompt=system_prompt,
             state_schema=ContentValidationState,
             context_schema=ContentValidationContext,
         )
@@ -115,12 +123,12 @@ class ContentValidationAgent:
             context=ContentValidationContext(
                 client=client,
                 artifact_dir=artifact_dir,
-                confirmed_scope_corrections=list(confirmed_scope_corrections or []),
             ),
         )
         result_state = result["analysis_state"]
         table_records = result["table_records"]
         repaired_artifacts = write_content_artifacts(
+            source_pptx=pptx_path,
             analysis_state=result_state,
             artifact_dir=artifact_dir,
         )
@@ -167,19 +175,3 @@ def build_content_payload(state: dict[str, Any]) -> dict[str, Any]:
             for table_index, table_state in enumerate(state["tables"])
         ],
     }
-
-
-def _content_prompt(base_prompt: str):
-    @dynamic_prompt
-    def prompt(request: ModelRequest[ContentValidationContext]) -> str:
-        corrections = request.runtime.context.confirmed_scope_corrections
-        if not corrections:
-            return base_prompt
-        return (
-            base_prompt
-            + "\n\n已由 data-source validation 阶段获得 client 确认的 scope 修正：\n"
-            + json.dumps(corrections, ensure_ascii=False, indent=2)
-            + "\n这些修正可作为对应 scope 文本修复的确认依据；不要为了同一个 scope 修正再次调用 ask_client。"
-        )
-
-    return prompt

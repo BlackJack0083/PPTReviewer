@@ -21,6 +21,7 @@ from method.transformers import StatTransformer
 
 ROUNDING_ABS_TOLERANCE = 0.5
 PREVIEW_ROWS = 5
+DISPLAY_RECORD_LIMIT = 30
 MAX_DIFF_EXAMPLES = 5
 
 
@@ -31,15 +32,12 @@ class ContentValidationContext:
     Args:
         client: benchmark client 或人工桥接对象。
         artifact_dir: raw/computed/repaired 文件输出目录。
-        confirmed_scope_corrections: Data-source validation 阶段已获得
-            client 确认的 scope 修正。
         transformer: function logic 执行器。
         query_func: 数据库查询函数，签名为 `query(sql, params=None)`。
     """
 
     client: Any
     artifact_dir: Path
-    confirmed_scope_corrections: list[dict[str, Any]] = field(default_factory=list)
     transformer: StatTransformer = field(default_factory=StatTransformer)
     query_func: Any = database_query
 
@@ -88,9 +86,10 @@ def sql_retrieve(table_index: int, runtime: ToolRuntime) -> Command:
     )
     raw_path = context.artifact_dir / f"table_{table_index}_raw.csv"
     raw_df.to_csv(raw_path, index=False)
+    raw_path_ref = _tool_path_ref(raw_path, context)
     result = {
         "table_index": table_index,
-        "raw_data_path": str(raw_path),
+        "raw_data_path": raw_path_ref,
         "row_count": int(raw_df.shape[0]),
         "columns": [str(column) for column in raw_df.columns],
         "preview": _preview(raw_df),
@@ -116,21 +115,28 @@ def analysis_execute(table_index: int, raw_data_path: str, runtime: ToolRuntime)
     state = runtime.state
     context = runtime.context
     table_state = state["analysis_state"]["tables"][table_index]
-    raw_df = pd.read_csv(raw_data_path)
+    raw_path = _resolve_tool_path(raw_data_path, context)
+    raw_df = pd.read_csv(raw_path)
     config = TableAnalysisConfig.model_validate(table_state["calculation_logic"])
     computed_df = context.transformer.process_data_pipeline(raw_df, config)
     computed_path = context.artifact_dir / f"table_{table_index}_computed.csv"
     computed_df.to_csv(computed_path, index=False)
-    visible_path = str(table_state["data_path"])
+    visible_path = Path(str(table_state["data_path"]))
+    visible_path_ref = _tool_path_ref(visible_path, context)
+    raw_path_ref = _tool_path_ref(raw_path, context)
+    computed_path_ref = _tool_path_ref(computed_path, context)
     record = {
         "table_index": table_index,
-        "visible_data_path": visible_path,
-        "raw_data_path": raw_data_path,
-        "computed_data_path": str(computed_path),
+        "visible_data_path": visible_path_ref,
+        "raw_data_path": raw_path_ref,
+        "computed_data_path": computed_path_ref,
         "row_count": int(computed_df.shape[0]),
         "columns": [str(column) for column in computed_df.columns],
     }
-    result = {**record, "preview": _preview(computed_df)}
+    result = {
+        **record,
+        "computed_table": _display_records(computed_df),
+    }
     return _tool_command(
         runtime,
         result,
@@ -153,18 +159,18 @@ def compare_table(table_index: int, computed_data_path: str, runtime: ToolRuntim
         比较状态、差异说明和双方数据预览。
     """
     state = runtime.state
+    context = runtime.context
     table_state = state["analysis_state"]["tables"][table_index]
-    visible_path = str(table_state["data_path"])
+    visible_path = Path(str(table_state["data_path"]))
+    computed_path = _resolve_tool_path(computed_data_path, context)
     visible_df = align_visible_dataframe(pd.read_csv(visible_path), table_state)
-    computed_df = pd.read_csv(computed_data_path)
+    computed_df = pd.read_csv(computed_path)
     comparison = compare_display_dataframes(visible_df, computed_df)
     result = {
         "table_index": table_index,
-        "visible_data_path": visible_path,
-        "computed_data_path": computed_data_path,
+        "visible_data_path": _tool_path_ref(visible_path, context),
+        "computed_data_path": _tool_path_ref(computed_path, context),
         "comparison": comparison,
-        "visible_preview": _preview(visible_df),
-        "computed_preview": _preview(computed_df),
     }
     return _tool_command(
         runtime,
@@ -199,21 +205,29 @@ def ask_client(
         "target": target,
     }
     response = runtime.context.client.respond(request)
-    if set(response) != {"response"} or not isinstance(response["response"], str):
+    if "response" not in response or not isinstance(response["response"], str):
         raise ValueError(f"ask_client expects client to return only response: {response}")
+    visible_response = {"response": response["response"]}
     detected_issue: dict[str, Any] = {
         "request_type": request["request_type"],
         "target": target,
         "error_type": error_type,
         "evidence": description,
+        "client_response": response["response"],
+        "confirmed": bool(response.get("confirmed", False)),
     }
     return _tool_command(
         runtime,
-        response,
+        visible_response,
         {
             "detected_issues": [detected_issue],
             "tool_log": [
-                {"tool": "ask_client", "request": request, "response": response},
+                {
+                    "tool": "ask_client",
+                    "request": request,
+                    "response": visible_response,
+                    "confirmed": bool(response.get("confirmed", False)),
+                },
             ]
         },
     )
@@ -237,8 +251,9 @@ def modify_chart_tool(table_index: int, data_path: str, runtime: ToolRuntime) ->
     if body["type"] == "table":
         raise ValueError("modify_chart cannot update table body.")
     result = {"success": True}
-    table_state["data_path"] = data_path
-    table_state["body"]["data_path"] = data_path
+    resolved_data_path = str(_resolve_tool_path(data_path, runtime.context))
+    table_state["data_path"] = resolved_data_path
+    table_state["body"]["data_path"] = resolved_data_path
     return _tool_command(
         runtime,
         result,
@@ -273,8 +288,9 @@ def modify_table_tool(table_index: int, data_path: str, runtime: ToolRuntime) ->
     if body["type"] != "table":
         raise ValueError("modify_table can only update table body.")
     result = {"success": True}
-    table_state["data_path"] = data_path
-    table_state["body"]["data_path"] = data_path
+    resolved_data_path = str(_resolve_tool_path(data_path, runtime.context))
+    table_state["data_path"] = resolved_data_path
+    table_state["body"]["data_path"] = resolved_data_path
     return _tool_command(
         runtime,
         result,
@@ -481,8 +497,7 @@ def compare_display_dataframes(
         "diff_examples": diff_examples,
         "diff_summary": (
             "Visible CSV values differ from DB recomputation using validated "
-            f"data_source and calculation_logic: {diff_count} cell(s) differ; "
-            f"examples={diff_examples}."
+            f"data_source and calculation_logic: {diff_count} cell(s) differ."
         ),
     }
 
@@ -561,8 +576,8 @@ def _dataframe_value_differences(
                     {
                         "row": row_index,
                         "column": str(column),
-                        "visible": visible_value,
-                        "expected": expected_value,
+                        "visible": _json_scalar(visible_value),
+                        "expected": _json_scalar(expected_value),
                     }
                 )
     return diff_count, examples
@@ -570,3 +585,34 @@ def _dataframe_value_differences(
 
 def _preview(df: pd.DataFrame) -> list[dict[str, Any]]:
     return df.head(PREVIEW_ROWS).to_dict(orient="records")
+
+
+def _json_scalar(value: Any) -> Any:
+    if hasattr(value, "item"):
+        return value.item()
+    return value
+
+
+def _tool_path_ref(path: Path, context: ContentValidationContext) -> str:
+    if not hasattr(context, "artifact_dir"):
+        return str(path)
+    resolved_path = path.resolve()
+    case_dir = context.artifact_dir.resolve().parent
+    try:
+        return resolved_path.relative_to(case_dir).as_posix()
+    except ValueError:
+        return str(resolved_path)
+
+
+def _resolve_tool_path(value: str, context: ContentValidationContext) -> Path:
+    path = Path(value)
+    if path.is_absolute() or not hasattr(context, "artifact_dir"):
+        return path
+    case_path = context.artifact_dir.resolve().parent / path
+    if case_path.exists():
+        return case_path
+    return context.artifact_dir.resolve() / path
+
+
+def _display_records(df: pd.DataFrame) -> list[dict[str, Any]]:
+    return df.head(DISPLAY_RECORD_LIMIT).to_dict(orient="records")

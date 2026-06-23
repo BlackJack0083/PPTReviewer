@@ -19,8 +19,12 @@ from method.agents import (
 )
 from method.pipeline import SlideReviewWorkflow
 
-PRESENTATION_LABEL_RE = re.compile(r"\((bar chart|line chart|pie chart|table)\)\s*$", re.I)
-TREND_RE = re.compile(r"\b(increase|increased|decrease|decreased|growth|decline|upward|downward)\b", re.I)
+PRESENTATION_LABEL_RE = re.compile(
+    r"\((bar chart|line chart|pie chart|table)\)\s*$", re.I
+)
+TREND_RE = re.compile(
+    r"\b(increase|increased|decrease|decreased|growth|decline|upward|downward)\b", re.I
+)
 
 
 class TestRoleClient:
@@ -35,13 +39,17 @@ class TestRoleClient:
         payload = json.loads(user_prompt.split("Input elements:\n", 1)[1])
         elements = list(payload.get("elements", []))
         roles: dict[str, str] = {}
-        text_elements = [element for element in elements if element.get("type") == "textBox"]
-        non_text_elements = [element for element in elements if element.get("type") != "textBox"]
+        text_elements = [
+            element for element in elements if element.get("type") == "textBox"
+        ]
+        non_text_elements = [
+            element for element in elements if element.get("type") != "textBox"
+        ]
 
         for element in non_text_elements:
-            shape_kind = str(element.get("shape_kind") or element.get("type") or "")
-            if shape_kind in {"chart-bar", "chart-line", "chart-pie", "table"}:
-                roles[str(element["id"])] = shape_kind
+            shape = str(element.get("shape") or element.get("type") or "")
+            if shape in {"chart-bar", "chart-line", "chart-pie", "table"}:
+                roles[str(element["id"])] = shape
             elif element.get("type") == "table":
                 roles[str(element["id"])] = "table"
             else:
@@ -93,7 +101,9 @@ class TestRoleClient:
             {
                 "roles": [
                     {"id": element_id, "role": role}
-                    for element_id, role in sorted(roles.items(), key=lambda item: int(item[0]))
+                    for element_id, role in sorted(
+                        roles.items(), key=lambda item: int(item[0])
+                    )
                 ]
             }
         )
@@ -128,7 +138,9 @@ class TestAnalysisClient:
             return json.dumps(data_source)
 
         metric_names = [
-            name for name in payload["table_data"][0] if name not in {"category", "year", "month"}
+            name
+            for name in payload["table_data"][0]
+            if name not in {"category", "year", "month"}
         ] or ["value"]
         return json.dumps(
             {
@@ -181,14 +193,18 @@ class PassThroughDataSourceValidationAgent:
         first_caption_source = analysis_state["tables"][0]["caption"]["data_source"]
         filters = first_caption_source["filters"]
         return {
-            "connection": first_caption_source["connection"],
-            "filters": {
-                "city": filters["city"],
-                "block": filters["block"],
-                "start_date": filters["start_date"],
-                "end_date": filters["end_date"],
+            "final_data_source": {
+                "connection": first_caption_source["connection"],
+                "filters": {
+                    "city": filters["city"],
+                    "block": filters["block"],
+                    "start_date": filters["start_date"],
+                    "end_date": filters["end_date"],
+                },
             },
-        }, []
+            "tool_log": [],
+            "detected_issues": [],
+        }
 
 
 class ContentToolCallingFakeAgent:
@@ -240,7 +256,7 @@ class ContentToolCallingFakeAgent:
                         "error_type": "value_error",
                         "target": "st.body",
                         "description": comparison["comparison"]["diff_summary"],
-                    }
+                    },
                 )
                 if _client_agrees(response["response"]):
                     tool_name = (
@@ -253,7 +269,7 @@ class ContentToolCallingFakeAgent:
                         {
                             "table_index": table_index,
                             "data_path": computed["computed_data_path"],
-                        }
+                        },
                     )
 
         for table in user_payload["tables"]:
@@ -262,14 +278,16 @@ class ContentToolCallingFakeAgent:
             caption_label = _presentation_label(caption_text)
             actual_type = _body_presentation_type(table["body"]["type"])
             if caption_label and caption_label != actual_type:
-                evidence = f"caption says '{caption_label}' but body type is '{actual_type}'."
+                evidence = (
+                    f"caption says '{caption_label}' but body type is '{actual_type}'."
+                )
                 response = self.invoke_tool(
                     "ask_client",
                     {
                         "error_type": "claim_error",
                         "target": "st.caption",
                         "description": evidence,
-                    }
+                    },
                 )
                 if _client_agrees(response["response"]):
                     self.invoke_tool(
@@ -280,7 +298,7 @@ class ContentToolCallingFakeAgent:
                                 f"({actual_type.title()})",
                                 caption_text.strip(),
                             ),
-                        }
+                        },
                     )
         return {"messages": []}
 
@@ -299,10 +317,11 @@ class FakeContentValidationAgent:
         *,
         analysis_state,
         client,
+        pptx_path,
         artifact_dir,
-        confirmed_scope_corrections=None,
+        scope_dialogue=None,
     ):
-        del client, confirmed_scope_corrections
+        del client, pptx_path, scope_dialogue
         artifact_dir.mkdir(parents=True, exist_ok=True)
         yaml_path = artifact_dir / "repaired_slide.yaml"
         yaml_path.write_text("title: Example\n", encoding="utf-8")
@@ -311,7 +330,11 @@ class FakeContentValidationAgent:
             "table_records": [],
             "tool_log": [],
             "detected_issues": self.issues,
-            "repaired_artifacts": {"yaml_path": str(yaml_path), "data_paths": {}, "pptx_path": None},
+            "repaired_artifacts": {
+                "yaml_path": str(yaml_path),
+                "data_paths": {},
+                "pptx_path": None,
+            },
         }
 
 
@@ -324,8 +347,9 @@ class ToolCallingContentValidationAgent(ContentValidationAgent):
         *,
         analysis_state,
         client,
+        pptx_path,
         artifact_dir,
-        confirmed_scope_corrections=None,
+        scope_dialogue=None,
     ):
         from method.agents.content_validation.agent import build_content_payload
         from method.agents.content_validation.tools import (
@@ -346,7 +370,9 @@ class ToolCallingContentValidationAgent(ContentValidationAgent):
             artifact_dir=artifact_dir,
         )
         artifact_dir.mkdir(parents=True, exist_ok=True)
-        await ContentToolCallingFakeAgent(CONTENT_VALIDATION_TOOLS, state, context).ainvoke(
+        await ContentToolCallingFakeAgent(
+            CONTENT_VALIDATION_TOOLS, state, context
+        ).ainvoke(
             {
                 "messages": [
                     FakeMessage(
@@ -359,6 +385,7 @@ class ToolCallingContentValidationAgent(ContentValidationAgent):
             }
         )
         repaired_artifacts = write_content_artifacts(
+            source_pptx=pptx_path,
             analysis_state=state["analysis_state"],
             artifact_dir=artifact_dir,
         )
@@ -449,7 +476,9 @@ class FeedbackPipelineTest(unittest.TestCase):
         self.assertIn("target", first_issue)
         self.assertIn("error_type", first_issue)
 
-    def test_content_validation_updates_real_caption_presentation_mismatch(self) -> None:
+    def test_content_validation_updates_real_caption_presentation_mismatch(
+        self,
+    ) -> None:
         case_dir = Path(
             "output/benchmark/dataset_v2/split/test/s_00163f7ed3ede3ed/injected/00163f7ed3ede3ed-st_caption-935ecdac"
         )
@@ -482,7 +511,8 @@ class FeedbackPipelineTest(unittest.TestCase):
         caption_requests = [
             item
             for item in result.content_validation_log
-            if item["tool"] == "ask_client" and item["request"]["target"] == "st.caption"
+            if item["tool"] == "ask_client"
+            and item["request"]["target"] == "st.caption"
         ]
         caption_updates = [
             item
@@ -492,8 +522,7 @@ class FeedbackPipelineTest(unittest.TestCase):
         caption_issues = [
             issue
             for issue in result.detected_issues
-            if issue["target"] == "st.caption"
-            and issue["error_type"] == "claim_error"
+            if issue["target"] == "st.caption" and issue["error_type"] == "claim_error"
         ]
         self.assertTrue(caption_requests)
         self.assertTrue(caption_updates)
@@ -520,11 +549,19 @@ class FeedbackPipelineTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"response": "Yes, please apply the proposed update."})
+        self.assertEqual(
+            response,
+            {
+                "response": "Yes, please apply the proposed update.",
+                "confirmed": True,
+            },
+        )
 
 
 def _client_agrees(response: str) -> bool:
-    return any(token in response.lower() for token in ("yes", "accept", "agree", "update"))
+    return any(
+        token in response.lower() for token in ("yes", "accept", "agree", "update")
+    )
 
 
 def _presentation_label(text: str) -> str | None:

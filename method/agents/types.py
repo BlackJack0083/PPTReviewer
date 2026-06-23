@@ -26,7 +26,6 @@ class DetectedIssue:
     target: str
     error_type: str
     evidence: str
-    confidence: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         payload: dict[str, Any] = {
@@ -34,8 +33,7 @@ class DetectedIssue:
             "error_type": self.error_type,
             "evidence": self.evidence,
         }
-        if self.confidence is not None:
-            payload["confidence"] = self.confidence
+
         return payload
 
 
@@ -43,9 +41,10 @@ class DetectedIssue:
 class SlideReviewResult:
     observed_slide: dict[str, Any]
     ppt_representation: dict[str, Any]
+    slide_analysis_state: dict[str, Any]
     analysis_state: dict[str, Any]
     detected_issues: list[dict[str, Any]]
-    data_source_validation_log: list[dict[str, Any]] = field(default_factory=list)
+    data_source_validation_log: dict[str, Any] = field(default_factory=dict)
     content_validation_log: list[dict[str, Any]] = field(default_factory=list)
     table_records: list[dict[str, Any]] = field(default_factory=list)
     repaired_artifacts: dict[str, Any] = field(default_factory=dict)
@@ -54,6 +53,7 @@ class SlideReviewResult:
         return {
             "observed_slide": self.observed_slide,
             "ppt_representation": self.ppt_representation,
+            "slide_analysis_state": self.slide_analysis_state,
             "analysis_state": self.analysis_state,
             "data_source_validation_log": self.data_source_validation_log,
             "content_validation_log": self.content_validation_log,

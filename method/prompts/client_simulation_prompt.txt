@@ -10,9 +10,4 @@
 - 不要提到 benchmark、feedback、request_type、target、field、error_type、JSON 或你在模拟用户。
 - 不要额外编造未提供的信息。
 
-输出格式：
-只返回一个 JSON object，且只能包含一个 key：
-
-{
-  "response": "..."
-}
+只返回客户会说的回复正文，不要添加标签、解释或 JSON 格式。

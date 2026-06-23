@@ -66,11 +66,15 @@ class FakeClient:
                 "response": (
                     "Please use table=shenzhen_new_house, "
                     "city=Shenzhen, block=Nanshan CBD."
-                )
+                ),
+                "confirmed": True,
             }
         if field == "city":
-            return {"response": "Please use city=Beijing."}
-        return {"response": "I do not have a confirmed correction for this request."}
+            return {"response": "Please use city=Beijing.", "confirmed": True}
+        return {
+            "response": "I do not have a confirmed correction for this request.",
+            "confirmed": False,
+        }
 
 
 class FakeLLMClient:
@@ -85,7 +89,7 @@ class FakeLLMClient:
                 "kwargs": kwargs,
             }
         )
-        return json.dumps({"response": "Sure, please use city=Beijing."})
+        return "Sure, please use city=Beijing."
 
 
 class ToolCallingFakeAgent:
@@ -124,6 +128,11 @@ class ToolCallingFakeAgent:
         messages = update.pop("messages", [])
         if "tool_log" in update:
             self.state["tool_log"] = [*self.state["tool_log"], *update.pop("tool_log")]
+        if "detected_issues" in update:
+            self.state["detected_issues"] = [
+                *self.state["detected_issues"],
+                *update.pop("detected_issues"),
+            ]
         self.state.update(update)
         return json.loads(messages[0].content) if messages else {}
 
@@ -137,6 +146,7 @@ class ToolCallingFakeAgent:
             与 LangChain agent 兼容的消息结果。
         """
         user_payload = json.loads(payload["messages"][0].content)
+        target = user_payload["source_candidates"][0]["target"]
         data_source = _fake_synthesize_final_data_source(user_payload)
         conflict_fields = _fake_conflict_fields(user_payload)
         if conflict_fields:
@@ -144,9 +154,12 @@ class ToolCallingFakeAgent:
                 fields=conflict_fields,
                 scope_error_type="conflict",
                 description=f"Conflicting data-source fields: {conflict_fields}",
+                target=None,
             )
             if not _merge_client_reply(data_source, response):
-                raise ValueError("Data source validation requires client input: conflict fields")
+                raise ValueError(
+                    "Data source validation requires client input: conflict fields"
+                )
 
         missing_fields = _missing_scope_fields(data_source)
         if missing_fields:
@@ -154,9 +167,12 @@ class ToolCallingFakeAgent:
                 fields=missing_fields,
                 scope_error_type="missing",
                 description=f"Missing data-source fields: {missing_fields}",
+                target=target,
             )
             if not _merge_client_reply(data_source, response):
-                raise ValueError("Data source validation requires client input: missing fields")
+                raise ValueError(
+                    "Data source validation requires client input: missing fields"
+                )
 
         evidence = self.invoke_tool("slot_query", _slots(data_source))
         if "date_range_error" in evidence:
@@ -164,9 +180,12 @@ class ToolCallingFakeAgent:
                 fields=["time_range"],
                 scope_error_type="error",
                 description=evidence["date_range_error"],
+                target=target,
             )
             if not _merge_client_reply(data_source, response):
-                raise ValueError("Data source validation requires client input: invalid date range")
+                raise ValueError(
+                    "Data source validation requires client input: invalid date range"
+                )
             evidence = self.invoke_tool("slot_query", _slots(data_source))
 
         if not evidence.get("table_exists", True):
@@ -174,18 +193,24 @@ class ToolCallingFakeAgent:
                 fields=["table"],
                 scope_error_type="error",
                 description="Current table does not exist.",
+                target=target,
             )
             if not _merge_client_reply(data_source, response):
-                raise ValueError("Data source validation requires client input: table error")
+                raise ValueError(
+                    "Data source validation requires client input: table error"
+                )
             self.invoke_tool("slot_query", _slots(data_source))
         elif not evidence["full_scope_has_data"]:
             response = self._ask_client(
                 fields=["city", "block"],
                 scope_error_type="unmatch",
                 description="Current city/block combination has no database rows.",
+                target=None,
             )
             if not _merge_client_reply(data_source, response):
-                raise ValueError("Data source validation requires client input: scope unmatch")
+                raise ValueError(
+                    "Data source validation requires client input: scope unmatch"
+                )
             self.invoke_tool("slot_query", _slots(data_source))
 
         return _structured_response(data_source)
@@ -196,6 +221,7 @@ class ToolCallingFakeAgent:
         fields: list[str],
         scope_error_type: str,
         description: str,
+        target: str | None,
     ) -> dict[str, Any]:
         """通过真实 `ask_client` 发起澄清请求。
 
@@ -203,21 +229,22 @@ class ToolCallingFakeAgent:
             fields: 需要 client 澄清或修正的 data-source slots。
             scope_error_type: scope 错误细分标签。
             description: 请求说明。
+            target: 可选的文本位置。
 
         Returns:
             client tool 返回的 response。
         """
         response: dict[str, Any] = {}
         for field in fields:
-            response = self.invoke_tool(
-                "ask_client",
-                {
-                    "error_type": "scope_error",
-                    "scope_error_type": scope_error_type,
-                    "field": field,
-                    "description": description,
-                },
-            )
+            args = {
+                "error_type": "scope_error",
+                "scope_error_type": scope_error_type,
+                "field": field,
+                "description": description,
+            }
+            if target is not None:
+                args["target"] = target
+            response = self.invoke_tool("ask_client", args)
             if SLOT_REPLY_RE.search(str(response.get("response", ""))):
                 break
         return response
@@ -237,7 +264,7 @@ def run_data_source_tool(
     state: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     tool = next(item for item in DATA_SOURCE_VALIDATION_TOOLS if item.name == name)
-    runtime_state = state or {"messages": [], "tool_log": []}
+    runtime_state = state or {"messages": [], "tool_log": [], "detected_issues": []}
     command = tool.func(
         **args,
         runtime=ToolRuntime(
@@ -254,6 +281,16 @@ def run_data_source_tool(
     )
     update = dict(command.update)
     messages = update.pop("messages", [])
+    if "tool_log" in update:
+        runtime_state["tool_log"] = [
+            *runtime_state["tool_log"],
+            *update.pop("tool_log"),
+        ]
+    if "detected_issues" in update:
+        runtime_state["detected_issues"] = [
+            *runtime_state["detected_issues"],
+            *update.pop("detected_issues"),
+        ]
     runtime_state.update(update)
     result = json.loads(messages[0].content) if messages else {}
     return result, runtime_state
@@ -367,7 +404,7 @@ class FakeDataSourceValidationAgent(DataSourceValidationAgent):
         self,
         analysis_state: dict[str, Any],
         client: Any,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    ) -> dict[str, Any]:
         del client
         result = await FakeAgent().ainvoke(
             {
@@ -381,7 +418,11 @@ class FakeDataSourceValidationAgent(DataSourceValidationAgent):
                 ]
             }
         )
-        return result["structured_response"], []
+        return {
+            "final_data_source": result["structured_response"],
+            "tool_log": [],
+            "detected_issues": [],
+        }
 
 
 class ToolCallingDataSourceValidationAgent(DataSourceValidationAgent):
@@ -392,8 +433,8 @@ class ToolCallingDataSourceValidationAgent(DataSourceValidationAgent):
         self,
         analysis_state: dict[str, Any],
         client: Any,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        state = {"messages": [], "tool_log": []}
+    ) -> dict[str, Any]:
+        state = {"messages": [], "tool_log": [], "detected_issues": []}
         agent = ToolCallingFakeAgent(
             DATA_SOURCE_VALIDATION_TOOLS,
             state,
@@ -411,14 +452,20 @@ class ToolCallingDataSourceValidationAgent(DataSourceValidationAgent):
                 ]
             }
         )
-        return result["structured_response"], state["tool_log"]
+        return {
+            "final_data_source": result["structured_response"],
+            "tool_log": state["tool_log"],
+            "detected_issues": state["detected_issues"],
+        }
 
 
 class DataSourceValidationAgentTest(unittest.TestCase):
     def test_run_with_client_returns_agent_confirmed_missing_slot_repair(self) -> None:
         state = _analysis_state(city="", block="Liangxiang")
         agent = FakeDataSourceValidationAgent()
-        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        interactions = result["tool_log"]
 
         self.assertEqual(final_data_source["filters"]["city"], "Beijing")
         self.assertEqual(interactions, [])
@@ -426,7 +473,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
     def test_run_with_client_returns_agent_confirmed_unmatch_repair(self) -> None:
         state = _analysis_state(city="Beijing", block="Nanshan CBD")
         agent = FakeDataSourceValidationAgent()
-        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        interactions = result["tool_log"]
 
         self.assertEqual(final_data_source["connection"]["table"], "shenzhen_new_house")
         self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
@@ -437,7 +486,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         state = _analysis_state(city="Beijing", block="Liangxiang")
         state["tables"][0]["caption"]["data_source"]["filters"]["city"] = "Shenzhen"
         agent = FakeDataSourceValidationAgent()
-        final_data_source, interactions = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        interactions = result["tool_log"]
 
         self.assertEqual(final_data_source["filters"]["city"], "Beijing")
         self.assertEqual(interactions, [])
@@ -452,6 +503,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 "scope_error_type": "missing",
                 "field": "city",
                 "description": "city is missing",
+                "target": "summary",
             },
             client=client,
         )
@@ -464,6 +516,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         self.assertEqual(state["tool_log"][0]["tool"], "ask_client")
         self.assertEqual(state["tool_log"][0]["request"]["field"], "city")
         self.assertEqual(state["tool_log"][0]["response"], response)
+        self.assertEqual(state["detected_issues"][0]["field"], "city")
+        self.assertEqual(state["detected_issues"][0]["evidence"], "city is missing")
+        self.assertTrue(state["detected_issues"][0]["confirmed"])
 
     def test_ask_client_returns_plain_customer_reply_when_unmatched(self) -> None:
         response, state = run_data_source_tool(
@@ -473,6 +528,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 "scope_error_type": "missing",
                 "field": "block",
                 "description": "block is missing",
+                "target": "summary",
             },
             client=ClientAgent(feedback_items=[]),
         )
@@ -483,6 +539,8 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         )
         self.assertEqual(state["tool_log"][0]["tool"], "ask_client")
         self.assertEqual(state["tool_log"][0]["response"], response)
+        self.assertEqual(state["detected_issues"][0]["field"], "block")
+        self.assertFalse(state["detected_issues"][0]["confirmed"])
 
     def test_client_agent_returns_configured_response(self) -> None:
         client = ClientAgent(
@@ -514,20 +572,21 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 "response": (
                     "Please use table=shenzhen_new_house, "
                     "city=Shenzhen, block=Nanshan CBD."
-                )
+                ),
+                "confirmed": True,
             },
         )
 
-    def test_client_agent_matches_slide_level_scope_request_without_target(self) -> None:
+    def test_client_agent_matches_scope_request_by_target(self) -> None:
         client = ClientAgent(
             feedback_items=[
                 {
                     "request_type": "data_source_slot_clarification",
                     "scope_error_type": "error",
                     "field": "time_range",
+                    "target": "summary",
                     "response": (
-                        "Please use start_date=2020-01-01, "
-                        "end_date=2024-12-31."
+                        "Please use start_date=2020-01-01, end_date=2024-12-31."
                     ),
                 }
             ]
@@ -538,26 +597,51 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 "field": "time_range",
                 "error_type": "scope_error",
                 "scope_error_type": "error",
+                "target": "summary",
             }
         )
 
         self.assertEqual(
             response,
             {
-                "response": (
-                    "Please use start_date=2020-01-01, "
-                    "end_date=2024-12-31."
-                )
+                "response": ("Please use start_date=2020-01-01, end_date=2024-12-31."),
+                "confirmed": True,
             },
         )
 
-    def test_client_agent_uses_empty_feedback_target_as_wildcard(self) -> None:
+    def test_client_agent_matches_slide_level_feedback_without_target(self) -> None:
+        client = ClientAgent(
+            feedback_items=[
+                {
+                    "request_type": "data_source_slot_clarification",
+                    "scope_error_type": "error",
+                    "field": "time_range",
+                    "response": (
+                        "Please use start_date=2020-01-01, end_date=2024-12-31."
+                    ),
+                }
+            ]
+        )
+
+        response = client.respond(
+            {
+                "request_type": "data_source_slot_clarification",
+                "field": "time_range",
+                "scope_error_type": "error",
+                "target": "st.caption",
+            }
+        )
+
+        self.assertTrue(response["confirmed"])
+
+    def test_client_agent_does_not_match_a_different_target(self) -> None:
         client = ClientAgent(
             feedback_items=[
                 {
                     "request_type": "data_source_slot_clarification",
                     "scope_error_type": "conflict",
                     "field": "block",
+                    "target": "st.caption",
                     "response": "Please use block=Miyun District.",
                 }
             ]
@@ -567,13 +651,13 @@ class DataSourceValidationAgentTest(unittest.TestCase):
             {
                 "request_type": "data_source_slot_clarification",
                 "field": "block",
-                "target": "st.caption",
+                "target": "summary",
                 "error_type": "scope_error",
                 "scope_error_type": "conflict",
             }
         )
 
-        self.assertEqual(response, {"response": "Please use block=Miyun District."})
+        self.assertFalse(response["confirmed"])
 
     def test_client_agent_matches_targeted_data_source_response(self) -> None:
         client = ClientAgent(
@@ -598,7 +682,10 @@ class DataSourceValidationAgentTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(response, {"response": "Please use block=Miyun District."})
+        self.assertEqual(
+            response,
+            {"response": "Please use block=Miyun District.", "confirmed": True},
+        )
 
     def test_client_agent_llm_mode_rewrites_matched_response(self) -> None:
         simulator_client = FakeLLMClient()
@@ -608,6 +695,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                     "request_type": "data_source_slot_clarification",
                     "scope_error_type": "error",
                     "field": "city",
+                    "target": "summary",
                     "response": "Please use city=Beijing.",
                 }
             ],
@@ -621,10 +709,14 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 "field": "city",
                 "error_type": "scope_error",
                 "scope_error_type": "error",
+                "target": "summary",
             }
         )
 
-        self.assertEqual(response, {"response": "Sure, please use city=Beijing."})
+        self.assertEqual(
+            response,
+            {"response": "Sure, please use city=Beijing.", "confirmed": True},
+        )
         self.assertEqual(len(simulator_client.calls), 1)
         self.assertEqual(
             simulator_client.calls[0]["user_prompt"]["matched_feedback"],
@@ -646,7 +738,10 @@ class DataSourceValidationAgentTest(unittest.TestCase):
 
         self.assertEqual(
             response,
-            {"response": "I do not have a confirmed correction for this request."},
+            {
+                "response": "I do not have a confirmed correction for this request.",
+                "confirmed": False,
+            },
         )
         self.assertEqual(simulator_client.calls, [])
 
@@ -655,10 +750,6 @@ class DataSourceValidationAgentTest(unittest.TestCase):
 
         payload = build_validation_payload(state)
 
-        self.assertEqual(
-            [candidate["source"] for candidate in payload["source_candidates"]],
-            ["summary", "caption[0]"],
-        )
         self.assertEqual(
             [candidate["target"] for candidate in payload["source_candidates"]],
             ["summary", "st.caption"],
@@ -681,10 +772,6 @@ class DataSourceValidationAgentTest(unittest.TestCase):
 
         payload = build_validation_payload(state)
 
-        self.assertEqual(
-            [candidate["source"] for candidate in payload["source_candidates"]],
-            ["caption[0]"],
-        )
         self.assertEqual(payload["source_candidates"][0]["target"], "st.caption")
 
     def test_tool_calling_agent_records_missing_slot_interaction(self) -> None:
@@ -692,10 +779,14 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         query_tool = ScenarioQueryTool()
         agent = ToolCallingDataSourceValidationAgent(query_tool)
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
         self.assertEqual(final_data_source["filters"]["city"], "Beijing")
-        self.assertEqual([item["tool"] for item in tool_log], ["ask_client", "slot_query"])
+        self.assertEqual(
+            [item["tool"] for item in tool_log], ["ask_client", "slot_query"]
+        )
         ask_client_log = tool_log[0]
         self.assertEqual(ask_client_log["request"]["scope_error_type"], "missing")
         self.assertEqual(ask_client_log["request"]["field"], "city")
@@ -706,7 +797,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         query_tool = ScenarioQueryTool()
         agent = ToolCallingDataSourceValidationAgent(query_tool)
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
         self.assertEqual(final_data_source["connection"]["table"], "shenzhen_new_house")
         self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
@@ -735,15 +828,17 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                     "request_type": "data_source_slot_clarification",
                     "scope_error_type": "error",
                     "field": "time_range",
+                    "target": "summary",
                     "response": (
-                        "Please use start_date=2020-01-01, "
-                        "end_date=2024-12-31."
+                        "Please use start_date=2020-01-01, end_date=2024-12-31."
                     ),
                 }
             ]
         )
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, client))
+        result = asyncio.run(agent.arun(state, client))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
         self.assertEqual(final_data_source["filters"]["start_date"], "2020-01-01")
         self.assertEqual(final_data_source["filters"]["end_date"], "2024-12-31")
@@ -754,7 +849,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         self.assertEqual(tool_log[1]["request"]["field"], "time_range")
         self.assertEqual(tool_log[1]["request"]["scope_error_type"], "error")
 
-    def test_real_estate_beijing_liangxiang_example_validates_without_client(self) -> None:
+    def test_real_estate_beijing_liangxiang_example_validates_without_client(
+        self,
+    ) -> None:
         state = _real_estate_analysis_state(
             summary_text="From 2020 to 2024, Beijing Liangxiang supply and transaction area both increased.",
             caption_text="Beijing Liangxiang: Historical Supply and Transaction Area Statistics (2020-2024)",
@@ -767,7 +864,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         query_tool = ScenarioQueryTool()
         agent = ToolCallingDataSourceValidationAgent(query_tool)
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
         self.assertEqual(
             final_data_source,
@@ -798,9 +897,13 @@ class DataSourceValidationAgentTest(unittest.TestCase):
         query_tool = ScenarioQueryTool()
         agent = ToolCallingDataSourceValidationAgent(query_tool)
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, FakeClient()))
+        result = asyncio.run(agent.arun(state, FakeClient()))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
-        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_resale_house")
+        self.assertEqual(
+            final_data_source["connection"]["table"], "shenzhen_resale_house"
+        )
         self.assertEqual(final_data_source["filters"]["start_date"], "2021-01-01")
         self.assertEqual(final_data_source["filters"]["end_date"], "2023-12-31")
         self.assertNotIn("time_range", final_data_source["filters"])
@@ -835,6 +938,7 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                     "request_type": "data_source_slot_clarification",
                     "scope_error_type": "conflict",
                     "field": "table",
+                    "target": "summary",
                     "response": (
                         "Please use table=shenzhen_resale_house, city=Shenzhen, "
                         "block=Nanshan CBD, start_date=2021-01-01, "
@@ -844,16 +948,24 @@ class DataSourceValidationAgentTest(unittest.TestCase):
             ]
         )
 
-        final_data_source, tool_log = asyncio.run(agent.arun(state, client))
+        result = asyncio.run(agent.arun(state, client))
+        final_data_source = result["final_data_source"]
+        tool_log = result["tool_log"]
 
-        self.assertEqual(final_data_source["connection"]["table"], "shenzhen_resale_house")
+        self.assertEqual(
+            final_data_source["connection"]["table"], "shenzhen_resale_house"
+        )
         self.assertEqual(final_data_source["filters"]["city"], "Shenzhen")
-        self.assertEqual([item["tool"] for item in tool_log], ["ask_client", "slot_query"])
+        self.assertEqual(
+            [item["tool"] for item in tool_log], ["ask_client", "slot_query"]
+        )
         self.assertEqual(tool_log[0]["request"]["scope_error_type"], "conflict")
         self.assertEqual(tool_log[0]["request"]["field"], "table")
         self.assertEqual(query_tool.calls, [_slots(final_data_source)])
 
-    def test_tool_calling_agent_fails_when_client_has_no_matching_feedback(self) -> None:
+    def test_tool_calling_agent_fails_when_client_has_no_matching_feedback(
+        self,
+    ) -> None:
         state = _analysis_state(city="Beijing", block="Nanshan CBD")
         agent = ToolCallingDataSourceValidationAgent(ScenarioQueryTool())
 
@@ -879,7 +991,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 ]
             )
 
-        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+        with patch(
+            "method.agents.data_source_validation.tools.database_query", query_func
+        ):
             evidence = DataSourceQueryTool().run(
                 table="beijing_new_house",
                 city="Beijing",
@@ -901,7 +1015,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
                 return pd.DataFrame([{"table_name": "guangzhou_new_house"}])
             raise AssertionError(f"Missing table should not query table scope: {sql}")
 
-        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+        with patch(
+            "method.agents.data_source_validation.tools.database_query", query_func
+        ):
             evidence = DataSourceQueryTool().run(
                 table="beijing_new_house",
                 city="Beijing",
@@ -920,7 +1036,9 @@ class DataSourceValidationAgentTest(unittest.TestCase):
             calls.append((sql, params))
             raise AssertionError(f"Invalid date range should not query database: {sql}")
 
-        with patch("method.agents.data_source_validation.tools.database_query", query_func):
+        with patch(
+            "method.agents.data_source_validation.tools.database_query", query_func
+        ):
             evidence = DataSourceQueryTool().run(
                 table="beijing_new_house",
                 city="Beijing",
@@ -1032,6 +1150,7 @@ def _slots(data_source: dict[str, Any]) -> dict[str, str]:
 def _analysis_state(city: str, block: str) -> dict[str, Any]:
     return {
         "summary": {
+            "element_id": "summary-1",
             "text": "Example summary",
             "data_source": {
                 "connection": {"table": "beijing_new_house"},
@@ -1046,6 +1165,7 @@ def _analysis_state(city: str, block: str) -> dict[str, Any]:
         "tables": [
             {
                 "caption": {
+                    "element_id": "caption-1",
                     "text": "Example caption",
                     "data_source": {
                         "connection": {"table": "beijing_new_house"},
@@ -1059,7 +1179,7 @@ def _analysis_state(city: str, block: str) -> dict[str, Any]:
                     },
                 },
             }
-        ]
+        ],
     }
 
 
@@ -1075,6 +1195,7 @@ def _real_estate_analysis_state(
 ) -> dict[str, Any]:
     return {
         "summary": {
+            "element_id": "summary-1",
             "text": summary_text,
             "data_source": {
                 "connection": {"table": table},
@@ -1089,10 +1210,16 @@ def _real_estate_analysis_state(
         "tables": [
             {
                 "caption": {
+                    "element_id": "caption-1",
                     "text": caption_text,
                     "data_source": {
                         "connection": {"table": table},
-                        "select_columns": ["date_code", "supply_sets", "trade_sets", "dim_area"],
+                        "select_columns": [
+                            "date_code",
+                            "supply_sets",
+                            "trade_sets",
+                            "dim_area",
+                        ],
                         "filters": {
                             "city": city,
                             "block": block,
@@ -1104,6 +1231,7 @@ def _real_estate_analysis_state(
             }
         ],
     }
+
 
 if __name__ == "__main__":
     unittest.main()

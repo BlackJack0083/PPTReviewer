@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any, Literal
 
-from method.utils import Client, parse_json_object
+from method.utils import Client
 
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_PROMPT_PATH = PROMPT_DIR / "client_simulation_prompt.txt"
@@ -51,35 +51,14 @@ class ClientAgent:
                 timeout_sec=timeout_sec,
             )
 
-    @classmethod
-    def from_feedback_episode(
-        cls,
-        episode: dict[str, Any],
-        **kwargs: Any,
-    ) -> ClientAgent:
-        """从单个 `feedback_episode.json` payload 构造 client。
-
-        Args:
-            episode: case-local feedback episode。它只对 simulated client
-                可见，不对 reviewing agents 可见。
-            **kwargs: 透传给 `ClientAgent(...)`，用于配置 deterministic/llm
-                client 模式。
-
-        Returns:
-            只响应 injected error points 显式澄清/确认请求的共享 client。
-        """
-        items = episode.get("feedback_items")
-        if not isinstance(items, list):
-            raise ValueError(f"feedback_episode must contain feedback_items list: {episode}")
-        return cls(feedback_items=items, **kwargs)
-
     def respond(self, request: dict[str, Any]) -> dict[str, Any]:
         """响应 agent 发出的澄清或确认请求。
 
         Args:
             request: 请求对象，包含内部路由用的 `request_type`。Data-source
-                请求按 `field` 和 `scope_error_type` 匹配；content update 请求
-                按 `error_type` 和 `target` 匹配。
+                请求按 `field` 和 `scope_error_type` 匹配；请求包含 `target`
+                时再匹配具体文本位置。content update 请求按 `error_type` 和
+                `target` 匹配。
 
         Returns:
             client 回复。agent 可见的澄清和确认请求只返回客户式 `response`。
@@ -90,27 +69,43 @@ class ClientAgent:
 
         item = self._find_feedback_item(request)
         if item is None:
-            return {"response": "I do not have a confirmed correction for this request."}
+            return {
+                "response": "I do not have a confirmed correction for this request.",
+                "confirmed": False,
+            }
 
         if self.mode == "deterministic":
-            return {"response": item["response"]}
-        return self._llm_response(request=request, item=item)
+            return {"response": item["response"], "confirmed": True}
+        return self.llm_response(request=request, item=item)
 
     def _find_feedback_item(
         self,
         request: dict[str, Any],
     ) -> dict[str, Any] | None:
-        request_type = str(request["request_type"])
+        request_type = request["request_type"]
+        if request_type == "data_source_slot_clarification":
+            match_fields = ["field", "scope_error_type"]
+        elif request_type == "content_update_confirmation":
+            match_fields = ["error_type", "target"]
+        else:
+            return None
 
         for item in self.feedback_items:
             if item["request_type"] != request_type:
                 continue
-            if not _matches_feedback_item(item, request):
+            if not all(item[field] == request[field] for field in match_fields):
+                continue
+            if (
+                request_type == "data_source_slot_clarification"
+                and "target" in item
+                and "target" in request
+                and item["target"] != request["target"]
+            ):
                 continue
             return item
         return None
 
-    def _llm_response(
+    def llm_response(
         self,
         *,
         request: dict[str, Any],
@@ -127,25 +122,5 @@ class ClientAgent:
             json.dumps(payload, ensure_ascii=False, indent=2),
             temperature=0.3,
             max_tokens=512,
-            response_format="json_object",
         )
-        parsed = parse_json_object(content)
-        if not parsed["response"]:
-            raise ValueError(f"Client simulator returned empty response: {parsed}")
-        return parsed
-
-
-def _matches_feedback_item(item: dict[str, Any], request: dict[str, Any]) -> bool:
-    request_type = item["request_type"]
-    if request_type == "data_source_slot_clarification":
-        return (
-            item["field"] == request.get("field")
-            and item["scope_error_type"] == request.get("scope_error_type")
-            and (not item.get("target") or item["target"] == request.get("target"))
-        )
-    if request_type == "content_update_confirmation":
-        return (
-            item["error_type"] == request.get("error_type")
-            and item["target"] == request.get("target")
-        )
-    return False
+        return {"response": content, "confirmed": True}
