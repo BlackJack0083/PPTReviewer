@@ -3,9 +3,19 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 from dataclasses import dataclass
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    RateLimitError,
+)
 
 from benchmarking.fine_grained.common import read_jsonl, scalar_to_json
 from method.agents import (
@@ -16,8 +26,12 @@ from method.agents import (
     SlideParserAgent,
     SlideReviewInput,
 )
-from method.eval.metrics import SlideReviewEvaluator
-from method.pipeline import SlideReviewWorkflow
+from method.eval.metrics import (
+    SlideReviewEvaluator,
+    aggregate_metrics,
+    failure_metrics,
+)
+from method.pipeline import SlideReviewWorkflow, WorkflowStageError
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 
@@ -50,66 +64,64 @@ async def run_slide_review_eval(config: SlideReviewEvalConfig) -> dict[str, Any]
         `config.output_dir`.
     """
     benchmark_root = config.benchmark_root.resolve()
-    records = _load_split_records(benchmark_root, config.split)
+    records = [
+        record
+        for record in read_jsonl(benchmark_root / "manifest" / "corruptions.jsonl")
+        if record["split"] == config.split
+    ][: config.limit]
 
     config.output_dir.mkdir(parents=True, exist_ok=True)
-    skipped = 0
-    runnable: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    for record in records:
-        if len(runnable) >= config.limit:
-            break
-        assets = load_case_assets(benchmark_root, record)
-        if assets is None:
-            skipped += 1
-            continue
-        runnable.append((record, assets))
+    runnable = [
+        (record, load_case_assets(benchmark_root, record)) for record in records
+    ]
+    workflow = SlideReviewWorkflow(
+        slide_parser_agent=SlideParserAgent(**_agent_config("PARSER")),
+        slide_analysis_agent=SlideAnalysisAgent(**_agent_config("ANALYSIS")),
+        data_source_validation_agent=DataSourceValidationAgent(
+            **_agent_config("DATA_SOURCE")
+        ),
+        content_validation_agent=ContentValidationAgent(**_agent_config("CONTENT")),
+    )
 
-    semaphore = asyncio.Semaphore(max(1, config.workers))
+    semaphore = asyncio.Semaphore(config.workers)
     tasks = [
-        asyncio.create_task(_run_one_case(record, assets, config, semaphore))
+        asyncio.create_task(_run_one_case(record, assets, config, workflow, semaphore))
         for record, assets in runnable
     ]
     results = [await task for task in asyncio.as_completed(tasks)]
-    successful = [result for result in results if result.get("ok")]
-    aggregate_detection_f1 = sum(
-        float(result["metrics"]["detection"]["f1"]) for result in successful
-    )
+    completed = sum(result["completed"] for result in results)
 
     return {
         "benchmark_root": str(benchmark_root),
         "split": config.split,
         "requested_limit": config.limit,
-        "workers": max(1, config.workers),
+        "workers": config.workers,
         "written": len(results),
-        "succeeded": len(successful),
-        "failed": len(results) - len(successful),
-        "skipped": skipped,
-        "parser": "SlideParserAgent",
+        "succeeded": completed,
+        "failed": len(results) - completed,
         "client_mode": config.client_mode,
-        "avg_detection_f1": aggregate_detection_f1 / len(successful)
-        if successful
-        else 0.0,
+        "metrics": aggregate_metrics([result["metrics"] for result in results]),
         "output_dir": str(config.output_dir.resolve()),
     }
 
 
-def load_case_assets(benchmark_root: Path, record: dict[str, Any]) -> dict[str, Any] | None:
-    output_yaml = benchmark_root / str(record.get("output_yaml", ""))
+def load_case_assets(benchmark_root: Path, record: dict[str, Any]) -> dict[str, Any]:
+    output_yaml = benchmark_root / record["output_yaml"]
     case_dir = output_yaml.parent
     output_ppt = case_dir / "slide.pptx"
     output_png = case_dir / "slide.png"
     corruption_path = case_dir / "corruption.json"
     feedback_path = case_dir / "feedback_episode.json"
-    if not output_ppt.exists() or not output_png.exists():
-        return None
-    if not corruption_path.exists() or not feedback_path.exists():
-        return None
+    corruption_record = json.loads(corruption_path.read_text(encoding="utf-8"))
+    ground_truth_yaml_path = benchmark_root / corruption_record["expected_repair_yaml"]
+    ground_truth_pptx_path = ground_truth_yaml_path.with_name("slide.pptx")
     return {
-        "case_dir": case_dir,
         "pptx_path": output_ppt,
         "image_path": output_png,
-        "image_origin": "dataset",
-        "corruption_record": json.loads(corruption_path.read_text(encoding="utf-8")),
+        "injected_yaml_path": output_yaml,
+        "ground_truth_yaml_path": ground_truth_yaml_path,
+        "ground_truth_pptx_path": ground_truth_pptx_path,
+        "corruption_record": corruption_record,
         "feedback_episode": json.loads(feedback_path.read_text(encoding="utf-8")),
     }
 
@@ -121,6 +133,8 @@ def to_jsonable(value: object) -> object:
         return [to_jsonable(item) for item in value]
     if isinstance(value, Path):
         return str(value)
+    if isinstance(value, date | datetime):
+        return value.isoformat()
     return scalar_to_json(value)
 
 
@@ -128,41 +142,51 @@ async def _run_one_case(
     record: dict[str, Any],
     assets: dict[str, Any],
     config: SlideReviewEvalConfig,
+    workflow: SlideReviewWorkflow,
     semaphore: asyncio.Semaphore,
 ) -> dict[str, Any]:
-    case_id = f"{record.get('sample_id')}__{record.get('injection_id')}"
+    case_id = f"{record['sample_id']}__{record['injection_id']}"
+    work_dir = config.output_dir / "work" / case_id
+    work_dir.mkdir(parents=True, exist_ok=True)
+    pptx_path = work_dir / "slide.pptx"
+    image_path = work_dir / "slide.png"
+    shutil.copyfile(assets["pptx_path"], pptx_path)
+    shutil.copyfile(assets["image_path"], image_path)
     slide_input = SlideReviewInput(
-        pptx_path=assets["pptx_path"],
-        image_path=assets["image_path"],
+        pptx_path=pptx_path,
+        image_path=image_path,
     )
     payload: dict[str, Any]
     async with semaphore:
-        for attempt in range(max(0, config.case_retries) + 1):
+        for attempt in range(config.case_retries + 1):
             try:
                 payload = await _attempt_case(
                     case_id=case_id,
                     slide_input=slide_input,
                     assets=assets,
                     config=config,
+                    workflow=workflow,
                     attempt=attempt + 1,
                 )
                 break
             except Exception as exc:  # noqa: BLE001
                 error_text = str(exc)
-                payload = _error_payload(case_id, slide_input, config, attempt + 1, error_text)
-                if attempt >= max(0, config.case_retries) or not _is_retryable_error(
-                    error_text
-                ):
+                payload = _error_payload(
+                    case_id=case_id,
+                    slide_input=slide_input,
+                    attempt=attempt + 1,
+                    error=exc,
+                    assets=assets,
+                )
+                if attempt >= config.case_retries or not _is_retryable_error(exc):
                     break
                 sleep_sec = config.retry_base_sleep_sec * (2**attempt)
-                _print_event(
-                    {
-                        "event": "case_retry",
-                        "case_id": case_id,
-                        "attempt": attempt + 1,
-                        "sleep_sec": sleep_sec,
-                        "error": error_text.splitlines()[0],
-                    }
+                logger.warning(
+                    "Retrying case {} after attempt {} in {} seconds: {}",
+                    case_id,
+                    attempt + 1,
+                    sleep_sec,
+                    error_text.splitlines()[0],
                 )
                 await asyncio.sleep(sleep_sec)
 
@@ -171,13 +195,11 @@ async def _run_one_case(
         json.dumps(to_jsonable(payload), ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
-    _print_event(
-        {
-            "event": "case_done",
-            "case_id": case_id,
-            "ok": bool(payload.get("ok")),
-            "attempt": payload.get("attempt"),
-        }
+    logger.info(
+        "Finished case {}: completed={}, run_attempt={}",
+        case_id,
+        payload["completed"],
+        payload["run_attempt"],
     )
     return payload
 
@@ -188,152 +210,114 @@ async def _attempt_case(
     slide_input: SlideReviewInput,
     assets: dict[str, Any],
     config: SlideReviewEvalConfig,
+    workflow: SlideReviewWorkflow,
     attempt: int,
 ) -> dict[str, Any]:
-    workflow = SlideReviewWorkflow(
-        slide_parser_agent=_build_slide_parser(),
-        slide_analysis_agent=_build_slide_analysis_agent(),
-        data_source_validation_agent=_build_data_source_validation_agent(),
-        content_validation_agent=_build_content_validation_agent(),
-    )
+    feedback_items = assets["feedback_episode"]["feedback_items"]
+    if config.client_mode == "deterministic":
+        client_agent = ClientAgent(feedback_items=feedback_items)
+    else:
+        client_agent = ClientAgent(
+            feedback_items=feedback_items,
+            mode="llm",
+            **_agent_config("CLIENT"),
+        )
+
     result = await asyncio.wait_for(
         workflow.arun(
             slide_input,
-            client_agent=_build_client_agent(
-                assets["feedback_episode"],
-                config.client_mode,
-            ),
+            client_agent=client_agent,
         ),
         timeout=config.case_timeout_sec,
     )
-    metrics = SlideReviewEvaluator().evaluate_case(
-        detected_issues=result.detected_issues,
-        corruption_record=assets["corruption_record"],
-    )
     result_dict = result.to_dict()
+    metrics = SlideReviewEvaluator().evaluate_case(
+        result=result_dict,
+        corruption_record=assets["corruption_record"],
+        injected_yaml_path=assets["injected_yaml_path"],
+        ground_truth_yaml_path=assets["ground_truth_yaml_path"],
+        ground_truth_pptx_path=assets["ground_truth_pptx_path"],
+    )
     return {
         "case_id": case_id,
-        "ok": True,
-        "attempt": attempt,
+        "completed": True,
+        "run_attempt": attempt,
         "slide_input": {
             "pptx_path": str(slide_input.pptx_path),
             "image_path": str(slide_input.image_path),
-            "image_origin": assets["image_origin"],
-            "parser": "SlideParserAgent",
-            "client_mode": config.client_mode,
-            "agent_visible_inputs": ["slide.pptx", "slide.png"],
-            "gold_inputs_used_by_agent": [],
         },
-        "stage_summary": _stage_summary(result_dict),
+        "stage_summary": {
+            "observed_elements": len(result_dict["observed_slide"]["elements"]),
+            "tables": len(result_dict["analysis_state"]["tables"]),
+            "data_source_tool_calls": len(
+                result_dict["data_source_validation_log"]["tool_log"]
+            ),
+            "content_tool_calls": len(result_dict["content_validation_log"]),
+            "detected_issues": len(result_dict["detected_issues"]),
+            "table_records": len(result_dict["table_records"]),
+            "has_repaired_yaml": bool(result_dict["repaired_artifacts"]["yaml_path"]),
+        },
         "result": result_dict,
         "metrics": metrics,
-        "gold_usage_boundary": _gold_usage_boundary(),
-    }
-
-
-def _stage_summary(result_dict: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "observed_elements": len(result_dict["observed_slide"].get("elements", [])),
-        "tables": len(result_dict["analysis_state"].get("tables", [])),
-        "data_source_tool_calls": sum(
-            len(item.get("tool_log", []))
-            for item in result_dict["data_source_validation_log"]
-        ),
-        "content_tool_calls": len(result_dict["content_validation_log"]),
-        "detected_issues": len(result_dict["detected_issues"]),
-        "table_records": len(result_dict["table_records"]),
-        "has_repaired_yaml": bool(result_dict["repaired_artifacts"].get("yaml_path")),
     }
 
 
 def _error_payload(
+    *,
     case_id: str,
     slide_input: SlideReviewInput,
-    config: SlideReviewEvalConfig,
     attempt: int,
-    error_text: str,
+    error: Exception,
+    assets: dict[str, Any],
 ) -> dict[str, Any]:
-    return {
+    payload = {
         "case_id": case_id,
-        "ok": False,
-        "attempt": attempt,
-        "error": error_text,
+        "completed": False,
+        "run_attempt": attempt,
+        "error": str(error),
+        "metrics": failure_metrics(assets["corruption_record"]),
         "slide_input": {
             "pptx_path": str(slide_input.pptx_path),
             "image_path": str(slide_input.image_path),
-            "client_mode": config.client_mode,
         },
-        "gold_usage_boundary": _gold_usage_boundary(),
     }
+    if isinstance(error, WorkflowStageError):
+        partial_result = error.partial_result
+        payload["failed_stage"] = error.stage
+        payload["partial_result"] = partial_result
+        payload["metrics"] = SlideReviewEvaluator().evaluate_partial_case(
+            partial_result=partial_result,
+            corruption_record=assets["corruption_record"],
+            injected_yaml_path=assets["injected_yaml_path"],
+            ground_truth_yaml_path=assets["ground_truth_yaml_path"],
+        )
+    return payload
 
 
-def _load_split_records(benchmark_root: Path, split: str) -> list[dict[str, Any]]:
-    manifest = read_jsonl(benchmark_root / "manifest" / "corruptions.jsonl")
-    return [record for record in manifest if str(record.get("split")) == split]
-
-
-def _build_slide_parser() -> SlideParserAgent:
-    return SlideParserAgent(**_agent_config("PARSER", "SlideParserAgent"))
-
-
-def _build_slide_analysis_agent() -> SlideAnalysisAgent:
-    return SlideAnalysisAgent(**_agent_config("ANALYSIS", "SlideAnalysisAgent"))
-
-
-def _build_data_source_validation_agent() -> DataSourceValidationAgent:
-    return DataSourceValidationAgent(
-        **_agent_config("DATA_SOURCE", "DataSourceValidationAgent")
+def _is_retryable_error(error: Exception) -> bool:
+    if isinstance(error, WorkflowStageError):
+        error = error.original_error
+    return isinstance(
+        error,
+        (
+            APIConnectionError,
+            APITimeoutError,
+            InternalServerError,
+            RateLimitError,
+            TimeoutError,
+        ),
     )
 
 
-def _build_content_validation_agent() -> ContentValidationAgent:
-    return ContentValidationAgent(**_agent_config("CONTENT", "ContentValidationAgent"))
-
-
-def _build_client_agent(episode: dict[str, object], mode: str) -> ClientAgent:
-    if mode == "deterministic":
-        return ClientAgent.from_feedback_episode(episode)
-    return ClientAgent.from_feedback_episode(
-        episode,
-        mode="llm",
-        **_agent_config("CLIENT", "ClientAgent"),
-    )
-
-
-def _agent_config(prefix: str, agent_name: str) -> dict[str, str | None]:
+def _agent_config(prefix: str) -> dict[str, str | None]:
     model = os.getenv(f"{prefix}_DASHSCOPE_MODEL") or os.getenv("DASHSCOPE_MODEL")
     if not model:
-        raise RuntimeError(
-            f"{prefix}_DASHSCOPE_MODEL or DASHSCOPE_MODEL is required for {agent_name}."
-        )
+        raise RuntimeError(f"{prefix}_DASHSCOPE_MODEL or DASHSCOPE_MODEL is required.")
     return {
         "model": model,
-        "api_key": os.getenv(f"{prefix}_DASHSCOPE_API_KEY") or os.getenv("DASHSCOPE_API_KEY"),
+        "api_key": os.getenv(f"{prefix}_DASHSCOPE_API_KEY")
+        or os.getenv("DASHSCOPE_API_KEY"),
         "base_url": os.getenv(f"{prefix}_DASHSCOPE_BASE_URL")
         or os.getenv("DASHSCOPE_BASE_URL")
         or DEFAULT_BASE_URL,
     }
-
-
-def _is_retryable_error(error_text: str) -> bool:
-    markers = (
-        "429",
-        "Too many requests",
-        "timeout",
-        "timed out",
-        "Model returned empty content",
-        "no structured_response",
-        "temporarily unavailable",
-    )
-    return any(marker.lower() in error_text.lower() for marker in markers)
-
-
-def _gold_usage_boundary() -> dict[str, list[str]]:
-    return {
-        "client_agent": ["feedback_episode.json"],
-        "evaluator": ["corruption.json"],
-    }
-
-
-def _print_event(payload: dict[str, Any]) -> None:
-    print(json.dumps(to_jsonable(payload), ensure_ascii=False), flush=True)

@@ -1,11 +1,13 @@
-"""Evaluation helpers for slide review and feedback-aware repair planning."""
+"""Compatibility exports for method evaluation metrics."""
 
-from .slide_review_evaluator import (
+from method.eval.metrics import (
     SlideReviewEvaluator,
+    aggregate_metrics,
     evaluate_detection,
 )
 
 __all__ = [
     "SlideReviewEvaluator",
+    "aggregate_metrics",
     "evaluate_detection",
 ]
