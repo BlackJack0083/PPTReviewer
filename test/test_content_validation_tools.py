@@ -14,13 +14,13 @@ from pptx.enum.chart import XL_CHART_TYPE
 from pptx.util import Inches
 
 from method.agents.content_validation.agent import build_content_payload
+from method.agents.content_validation.artifacts import write_content_artifacts
 from method.agents.content_validation.tools import (
     CONTENT_VALIDATION_TOOLS,
     align_visible_dataframe,
     compare_display_dataframes,
     execute_table_state,
 )
-from method.agents.content_validation.utils import write_content_artifacts
 from method.schemas import TableAnalysisConfig
 from method.transformers import StatTransformer
 
@@ -140,7 +140,9 @@ class ContentValidationToolsTest(unittest.TestCase):
         self.assertEqual(result["status"], "equal")
 
     def test_modify_tools_return_agent_state_updates(self) -> None:
-        chart_state = _content_validation_state(_analysis_state(data_path="visible.csv"))
+        chart_state = _content_validation_state(
+            _analysis_state(data_path="visible.csv")
+        )
         chart_update = _invoke_content_tool(
             "modify_chart",
             chart_state,
@@ -170,7 +172,9 @@ class ContentValidationToolsTest(unittest.TestCase):
         self.assertEqual(table_update["tool_log"][0]["tool"], "modify_table")
         self.assertEqual(table_update["tool_log"][0]["result"], {"success": True})
 
-        textbox_state = _content_validation_state(_analysis_state(data_path="visible.csv"))
+        textbox_state = _content_validation_state(
+            _analysis_state(data_path="visible.csv")
+        )
         textbox_update = _invoke_content_tool(
             "modify_textbox",
             textbox_state,
@@ -222,6 +226,106 @@ class ContentValidationToolsTest(unittest.TestCase):
         self.assertEqual(list(expected.columns), ["year", "trade_counts"])
         self.assertEqual(expected["trade_counts"].tolist(), [1, 2])
 
+    def test_execute_table_state_adds_filter_columns_for_execution(self) -> None:
+        captured_sql = []
+
+        class PriceDatabase:
+            def query(self, sql, params=None):
+                del params
+                captured_sql.append(sql)
+                return pd.DataFrame(
+                    {
+                        "date_code": ["2020-01-01", "2020-02-01", "2021-01-01"],
+                        "dim_unit_price": [100.0, 300.0, 500.0],
+                        "trade_sets": [1, 0, 1],
+                    }
+                )
+
+        state = _analysis_state(data_path="visible.csv")
+        table_state = state["tables"][0]
+        table_state["caption"]["data_source"]["select_columns"] = [
+            "date_code",
+            "dim_unit_price",
+        ]
+        table_state["calculation_logic"] = {
+            "table_type": "field-constraint",
+            "dimensions": [
+                {
+                    "source_col": "date_code",
+                    "target_col": "year",
+                    "method": "period",
+                    "time_granularity": "year",
+                }
+            ],
+            "metrics": [
+                {
+                    "name": "avg_unit_price",
+                    "source_col": "dim_unit_price",
+                    "agg_func": "mean",
+                    "filter_condition": {"trade_sets": 1},
+                }
+            ],
+        }
+
+        expected = execute_table_state(
+            table_state,
+            transformer=StatTransformer(),
+            query_func=PriceDatabase().query,
+        )
+
+        self.assertIn("trade_sets", captured_sql[0])
+        self.assertEqual(list(expected.columns), ["year", "avg_unit_price"])
+        self.assertEqual(expected["avg_unit_price"].tolist(), [100.0, 500.0])
+
+    def test_execute_table_state_does_not_add_metric_columns_for_execution(self) -> None:
+        captured_sql = []
+
+        class IncompleteDatabase:
+            def query(self, sql, params=None):
+                del params
+                captured_sql.append(sql)
+                return pd.DataFrame(
+                    {
+                        "date_code": ["2020-01-01"],
+                        "trade_sets": [1],
+                    }
+                )
+
+        state = _analysis_state(data_path="visible.csv")
+        table_state = state["tables"][0]
+        table_state["caption"]["data_source"]["select_columns"] = [
+            "date_code",
+        ]
+        table_state["calculation_logic"] = {
+            "table_type": "field-constraint",
+            "dimensions": [
+                {
+                    "source_col": "date_code",
+                    "target_col": "year",
+                    "method": "period",
+                    "time_granularity": "year",
+                }
+            ],
+            "metrics": [
+                {
+                    "name": "avg_unit_price",
+                    "source_col": "dim_unit_price",
+                    "agg_func": "mean",
+                    "filter_condition": {"trade_sets": 1},
+                }
+            ],
+        }
+
+        with self.assertRaisesRegex(KeyError, "Missing metric source column"):
+            execute_table_state(
+                table_state,
+                transformer=StatTransformer(),
+                query_func=IncompleteDatabase().query,
+            )
+
+        self.assertIn("trade_sets", captured_sql[0])
+        self.assertNotIn("dim_unit_price", captured_sql[0])
+
     def test_execute_table_state_runs_range_dimension_without_min_max(self) -> None:
         class RangeDatabase:
             def query(self, sql, params=None):
@@ -266,7 +370,9 @@ class ContentValidationToolsTest(unittest.TestCase):
         )
 
         self.assertEqual(list(expected.columns), ["area_range", "Area Rng Stats"])
-        self.assertEqual(expected["area_range"].tolist(), ["0-20m²", "20-40m²", "40-60m²"])
+        self.assertEqual(
+            expected["area_range"].tolist(), ["0-20m²", "20-40m²", "40-60m²"]
+        )
         self.assertEqual(expected["Area Rng Stats"].tolist(), [2, 1, 1])
 
     def test_write_content_artifacts_emits_yaml_and_repaired_csv(self) -> None:
@@ -322,15 +428,17 @@ class ContentValidationToolsTest(unittest.TestCase):
             self.assertEqual(repaired_slide.shapes[0].text, "Example")
             self.assertEqual(repaired_slide.shapes[1].text, "Example summary")
             self.assertEqual(repaired_slide.shapes[2].text, "Example caption")
-            self.assertEqual(list(repaired_slide.shapes[3].chart.series[0].values), [2.0])
+            self.assertEqual(
+                list(repaired_slide.shapes[3].chart.series[0].values), [2.0]
+            )
 
     def test_write_content_artifacts_updates_ppt_table(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
             data_path = root / "expected.csv"
-            pd.DataFrame(
-                {"year": [2020, 2021], "trade_counts": [2, 3]}
-            ).to_csv(data_path, index=False)
+            pd.DataFrame({"year": [2020, 2021], "trade_counts": [2, 3]}).to_csv(
+                data_path, index=False
+            )
 
             source_pptx = root / "slide.pptx"
             presentation = Presentation()
@@ -357,7 +465,9 @@ class ContentValidationToolsTest(unittest.TestCase):
                 artifact_dir=root / "review_artifacts",
             )
 
-            repaired_table = Presentation(artifacts["pptx_path"]).slides[0].shapes[3].table
+            repaired_table = (
+                Presentation(artifacts["pptx_path"]).slides[0].shapes[3].table
+            )
             values = [
                 [repaired_table.cell(row, column).text for column in range(2)]
                 for row in range(3)
@@ -409,7 +519,11 @@ def _analysis_state(data_path: str) -> dict[str, Any]:
                         },
                     },
                 },
-                "body": {"element_id": "4", "type": "chart-bar", "data_path": data_path},
+                "body": {
+                    "element_id": "4",
+                    "type": "chart-bar",
+                    "data_path": data_path,
+                },
                 "data_path": data_path,
                 "calculation_logic": {
                     "table_type": "field-constraint",
@@ -455,7 +569,9 @@ def _invoke_content_tool(
 ):
     if context is None:
         context = object()
-    tools = {content_tool.name: content_tool for content_tool in CONTENT_VALIDATION_TOOLS}
+    tools = {
+        content_tool.name: content_tool for content_tool in CONTENT_VALIDATION_TOOLS
+    }
     return tools[name].func(
         **args,
         runtime=ToolRuntime(

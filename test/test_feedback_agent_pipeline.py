@@ -352,11 +352,11 @@ class ToolCallingContentValidationAgent(ContentValidationAgent):
         scope_dialogue=None,
     ):
         from method.agents.content_validation.agent import build_content_payload
+        from method.agents.content_validation.artifacts import write_content_artifacts
         from method.agents.content_validation.tools import (
             CONTENT_VALIDATION_TOOLS,
             ContentValidationContext,
         )
-        from method.agents.content_validation.utils import write_content_artifacts
 
         state = {
             "messages": [],

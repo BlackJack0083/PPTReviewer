@@ -73,6 +73,11 @@ def sql_retrieve(table_index: int, runtime: ToolRuntime) -> Command:
     table_state = state["analysis_state"]["tables"][table_index]
     data_source = table_state["caption"]["data_source"]
     filters = data_source["filters"]
+    select_columns = list(data_source["select_columns"])
+    execution_columns = _execution_columns(
+        select_columns,
+        TableAnalysisConfig.model_validate(table_state["calculation_logic"]),
+    )
     raw_df = fetch_raw_data(
         QueryFilter(
             city=filters["city"],
@@ -81,7 +86,7 @@ def sql_retrieve(table_index: int, runtime: ToolRuntime) -> Command:
             end_date=filters["end_date"],
             table_name=data_source["connection"]["table"],
         ),
-        columns=data_source["select_columns"],
+        columns=execution_columns,
         query_func=context.query_func,
     )
     raw_path = context.artifact_dir / f"table_{table_index}_raw.csv"
@@ -92,6 +97,8 @@ def sql_retrieve(table_index: int, runtime: ToolRuntime) -> Command:
         "raw_data_path": raw_path_ref,
         "row_count": int(raw_df.shape[0]),
         "columns": [str(column) for column in raw_df.columns],
+        "select_columns": select_columns,
+        "execution_columns": execution_columns,
         "preview": _preview(raw_df),
     }
     return _tool_command(
@@ -416,13 +423,28 @@ def execute_table_state(
         end_date=filters["end_date"],
         table_name=data_source["connection"]["table"],
     )
+    config = TableAnalysisConfig.model_validate(table_state["calculation_logic"])
     raw_df = fetch_raw_data(
         query_filter,
-        columns=table_state["caption"]["data_source"]["select_columns"],
+        columns=_execution_columns(
+            table_state["caption"]["data_source"]["select_columns"],
+            config,
+        ),
         query_func=query_func,
     )
-    config = TableAnalysisConfig.model_validate(table_state["calculation_logic"])
     return transformer.process_data_pipeline(raw_df, config)
+
+
+def _execution_columns(
+    select_columns: list[str],
+    config: TableAnalysisConfig,
+) -> list[str]:
+    columns = list(select_columns)
+    for metric in config.metrics:
+        for column in metric.filter_condition or {}:
+            if column not in columns:
+                columns.append(column)
+    return columns
 
 
 def fetch_raw_data(

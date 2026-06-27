@@ -12,12 +12,12 @@ from langchain.agents import create_agent
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
 
+from .artifacts import write_content_artifacts
 from .tools import (
     CONTENT_VALIDATION_TOOLS,
     ContentValidationContext,
     ContentValidationState,
 )
-from .utils import write_content_artifacts
 
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_PROMPT_PATH = PROMPT_DIR / "content_validation_react_prompt.txt"
@@ -49,20 +49,20 @@ class ContentValidationAgent:
             ValueError: 未提供 `model` 时抛出。
         """
         if model is None:
-            raise ValueError("ContentValidationAgent requires model when using create_agent.")
+            raise ValueError(
+                "ContentValidationAgent requires model when using create_agent."
+            )
 
         self.prompt = DEFAULT_PROMPT_PATH.read_text(encoding="utf-8")
-        self.llm = (
-            ChatOpenAI(
-                model=model,
-                api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
-                base_url=base_url,
-                timeout=timeout_sec,
-                temperature=0,
-                extra_body={"enable_thinking": enable_thinking}
-                if enable_thinking is not None
-                else None,
-            )
+        self.llm = ChatOpenAI(
+            model=model,
+            api_key=api_key or os.getenv("DASHSCOPE_API_KEY"),
+            base_url=base_url,
+            timeout=timeout_sec,
+            temperature=0,
+            extra_body={"enable_thinking": enable_thinking}
+            if enable_thinking is not None
+            else None,
         )
 
     async def arun(
@@ -169,7 +169,9 @@ def build_content_payload(state: dict[str, Any]) -> dict[str, Any]:
                     "text": table_state["caption"]["text"],
                 },
                 "body": table_state["body"],
-                "select_columns": table_state["caption"]["data_source"]["select_columns"],
+                "select_columns": table_state["caption"]["data_source"][
+                    "select_columns"
+                ],
                 "calculation_logic": table_state["calculation_logic"],
             }
             for table_index, table_state in enumerate(state["tables"])

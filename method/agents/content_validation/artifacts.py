@@ -1,4 +1,4 @@
-"""Content validation 的非 agent-tool 辅助函数。"""
+"""Content validation artifact writers."""
 
 from __future__ import annotations
 
@@ -89,7 +89,9 @@ def _write_repaired_pptx(
 def _replace_chart_data(chart: Any, dataframe: pd.DataFrame) -> None:
     """用 dataframe 第一列作为类别，其余列作为 series 替换 chart 数据。"""
     if dataframe.shape[1] < 2:
-        raise ValueError("Chart data must contain one category and at least one series column.")
+        raise ValueError(
+            "Chart data must contain one category and at least one series column."
+        )
     chart_data = ChartData()
     chart_data.categories = dataframe.iloc[:, 0].tolist()
     for column in dataframe.columns[1:]:

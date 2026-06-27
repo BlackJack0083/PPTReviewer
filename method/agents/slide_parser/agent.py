@@ -6,12 +6,11 @@ from pathlib import Path
 from typing import Any
 
 from pptx import Presentation
-from pptx.enum.chart import XL_CHART_TYPE
-from pptx.enum.shapes import MSO_SHAPE_TYPE
 
 from method.utils import Client, parse_json_object
 
 from ..types import SlideReviewInput
+from .pptx_extract import extract_body_table, get_shape
 
 PROMPT_DIR = Path(__file__).resolve().parents[2] / "prompts"
 DEFAULT_ROLE_LABELING_PROMPT_PATH = PROMPT_DIR / "role_labeling_prompt.txt"
@@ -25,49 +24,6 @@ ROLE_SET = {
     "chart-pie",
     "table",
 }
-
-
-def get_shape(shape) -> str:
-    """判断 PPTX shape 的粗粒度类型。
-
-    Args:
-        shape: python-pptx 的 shape 对象。
-
-    Returns:
-        shape 类型字符串。可能值包括 `text`、`table`、`chart-bar`、
-        `chart-line`、`chart-pie`、`other`。
-    """
-    if shape.shape_type == MSO_SHAPE_TYPE.TABLE:
-        return "table"
-
-    if shape.shape_type == MSO_SHAPE_TYPE.CHART and hasattr(shape, "chart"):
-        chart_type = shape.chart.chart_type
-        if chart_type in _chart_type_values(
-            "COLUMN_CLUSTERED",
-            "COLUMN_STACKED",
-            "COLUMN_STACKED_100",
-            "BAR_CLUSTERED",
-            "BAR_STACKED",
-            "BAR_STACKED_100",
-        ):
-            return "chart-bar"
-        if chart_type in _chart_type_values(
-            "LINE",
-            "LINE_MARKERS",
-            "LINE_STACKED",
-            "LINE_STACKED_100",
-            "LINE_MARKERS_STACKED",
-            "LINE_MARKERS_STACKED_100",
-        ):
-            return "chart-line"
-        if chart_type in _chart_type_values("PIE", "PIE_EXPLODED", "DOUGHNUT"):
-            return "chart-pie"
-        return "other"
-
-    if shape.has_text_frame and shape.text.strip():
-        return "text"
-
-    return "other"
 
 
 def extract_pptx_elements(pptx_path: Path, slide_idx: int = 0) -> dict[str, Any]:
@@ -154,10 +110,7 @@ def validate_role_labels(
         ValueError: role 标注未覆盖全部元素、包含重复元素或使用非法 role 时抛出。
     """
     expected_ids = {str(element["id"]) for element in observed_slide["elements"]}
-    assignments = [
-        {"id": str(item["id"]), "role": str(item["role"])}
-        for item in roles
-    ]
+    assignments = [{"id": str(item["id"]), "role": str(item["role"])} for item in roles]
     assigned_ids = [item["id"] for item in assignments]
     if len(assigned_ids) != len(set(assigned_ids)) or set(assigned_ids) != expected_ids:
         raise ValueError(
@@ -210,7 +163,9 @@ class SlideParserAgent:
             self.client = client
         else:
             if model is None:
-                raise ValueError("SlideParserAgent requires model when client is not provided.")
+                raise ValueError(
+                    "SlideParserAgent requires model when client is not provided."
+                )
             self.client = Client(
                 model=model,
                 api_key=api_key,
@@ -334,8 +289,10 @@ def build_ppt_representation(
     for table_idx, body_element in enumerate(bodies, 1):
         shape = slide.shapes[int(body_element["id"]) - 1]
         caption = _nearest_caption(body_element, captions)
-        header, rows = _extract_body_table(shape=shape, role=body_element["role"])
-        csv_path = output_dir / ("data.csv" if len(bodies) == 1 else f"data_{table_idx}.csv")
+        header, rows = extract_body_table(shape=shape, role=body_element["role"])
+        csv_path = output_dir / (
+            "data.csv" if len(bodies) == 1 else f"data_{table_idx}.csv"
+        )
         with csv_path.open("w", encoding="utf-8", newline="") as handle:
             writer = csv.writer(handle)
             writer.writerow(header)
@@ -379,7 +336,9 @@ def _nearest_caption(
         ValueError: 没有 caption 候选时抛出。
     """
     if not captions:
-        raise ValueError(f"Parser found no caption for body element {body_element['id']}.")
+        raise ValueError(
+            f"Parser found no caption for body element {body_element['id']}."
+        )
 
     def center(layout: dict[str, Any]) -> tuple[float, float]:
         return (
@@ -393,55 +352,3 @@ def _nearest_caption(
         key=lambda caption: abs(body_center[0] - center(caption.get("layout", {}))[0])
         + abs(body_center[1] - center(caption.get("layout", {}))[1]),
     )
-
-
-def _extract_body_table(shape, role: str) -> tuple[list[str], list[list[Any]]]:
-    """从 table 或 chart shape 中抽取二维数据。
-
-    Args:
-        shape: python-pptx 的 table/chart shape 对象。
-        role: body 元素 role，用于区分 table 与 chart。
-
-    Returns:
-        二元组 `(header, rows)`。`header` 是 CSV 表头，`rows` 是数据行。
-    """
-    if role == "table":
-        raw_rows = [
-            [
-                str(shape.table.cell(row_idx, col_idx).text).strip()
-                for col_idx in range(len(shape.table.columns))
-            ]
-            for row_idx in range(len(shape.table.rows))
-        ]
-        if not raw_rows or not raw_rows[0]:
-            raise ValueError("Parser cannot export an empty PPT table.")
-        return raw_rows[0], raw_rows[1:]
-
-    chart = shape.chart
-    categories = [str(category.label) for category in chart.plots[0].categories]
-    series = list(chart.series)
-    if not categories or not series:
-        raise ValueError("Parser cannot export an empty chart.")
-    header = ["category"] + [str(item.name) for item in series]
-    rows = []
-    for idx, category in enumerate(categories):
-        rows.append(
-            [category] + [item.values[idx] if idx < len(item.values) else "" for item in series]
-        )
-    return header, rows
-
-
-def _chart_type_values(*names: str) -> set[Any]:
-    """把 chart type 常量名转换为 python-pptx 枚举值集合。
-
-    Args:
-        *names: `XL_CHART_TYPE` 上的常量名。
-
-    Returns:
-        存在于当前 python-pptx 版本中的枚举值集合。
-    """
-    values = set()
-    for name in names:
-        if hasattr(XL_CHART_TYPE, name):
-            values.add(getattr(XL_CHART_TYPE, name))
-    return values
