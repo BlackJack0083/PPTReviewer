@@ -52,47 +52,30 @@ def load_sample_rows(dataset_root: Path, splits: list[str]) -> list[dict[str, An
     return rows
 
 
-def prioritized_rows(
-    rows: list[dict[str, Any]], rng: random.Random
-) -> list[dict[str, Any]]:
-    """对样本排序，先保证每个模板被尝试一次，再补充随机样本。"""
-    by_template: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for row in rows:
-        by_template[str(row.get("template_id", ""))].append(row)
-    for group in by_template.values():
-        rng.shuffle(group)
-
-    first_pass = [group[0] for _, group in sorted(by_template.items()) if group]
-    rest = [row for group in by_template.values() for row in group[1:]]
-    rng.shuffle(rest)
-    return first_pass + rest
-
-
-def load_recipes(path: Path) -> list[dict[str, Any]]:
-    """Read and validate benchmark error recipes."""
+def load_recipes(path: Path) -> dict[str, Any]:
+    """Read and validate sample-centric benchmark corruption config."""
     if not path.exists():
         raise FileNotFoundError(f"Recipe config not found: {path}")
     payload = yaml.safe_load(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, dict) or not isinstance(payload.get("recipes"), list):
-        raise ValueError(f"Recipe config must contain a recipes list: {path}")
+    if not isinstance(payload, dict):
+        raise ValueError(f"Recipe config must be an object: {path}")
+    variants_by_split = payload.get("variants_by_split")
+    recipe_pool = payload.get("recipe_pool")
+    if not isinstance(variants_by_split, dict) or not variants_by_split:
+        raise ValueError(f"Recipe config must contain variants_by_split: {path}")
+    if not isinstance(recipe_pool, list) or not recipe_pool:
+        raise ValueError(f"Recipe config must contain recipe_pool: {path}")
+    for split, count in variants_by_split.items():
+        if not isinstance(split, str) or not isinstance(count, int) or count <= 0:
+            raise ValueError(f"Invalid variants_by_split entry: {variants_by_split}")
 
     recipes: list[dict[str, Any]] = []
-    for recipe in payload["recipes"]:
+    for recipe in recipe_pool:
         if not isinstance(recipe, dict):
             raise ValueError(f"Recipe must be an object: {recipe}")
-        samples_per_split = recipe.get("samples_per_split")
-        max_variants_per_gt = recipe.get("max_variants_per_gt")
-        max_variants_per_type = recipe.get("max_variants_per_type")
-        for key, value in (
-            ("samples_per_split", samples_per_split),
-            ("max_variants_per_gt", max_variants_per_gt),
-            ("max_variants_per_type", max_variants_per_type),
-        ):
-            if not isinstance(value, int) or value <= 0:
-                raise ValueError(f"Recipe requires positive {key}: {recipe}")
         recipe_steps(recipe)
         recipes.append(recipe)
-    return recipes
+    return {"variants_by_split": variants_by_split, "recipe_pool": recipes}
 
 
 def write_corruption_outputs(
@@ -198,7 +181,9 @@ def main() -> None:
     rows = load_sample_rows(dataset_root, args.splits)
     if not rows:
         raise FileNotFoundError(f"No GT samples found under {dataset_root}")
-    recipes = load_recipes(args.recipe_config.resolve())
+    recipe_config = load_recipes(args.recipe_config.resolve())
+    variants_by_split = recipe_config["variants_by_split"]
+    recipe_pool = recipe_config["recipe_pool"]
 
     resource_manager.load_all()
     manifest_path = dataset_root / "manifest" / "corruptions.jsonl"
@@ -208,12 +193,12 @@ def main() -> None:
         "schema_version": SCHEMA_VERSION,
         "dataset_root": str(dataset_root),
         "created_at": now_iso(),
-        "recipes": {},
+        "variants_by_split": dict(variants_by_split),
+        "recipe_pool": [recipe_steps(recipe) for recipe in recipe_pool],
+        "splits": {},
     }
     produced_total = 0
-    seed_gen = random.Random(args.seed)  # noqa: S311
-    variants_per_gt_recipe: Counter[tuple[str, str, str]] = Counter()
-    variants_per_gt_type: Counter[tuple[str, str, str, tuple[str, ...]]] = Counter()
+    variants_per_gt_signature: Counter[tuple[str, str, tuple[str, ...]]] = Counter()
 
     rows_by_split: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
@@ -223,92 +208,91 @@ def main() -> None:
         split_rows = rows_by_split.get(split, [])
         if not split_rows:
             continue
-        for recipe in recipes:
-            current_recipe_label = recipe_label(recipe)
-            samples_per_split = int(recipe["samples_per_split"])
-            max_variants_per_gt = int(recipe["max_variants_per_gt"])
-            max_variants_per_type = int(recipe["max_variants_per_type"])
-            produced = 0
-            skips = Counter()
-            template_hits = Counter()
-            order_rng = random.Random(seed_gen.randint(1, 10**9))  # noqa: S311
-            order = prioritized_rows(split_rows, order_rng)
+        if split not in variants_by_split:
+            raise ValueError(f"Recipe config missing variants_by_split for {split}")
+        target_variants = int(variants_by_split[split])
 
-            for row in order:
-                sample_key = (split, str(row["sample_id"]), current_recipe_label)
-                if variants_per_gt_recipe[sample_key] >= max_variants_per_gt:
-                    continue
-                if produced >= samples_per_split:
+        produced = 0
+        skips = Counter()
+        template_hits = Counter()
+        city_hits = Counter()
+        recipe_hits = Counter()
+        sample_produced = Counter()
+
+        for row in sorted(split_rows, key=lambda item: str(item["sample_id"])):
+            sample_id = str(row["sample_id"])
+            sample_rng = random.Random(f"{args.seed}|{split}|{sample_id}")  # noqa: S311
+            recipe_order = list(recipe_pool)
+            sample_rng.shuffle(recipe_order)
+            recipe_index = 0
+
+            while sample_produced[sample_id] < target_variants:
+                if recipe_index >= len(recipe_order):
+                    skips["recipe_pool_exhausted"] += 1
                     break
-                attempt_limit = max(8, max_variants_per_gt * 8)
-                row_produced = False
-                for _ in range(attempt_limit):
-                    if produced >= samples_per_split:
-                        break
-                    if variants_per_gt_recipe[sample_key] >= max_variants_per_gt:
-                        break
-                    blocked_signatures = {
-                        signature
-                        for key_split, key_sample, key_recipe, signature in variants_per_gt_type
-                        if key_split == split
-                        and key_sample == str(row["sample_id"])
-                        and key_recipe == current_recipe_label
-                        and variants_per_gt_type[
-                            (key_split, key_sample, key_recipe, signature)
-                        ]
-                        >= max_variants_per_type
-                    }
-                    variant_seed = seed_gen.randint(1, 10**9)
-                    try:
-                        result = build_recipe_corruption(
-                            dataset_root,
-                            row,
-                            recipe,
-                            variant_seed,
-                            disallow_signatures=blocked_signatures,
-                        )
-                        if result is None:
-                            if not row_produced:
-                                skips["not_applicable"] += 1
-                            break
-                        yaml_data, corruption, artifact_id = result
-                        signature = mutation_signature(corruption["operations"])
-                        signature_key = (*sample_key, signature)
-                        if (
-                            variants_per_gt_type[signature_key]
-                            >= max_variants_per_type
-                        ):
-                            continue
 
-                        record = write_corruption_outputs(
-                            dataset_root=dataset_root,
-                            sample_row=row,
-                            yaml_data=yaml_data,
-                            corruption=corruption,
-                            artifact_id=artifact_id,
-                            render_ppt=args.render_ppt,
-                            render_png=args.render_png,
-                        )
-                        append_jsonl(manifest_path, record)
-                        produced += 1
-                        produced_total += 1
-                        row_produced = True
-                        template_hits[str(row.get("template_id", ""))] += 1
-                        variants_per_gt_recipe[sample_key] += 1
-                        variants_per_gt_type[signature_key] += 1
-                    except Exception as exc:  # noqa: BLE001
-                        skips[type(exc).__name__] += 1
-                        break
+                recipe = recipe_order[recipe_index]
+                recipe_index += 1
+                blocked_signatures = {
+                    signature
+                    for key_split, key_sample, signature in variants_per_gt_signature
+                    if key_split == split and key_sample == sample_id
+                }
+                result = build_recipe_corruption(
+                    dataset_root,
+                    row,
+                    recipe,
+                    sample_rng.randint(1, 10**9),
+                    disallow_signatures=blocked_signatures,
+                )
+                if result is None:
+                    skips[f"{recipe_label(recipe)}:not_applicable"] += 1
+                    continue
 
-            coverage["recipes"][f"{split}:{current_recipe_label}"] = {
-                "produced": produced,
-                "template_count": len(template_hits),
-                "skips": dict(skips),
-            }
-            print(
-                f"{split}/{current_recipe_label}: produced={produced}, "
-                f"templates={len(template_hits)}, skips={dict(skips)}"
-            )
+                yaml_data, corruption, artifact_id = result
+                signature = mutation_signature(corruption["operations"])
+                signature_key = (split, sample_id, signature)
+                if variants_per_gt_signature[signature_key]:
+                    skips[f"{recipe_label(recipe)}:duplicate_signature"] += 1
+                    continue
+
+                record = write_corruption_outputs(
+                    dataset_root=dataset_root,
+                    sample_row=row,
+                    yaml_data=yaml_data,
+                    corruption=corruption,
+                    artifact_id=artifact_id,
+                    render_ppt=args.render_ppt,
+                    render_png=args.render_png,
+                )
+                append_jsonl(manifest_path, record)
+                produced += 1
+                produced_total += 1
+                sample_produced[sample_id] += 1
+                variants_per_gt_signature[signature_key] += 1
+                template_hits[str(row.get("template_id", ""))] += 1
+                city_hits[str(row.get("city_key", ""))] += 1
+                recipe_hits[recipe_label(recipe)] += 1
+
+        coverage["splits"][split] = {
+            "samples": len(split_rows),
+            "target_variants_per_sample": target_variants,
+            "target_total": len(split_rows) * target_variants,
+            "produced": produced,
+            "samples_with_full_variants": sum(
+                sample_produced[str(row["sample_id"])] >= target_variants
+                for row in split_rows
+            ),
+            "template_count": len(template_hits),
+            "city_count": len(city_hits),
+            "recipes": dict(sorted(recipe_hits.items())),
+            "skips": dict(sorted(skips.items())),
+        }
+        print(
+            f"{split}: produced={produced}/{len(split_rows) * target_variants}, "
+            f"samples={len(split_rows)}, templates={len(template_hits)}, "
+            f"skips={dict(skips)}"
+        )
 
     write_json(dataset_root / "manifest" / "corruption_coverage.json", coverage)
     print(f"Generated {produced_total} fine-grained corruptions")

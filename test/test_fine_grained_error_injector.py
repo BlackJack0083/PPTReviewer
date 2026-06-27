@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import json
 import random
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
+from benchmarking.feedback.generator import generate_feedback_episodes
 from benchmarking.fine_grained import (
     build_corruption,
     save_yaml,
@@ -18,7 +22,7 @@ from benchmarking.fine_grained.mutations import (
     build_recipe_corruption,
     mutation_signature,
 )
-from benchmarking.fine_grained.runner import load_recipes
+from benchmarking.fine_grained.runner import load_recipes, main
 from benchmarking.fine_grained.validator import infer_error_family, validate_benchmark
 from core import resource_manager
 from engine.data_files import read_dataframe_csv, write_dataframe_csv
@@ -83,11 +87,11 @@ class FineGrainedInjectorTest(unittest.TestCase):
             path = Path(tmp) / "recipes.yaml"
             path.write_text(
                 """
-recipes:
-  - samples_per_split: 3
-    max_variants_per_gt: 2
-    max_variants_per_type: 1
-    recipe:
+variants_by_split:
+  train: 2
+  test: 3
+recipe_pool:
+  - recipe:
       - family: scope
         num_errors: 1
       - family: value
@@ -98,8 +102,72 @@ recipes:
 
             recipes = load_recipes(path)
 
-            self.assertEqual(recipes[0]["recipe"][0], {"family": "scope", "num_errors": 1})
-            self.assertEqual(recipes[0]["recipe"][1], {"family": "value", "num_errors": 1})
+            self.assertEqual(recipes["variants_by_split"], {"train": 2, "test": 3})
+            self.assertEqual(
+                recipes["recipe_pool"][0]["recipe"][0],
+                {"family": "scope", "num_errors": 1},
+            )
+            self.assertEqual(
+                recipes["recipe_pool"][0]["recipe"][1],
+                {"family": "value", "num_errors": 1},
+            )
+
+    def test_runner_generates_configured_variants_per_sample(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample_row = _write_sample(root, _slide_yaml_with_chart())
+            write_dataframe_csv(
+                pd.DataFrame({"category": ["2020", "2021"], "trade_counts": [10, 20]}),
+                root / "split" / "test" / "s_1" / "gt" / "data" / "element_4.csv",
+            )
+            config_path = root / "recipes.yaml"
+            config_path.write_text(
+                """
+variants_by_split:
+  test: 2
+recipe_pool:
+  - recipe:
+      - family: scope
+        num_errors: 1
+  - recipe:
+      - family: claim
+        num_errors: 1
+""",
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                sys,
+                "argv",
+                [
+                    "fine_grained_error_injector",
+                    "--benchmark-root",
+                    str(root),
+                    "--splits",
+                    "test",
+                    "--recipe-config",
+                    str(config_path),
+                ],
+            ):
+                main()
+
+            records = [
+                line
+                for line in (root / "manifest" / "corruptions.jsonl")
+                .read_text(encoding="utf-8")
+                .splitlines()
+                if line
+            ]
+            coverage = json.loads(
+                (root / "manifest" / "corruption_coverage.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+
+            self.assertEqual(len(records), 2)
+            self.assertEqual(sample_row["sample_id"], "s_1")
+            self.assertEqual(coverage["splits"]["test"]["produced"], 2)
+            self.assertEqual(coverage["splits"]["test"]["samples_with_full_variants"], 1)
 
     def test_recipe_corruption_can_mix_value_and_claim(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -289,6 +357,89 @@ recipes:
             self.assertEqual(coverage["by_family"]["scope"], 1)
             self.assertEqual(coverage["by_family"]["value"], 1)
             self.assertEqual(coverage["by_family"]["claim"], 1)
+
+    def test_validator_requires_feedback_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample_row = _write_sample(root, _slide_yaml_with_chart())
+            write_dataframe_csv(
+                pd.DataFrame({"category": ["2020", "2021"], "trade_counts": [10, 20]}),
+                root / "split" / "test" / "s_1" / "gt" / "data" / "element_4.csv",
+            )
+            record = write_corruption_outputs(
+                dataset_root=root,
+                sample_row=sample_row,
+                yaml_data=_slide_yaml_with_chart(),
+                corruption={
+                    "operations": [
+                        {
+                            "target": "summary",
+                            "element_id": "2",
+                            "mutation_type": "value_summary_slot",
+                            "error_types": ["value_error"],
+                        }
+                    ],
+                    "expected_repair_yaml": sample_row["gt_yaml"],
+                },
+                artifact_id="value-case",
+                render_ppt=False,
+                render_png=False,
+            )
+            append_jsonl(root / "manifest" / "corruptions.jsonl", record)
+
+            validation, _coverage = validate_benchmark(root)
+
+            self.assertIn(
+                "missing_feedback_episode",
+                {error["code"] for error in validation["errors"]},
+            )
+
+    def test_validator_accepts_generated_feedback_episode(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            sample_row = _write_sample(root, _slide_yaml_with_chart())
+            write_dataframe_csv(
+                pd.DataFrame({"category": ["2020", "2021"], "trade_counts": [10, 20]}),
+                root / "split" / "test" / "s_1" / "gt" / "data" / "element_4.csv",
+            )
+            record = write_corruption_outputs(
+                dataset_root=root,
+                sample_row=sample_row,
+                yaml_data=_slide_yaml_with_chart(),
+                corruption={
+                    "operations": [
+                        {
+                            "target": "summary",
+                            "element_id": "2",
+                            "mutation_type": "value_summary_slot",
+                            "error_types": ["value_error"],
+                        }
+                    ],
+                    "expected_repair_yaml": sample_row["gt_yaml"],
+                },
+                artifact_id="value-case",
+                render_ppt=False,
+                render_png=False,
+            )
+            append_jsonl(root / "manifest" / "corruptions.jsonl", record)
+
+            generate_feedback_episodes(root, workers=1)
+            validation, _coverage = validate_benchmark(root)
+
+            feedback_error_codes = {
+                "missing_feedback_episode",
+                "invalid_feedback_episode",
+                "feedback_generation_failed",
+                "unsupported_feedback_operation",
+                "feedback_episode_mismatch",
+                "scope_feedback_has_target",
+                "unsupported_feedback_request_type",
+                "missing_feedback_item_fields",
+            }
+            self.assertFalse(
+                feedback_error_codes
+                & {error["code"] for error in validation["errors"]}
+            )
 
     def test_infer_error_family_returns_unknown_for_unsupported_mutation(self) -> None:
         self.assertEqual(

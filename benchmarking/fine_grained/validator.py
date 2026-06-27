@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from benchmarking.feedback.generator import build_episode
 from engine.data_files import (
     data_elements,
     read_dataframe_csv,
@@ -79,6 +81,7 @@ def validate_benchmark(dataset_root: Path) -> tuple[dict[str, Any], dict[str, An
         _validate_record_paths(dataset_root, record, context, errors)
         _validate_operations(record, context, errors)
         _validate_sidecar_json(dataset_root, record, context, errors)
+        _validate_feedback_episode(dataset_root, record, context, errors)
         _validate_output_yaml(dataset_root, record, context, errors)
 
     coverage = build_coverage_report(records, samples)
@@ -301,8 +304,6 @@ def _validate_sidecar_json(
     if not path.exists():
         return
     try:
-        import json
-
         sidecar = json.loads(path.read_text(encoding="utf-8"))
     except Exception as exc:  # noqa: BLE001
         _add_error(
@@ -319,6 +320,79 @@ def _validate_sidecar_json(
                 field=key,
                 manifest_value=record.get(key),
                 sidecar_value=sidecar.get(key),
+            )
+
+
+def _validate_feedback_episode(
+    dataset_root: Path,
+    record: dict[str, Any],
+    context: dict[str, Any],
+    errors: list[dict[str, Any]],
+) -> None:
+    """检查 case-local feedback 是否与 corruption operation 和 client 匹配一致。"""
+    output_yaml = record.get("output_yaml")
+    if not output_yaml:
+        return
+    feedback_path = (dataset_root / str(output_yaml)).parent / "feedback_episode.json"
+    if not feedback_path.exists():
+        _add_error(errors, "missing_feedback_episode", context, path=str(feedback_path))
+        return
+
+    try:
+        actual = json.loads(feedback_path.read_text(encoding="utf-8"))
+    except Exception as exc:  # noqa: BLE001
+        _add_error(
+            errors,
+            "invalid_feedback_episode",
+            context,
+            path=str(feedback_path),
+            error=str(exc),
+        )
+        return
+
+    try:
+        expected = build_episode(dataset_root, record)
+    except Exception as exc:  # noqa: BLE001
+        _add_error(errors, "feedback_generation_failed", context, error=str(exc))
+        return
+    if expected is None:
+        _add_error(errors, "unsupported_feedback_operation", context)
+        return
+    if actual != expected:
+        _add_error(errors, "feedback_episode_mismatch", context, path=str(feedback_path))
+        return
+
+    for item_index, item in enumerate(actual["feedback_items"]):
+        if item["request_type"] == "data_source_slot_clarification":
+            if "target" in item:
+                _add_error(
+                    errors,
+                    "scope_feedback_has_target",
+                    {**context, "feedback_item_index": item_index},
+                )
+            required_keys = {
+                "request_type",
+                "error_type",
+                "field",
+                "scope_error_type",
+                "response",
+            }
+        elif item["request_type"] == "content_update_confirmation":
+            required_keys = {"request_type", "error_type", "target", "response"}
+        else:
+            _add_error(
+                errors,
+                "unsupported_feedback_request_type",
+                {**context, "feedback_item_index": item_index},
+                request_type=item["request_type"],
+            )
+            continue
+        if not required_keys.issubset(item):
+            _add_error(
+                errors,
+                "missing_feedback_item_fields",
+                {**context, "feedback_item_index": item_index},
+                fields=sorted(required_keys - set(item)),
             )
 
 

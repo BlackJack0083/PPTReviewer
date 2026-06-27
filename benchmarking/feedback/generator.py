@@ -147,7 +147,6 @@ def feedback_item_for_operation(
     item: dict[str, Any] = {
         "request_type": request_type_for_mutation(mutation_type),
         "error_type": sorted(str(label) for label in error_types)[0],
-        "target": str(operation["target"]),
     }
 
     if mutation_type in DATA_SOURCE_FIELD_BY_MUTATION:
@@ -159,6 +158,7 @@ def feedback_item_for_operation(
             field=item["field"],
         )
     elif mutation_type in UPDATE_CONFIRMATION_MUTATIONS:
+        item["target"] = str(operation["target"])
         item["response"] = "Yes, please apply the proposed update."
     return item
 
