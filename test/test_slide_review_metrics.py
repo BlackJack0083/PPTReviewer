@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import unittest
 
-from method.eval.metrics import aggregate_metrics, evaluate_detection, failure_metrics
+from method.eval.detection import aggregate_metrics, evaluate_detection
+from method.eval.evaluator import failure_metrics
 
 
 class SlideReviewMetricsTest(unittest.TestCase):
@@ -31,16 +32,16 @@ class SlideReviewMetricsTest(unittest.TestCase):
 
         metrics = evaluate_detection(detected, corruption)
 
-        self.assertTrue(metrics["error_type"]["exact_match"])
-        self.assertTrue(metrics["issue"]["exact_match"])
-        self.assertEqual(metrics["error_type"]["f1"], 1.0)
-        self.assertEqual(metrics["issue"]["f1"], 1.0)
+        self.assertTrue(metrics["error_category"]["exact_match"])
+        self.assertTrue(metrics["specific_issue"]["exact_match"])
+        self.assertEqual(metrics["error_category"]["f1"], 1.0)
+        self.assertEqual(metrics["specific_issue"]["f1"], 1.0)
         self.assertEqual(
-            metrics["error_type"]["gold"],
+            metrics["error_category"]["gold"],
             [{"error_type": "claim_error"}, {"error_type": "scope_error"}],
         )
         self.assertEqual(
-            metrics["issue"]["gold"],
+            metrics["specific_issue"]["gold"],
             [
                 {"error_type": "claim_error", "target": "summary"},
                 {
@@ -67,12 +68,43 @@ class SlideReviewMetricsTest(unittest.TestCase):
 
         metrics = evaluate_detection(detected, corruption)
 
-        self.assertFalse(metrics["error_type"]["exact_match"])
-        self.assertFalse(metrics["issue"]["exact_match"])
-        self.assertEqual(metrics["error_type"]["precision"], 0.5)
-        self.assertEqual(metrics["error_type"]["recall"], 1.0)
-        self.assertEqual(metrics["issue"]["precision"], 0.5)
-        self.assertEqual(metrics["issue"]["recall"], 1.0)
+        self.assertFalse(metrics["error_category"]["exact_match"])
+        self.assertFalse(metrics["specific_issue"]["exact_match"])
+        self.assertEqual(metrics["error_category"]["precision"], 0.5)
+        self.assertEqual(metrics["error_category"]["recall"], 1.0)
+        self.assertEqual(metrics["specific_issue"]["precision"], 0.5)
+        self.assertEqual(metrics["specific_issue"]["recall"], 1.0)
+
+    def test_detection_deduplicates_repeated_scope_labels(self) -> None:
+        operation = {
+            "error_types": ["scope_error"],
+            "scope_error_type": "missing",
+            "field": "block",
+        }
+        detected = [
+            {
+                "error_type": "scope_error",
+                "scope_error_type": "missing",
+                "field": "block",
+            }
+        ]
+
+        metrics = evaluate_detection(
+            detected,
+            {"operations": [operation, operation]},
+        )
+
+        self.assertTrue(metrics["specific_issue"]["exact_match"])
+        self.assertEqual(
+            metrics["specific_issue"]["gold"],
+            [
+                {
+                    "error_type": "scope_error",
+                    "scope_error_type": "missing",
+                    "field": "block",
+                }
+            ],
+        )
 
     def test_aggregate_reports_three_primary_metrics(self) -> None:
         corruption = {
@@ -108,13 +140,13 @@ class SlideReviewMetricsTest(unittest.TestCase):
 
         aggregate = aggregate_metrics([successful, failed])
 
-        self.assertEqual(aggregate["error_type_macro_f1"], 2 / 3)
-        self.assertEqual(aggregate["issue_macro_f1"], 2 / 3)
-        self.assertEqual(aggregate["error_type_exact_accuracy"], 0.5)
-        self.assertEqual(aggregate["issue_exact_accuracy"], 0.5)
-        self.assertEqual(aggregate["task_success_rate"], 0.5)
-        self.assertEqual(aggregate["stage_accuracy"]["parser"], 0.5)
-        self.assertEqual(aggregate["stage_accuracy"]["content_repair"], 0.5)
+        self.assertEqual(aggregate["error_category_macro_f1"], 2 / 3)
+        self.assertEqual(aggregate["specific_issue_macro_f1"], 2 / 3)
+        self.assertEqual(aggregate["error_category_exact_match_rate"], 0.5)
+        self.assertEqual(aggregate["specific_issue_exact_match_rate"], 0.5)
+        self.assertEqual(aggregate["end_to_end_success_rate"], 0.5)
+        self.assertEqual(aggregate["stage_success_rate"]["parser"], 0.5)
+        self.assertEqual(aggregate["stage_success_rate"]["content_repair"], 0.5)
 
     def test_content_repair_counts_each_injected_operation(self) -> None:
         operation = {

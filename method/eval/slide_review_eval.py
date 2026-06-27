@@ -26,11 +26,8 @@ from method.agents import (
     SlideParserAgent,
     SlideReviewInput,
 )
-from method.eval.metrics import (
-    SlideReviewEvaluator,
-    aggregate_metrics,
-    failure_metrics,
-)
+from method.eval.detection import aggregate_metrics
+from method.eval.evaluator import SlideReviewEvaluator, failure_metrics
 from method.pipeline import SlideReviewWorkflow, WorkflowStageError
 
 DEFAULT_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
