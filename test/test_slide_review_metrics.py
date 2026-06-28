@@ -4,6 +4,7 @@ import unittest
 
 from method.eval.detection import aggregate_metrics, evaluate_detection
 from method.eval.evaluator import failure_metrics
+from method.eval.stages import evaluate_data_source_extraction
 
 
 class SlideReviewMetricsTest(unittest.TestCase):
@@ -159,6 +160,78 @@ class SlideReviewMetricsTest(unittest.TestCase):
         metrics = failure_metrics({"operations": [operation, operation]})
 
         self.assertEqual(metrics["stages"]["content_repair"]["total"], 2)
+
+    def test_data_source_extraction_uses_slide_filter_columns(self) -> None:
+        injected_yaml = {
+            "template_slide": {
+                "elements": [
+                    {
+                        "id": "3",
+                        "role": "caption",
+                        "text_binding": {
+                            "kind": "caption",
+                            "slots": {
+                                "Geo_City_Name": {"value": "Guangzhou"},
+                                "Geo_Block_Name": {
+                                    "value": "International Innovation City"
+                                },
+                                "Temporal_Start_Year": {"value": "2020"},
+                                "Temporal_End_Year": {"value": "2024"},
+                            },
+                        },
+                    },
+                    {
+                        "id": "4",
+                        "role": "table",
+                        "data": "./data/element_4.csv",
+                    },
+                ]
+            },
+            "slide_filters": [
+                {
+                    "connection": {"table": ["guangzhou_resale_house"]},
+                    "select_columns": ["dim_area", "dim_price"],
+                    "fun_tool": {
+                        "fun": "Area x Price Cross Pivot",
+                        "args": {
+                            "metrics": [
+                                {
+                                    "source_col": "dim_price",
+                                    "agg_func": "mean",
+                                    "filter_condition": {"trade_sets": 1},
+                                }
+                            ]
+                        },
+                    },
+                }
+            ],
+        }
+        analysis_state = {
+            "tables": [
+                {
+                    "caption": {
+                        "data_source": {
+                            "connection": {"table": "guangzhou_resale_house"},
+                            "select_columns": ["dim_area", "dim_price", "trade_sets"],
+                            "filters": {
+                                "city": "Guangzhou",
+                                "block": "International Innovation City",
+                                "start_date": "2020-01-01",
+                                "end_date": "2024-12-31",
+                            },
+                        }
+                    }
+                }
+            ]
+        }
+
+        metrics = evaluate_data_source_extraction(
+            analysis_state=analysis_state,
+            injected_yaml=injected_yaml,
+        )
+
+        self.assertTrue(metrics["success"])
+        self.assertEqual(metrics["accuracy"], 1.0)
 
 
 if __name__ == "__main__":

@@ -228,15 +228,9 @@ def _caption_data_sources(yaml_data: dict[str, Any]) -> list[dict[str, Any]]:
         for element in yaml_data["template_slide"]["elements"]
         if element.get("text_binding", {}).get("kind") == "caption"
     ]
-    bodies = [
-        element
-        for element in yaml_data["template_slide"]["elements"]
-        if element["role"] in {"chart-bar", "chart-line", "chart-pie", "table"}
-    ]
     sources = []
-    for caption, body, slide_filter in zip(
+    for caption, slide_filter in zip(
         captions,
-        bodies,
         yaml_data["slide_filters"],
         strict=True,
     ):
@@ -248,7 +242,7 @@ def _caption_data_sources(yaml_data: dict[str, Any]) -> list[dict[str, Any]]:
         sources.append(
             {
                 "connection": {"table": table},
-                "select_columns": sorted(_required_columns(slide_filter, body)),
+                "select_columns": sorted(_required_columns(slide_filter)),
                 "filters": {
                     "city": city,
                     "block": str(slots["Geo_Block_Name"]["value"]),
@@ -262,14 +256,10 @@ def _caption_data_sources(yaml_data: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _required_columns(
     slide_filter: dict[str, Any],
-    body: dict[str, Any],
 ) -> set[str]:
     columns = set(slide_filter["select_columns"])
-    logic = body["args"]
-    for dimension in logic.get("dimensions", []):
-        columns.add(dimension["source_col"])
+    logic = slide_filter["fun_tool"]["args"]
     for metric in logic.get("metrics", []):
-        columns.add(metric["source_col"])
         columns.update(metric.get("filter_condition", {}))
     return columns
 
