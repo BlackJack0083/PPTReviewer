@@ -14,6 +14,7 @@ from method.utils import read_dataframe_csv
 
 NUMERIC_TOLERANCE = 0.5
 ROLE_MAP = {"slide-title": "title", "body-text": "summary"}
+CITY_TABLE_PREFIXES = {"Beijing": "beijing", "Guangzhou": "guangzhou", "Shenzhen": "shenzhen"}
 
 
 def evaluate_parser(
@@ -238,11 +239,11 @@ def _caption_data_sources(yaml_data: dict[str, Any]) -> list[dict[str, Any]]:
         city = str(slots["Geo_City_Name"]["value"])
         start_year = str(slots["Temporal_Start_Year"]["value"])
         end_year = str(slots["Temporal_End_Year"]["value"])
-        table = _table_name(slide_filter["connection"]["table"]) if city else ""
+        table = _caption_table_name(city, slide_filter)
         sources.append(
             {
                 "connection": {"table": table},
-                "select_columns": sorted(_required_columns(slide_filter)),
+                "select_columns": sorted(slide_filter["select_columns"]),
                 "filters": {
                     "city": city,
                     "block": str(slots["Geo_Block_Name"]["value"]),
@@ -252,16 +253,6 @@ def _caption_data_sources(yaml_data: dict[str, Any]) -> list[dict[str, Any]]:
             }
         )
     return sources
-
-
-def _required_columns(
-    slide_filter: dict[str, Any],
-) -> set[str]:
-    columns = set(slide_filter["select_columns"])
-    logic = slide_filter["fun_tool"]["args"]
-    for metric in logic.get("metrics", []):
-        columns.update(metric.get("filter_condition", {}))
-    return columns
 
 
 def _normalize_caption_data_source(value: dict[str, Any]) -> dict[str, Any]:
@@ -282,6 +273,14 @@ def _normalize_final_data_source(value: dict[str, Any]) -> dict[str, Any]:
 
 def _table_name(value: str | list[str]) -> str:
     return str(value[0] if isinstance(value, list) else value).lower()
+
+
+def _caption_table_name(city: str, slide_filter: dict[str, Any]) -> str:
+    if not city:
+        return ""
+    base_table = _table_name(slide_filter["connection"]["table"])
+    suffix = "resale_house" if base_table.endswith("resale_house") else "new_house"
+    return f"{CITY_TABLE_PREFIXES.get(city, base_table.rsplit('_', 2)[0])}_{suffix}"
 
 
 def _yaml_body_dataframe(element: dict[str, Any], yaml_path: Path) -> pd.DataFrame:

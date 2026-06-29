@@ -423,6 +423,7 @@ def _validate_output_yaml(
     if "mutated_data" in yaml_data:
         _add_error(errors, "unexpected_yaml_mutated_data", context, path=str(path))
     _validate_element_data_files(path, yaml_data, context, errors)
+    _validate_select_columns(yaml_data, context, errors)
 
 
 def _validate_element_data_files(
@@ -461,6 +462,38 @@ def _validate_element_data_files(
                 element_context,
                 path=str(data_path),
                 error=str(exc),
+            )
+
+
+def _validate_select_columns(
+    yaml_data: dict[str, Any],
+    context: dict[str, Any],
+    errors: list[dict[str, Any]],
+) -> None:
+    """检查 select_columns 覆盖 chart args 中的维度列和指标列。"""
+    slide_filters = yaml_data.get("slide_filters")
+    if not isinstance(slide_filters, list):
+        return
+    for index, (element, slide_filter) in enumerate(
+        zip(data_elements(yaml_data), slide_filters, strict=False)
+    ):
+        args = element.get("args")
+        if not isinstance(args, dict) or not args:
+            continue
+        select_columns = set(slide_filter.get("select_columns", []))
+        required_columns = {
+            item["source_col"]
+            for group in ("dimensions", "metrics")
+            for item in args.get(group, [])
+            if isinstance(item, dict) and isinstance(item.get("source_col"), str)
+        }
+        missing = sorted(required_columns - select_columns)
+        if missing:
+            _add_error(
+                errors,
+                "select_columns_missing_source_columns",
+                {**context, "data_element_index": index, "element_id": element.get("id")},
+                columns=missing,
             )
 
 

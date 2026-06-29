@@ -212,7 +212,7 @@ class SlideReviewMetricsTest(unittest.TestCase):
                     "caption": {
                         "data_source": {
                             "connection": {"table": "guangzhou_resale_house"},
-                            "select_columns": ["dim_area", "dim_price", "trade_sets"],
+                            "select_columns": ["dim_area", "dim_price"],
                             "filters": {
                                 "city": "Guangzhou",
                                 "block": "International Innovation City",
@@ -232,6 +232,60 @@ class SlideReviewMetricsTest(unittest.TestCase):
 
         self.assertTrue(metrics["success"])
         self.assertEqual(metrics["accuracy"], 1.0)
+
+    def test_data_source_extraction_derives_table_from_caption_city(self) -> None:
+        injected_yaml = {
+            "template_slide": {
+                "elements": [
+                    {
+                        "id": "3",
+                        "role": "caption",
+                        "text_binding": {
+                            "kind": "caption",
+                            "slots": {
+                                "Geo_City_Name": {"value": "Beijing"},
+                                "Geo_Block_Name": {"value": "Lianhuashan"},
+                                "Temporal_Start_Year": {"value": "2020"},
+                                "Temporal_End_Year": {"value": "2024"},
+                            },
+                        },
+                    },
+                    {"id": "4", "role": "chart-bar", "data": "./data/element_4.csv"},
+                ]
+            },
+            "slide_filters": [
+                {
+                    "connection": {"table": ["guangzhou_new_house"]},
+                    "select_columns": ["date_code", "dim_area"],
+                    "fun_tool": {"fun": "Supply-Transaction Area", "args": {}},
+                }
+            ],
+        }
+        analysis_state = {
+            "tables": [
+                {
+                    "caption": {
+                        "data_source": {
+                            "connection": {"table": "beijing_new_house"},
+                            "select_columns": ["date_code", "dim_area"],
+                            "filters": {
+                                "city": "Beijing",
+                                "block": "Lianhuashan",
+                                "start_date": "2020-01-01",
+                                "end_date": "2024-12-31",
+                            },
+                        }
+                    }
+                }
+            ]
+        }
+
+        metrics = evaluate_data_source_extraction(
+            analysis_state=analysis_state,
+            injected_yaml=injected_yaml,
+        )
+
+        self.assertTrue(metrics["success"])
 
 
 if __name__ == "__main__":
