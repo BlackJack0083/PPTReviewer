@@ -167,7 +167,6 @@ async def _run_one_case(
                 )
                 break
             except Exception as exc:  # noqa: BLE001
-                error_text = str(exc)
                 payload = _error_payload(
                     case_id=case_id,
                     slide_input=slide_input,
@@ -183,7 +182,7 @@ async def _run_one_case(
                     case_id,
                     attempt + 1,
                     sleep_sec,
-                    error_text.splitlines()[0],
+                    _error_summary(exc),
                 )
                 await asyncio.sleep(sleep_sec)
 
@@ -271,7 +270,7 @@ def _error_payload(
         "case_id": case_id,
         "completed": False,
         "run_attempt": attempt,
-        "error": str(error),
+        "error": _error_summary(error),
         "metrics": failure_metrics(assets["corruption_record"]),
         "slide_input": {
             "pptx_path": str(slide_input.pptx_path),
@@ -289,6 +288,11 @@ def _error_payload(
             ground_truth_yaml_path=assets["ground_truth_yaml_path"],
         )
     return payload
+
+
+def _error_summary(error: Exception) -> str:
+    lines = str(error).splitlines()
+    return lines[0] if lines else type(error).__name__
 
 
 def _is_retryable_error(error: Exception) -> bool:

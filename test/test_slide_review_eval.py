@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from method.eval.slide_review_eval import _is_retryable_error
+from method.eval.slide_review_eval import _error_summary, _is_retryable_error
 from method.pipeline import WorkflowStageError
 
 
@@ -24,6 +24,12 @@ class SlideReviewEvalTest(unittest.TestCase):
         )
 
         self.assertFalse(_is_retryable_error(error))
+
+    def test_error_summary_handles_empty_exception_message(self) -> None:
+        self.assertEqual(_error_summary(Exception()), "Exception")
+
+    def test_error_summary_uses_first_line(self) -> None:
+        self.assertEqual(_error_summary(ValueError("first\nsecond")), "first")
 
 
 if __name__ == "__main__":
